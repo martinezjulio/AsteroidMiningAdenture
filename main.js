@@ -2,9 +2,9 @@
  * main.js
  * - Demonstrators move via Manhattan path
  * - Mining tank is closer to bandit (x=550)
- * - Summary "overview grid" is an HTML <div id="summary-bar"> 
- *   below the bandit, showing icons for all games
- *   (past ones dimmed, current one bright).
+ * - Summary bar in HTML below the bandit
+ * - NEW: Zone-specific background image revealed
+ *   only inside the cells.
  ****************************************/
 
 let timelineData = null;        
@@ -12,14 +12,13 @@ let currentStageIndex = 0;
 let prolificID = "";            
 
 // We'll store summary icons (one per "game" stage).
-// example: { imageKey: "user" or "demonstrator01", zone: 1 }
 let summaryIcons = []; 
 
-// Adjust these as desired:
-const DEMO_SPRITE_SIZE = 40;       // user/demonstrator sprite size in the bandit
-const HIGHLIGHT_COLOR = 0xbbbbbb;  
-const MARKER_DOT_RADIUS = 2;       
-const TANK_SLOT_SIZE = 12;         
+// Adjust these as you wish:
+const DEMO_SPRITE_SIZE = 40;       // user/demonstrator sprite size
+const HIGHLIGHT_COLOR = 0xbbbbbb;
+const MARKER_DOT_RADIUS = 2;
+const TANK_SLOT_SIZE = 12;
 const REWARD_TANK_X_OFFSET = 550;  // mining tank's X position
 
 // Phaser config
@@ -38,19 +37,31 @@ const config = {
 
 const game = new Phaser.Game(config);
 
-// Preload images
+/**
+ * Preload images:
+ *  - user, demonstrator01, demonstrator02, etc.
+ *  - Also zone00.png, zone01.png, zone02.png, etc. if needed.
+ */
 function preload() {
+  // Required
   this.load.image('user', 'assets/user.png');
   this.load.image('demonstrator01', 'assets/demonstrator01.png');
   this.load.image('demonstrator02', 'assets/demonstrator02.png');
+
+  // If you have multiple zones, load them here:
+  // Example for zone=0,1,2:
+  this.load.image('zone00', 'assets/zone00.png');
+  this.load.image('zone01', 'assets/zone01.png');
+  this.load.image('zone02', 'assets/zone02.png');
+  // Add more if you have more zones...
 }
 
 function create() {
-  // For debugging if you want:
+  // Optional debug circle
   const circle = this.add.circle(400, 300, 40, 0xffff00, 1);
   circle.setDepth(99999);
 
-  // Load timeline JSON
+  // Load timeline
   fetch('data/timeline.json')
     .then(r => r.json())
     .then(jsonData => {
@@ -61,7 +72,7 @@ function create() {
 }
 
 function update(time, delta) {
-  // Not used in this MVP
+  // Not used for this MVP
 }
 
 /****************************************************
@@ -82,7 +93,7 @@ function loadStage() {
   const stage = timelineData.timeline[currentStageIndex];
   console.log(`Loading stage ${currentStageIndex}, type: ${stage.stage_type}`);
 
-  // Possibly add an icon for the summary overview
+  // Possibly add an icon for summary
   maybeAddSummaryIcon(stage);
 
   // Switch to correct stage
@@ -110,20 +121,15 @@ function loadStage() {
       nextStage.call(this);
   }
 
-  // Rebuild the DOM-based summary bar after loading each stage
+  // Rebuild the DOM-based summary bar
   redrawSummaryBarDOM();
 }
 
 /*******************************************************
  * DOM-Based Summary Overview
  *******************************************************/
-
-/**
- * If it's a "game" stage with zone, push a summary icon 
- * (user or demonstrator).
- */
 function maybeAddSummaryIcon(stage) {
-  // Must have a zone, and be one of these stage types
+  // Must have a zone, and be practice/play/watch/indicate
   if (!stage.zone && stage.zone !== 0) return;
   const t = stage.stage_type;
   if (!['practice','play','watch','indicate'].includes(t)) return;
@@ -140,41 +146,26 @@ function maybeAddSummaryIcon(stage) {
   summaryIcons.push({ imageKey, zone: stage.zone });
 }
 
-/**
- * Rebuild the #summary-bar DOM element
- * so it shows all game icons in a single row,
- * dimming older ones (alpha=0.5) and highlighting the last one (alpha=1).
- */
 function redrawSummaryBarDOM() {
   const bar = document.getElementById('summary-bar');
-  if (!bar) return; // no #summary-bar in the HTML?
+  if (!bar) return;
 
-  // Clear existing
   bar.innerHTML = "";
+  if (summaryIcons.length === 0) return;
 
-  if (summaryIcons.length === 0) {
-    // No icons to show
-    return;
-  }
-
-  // The last icon is the current stage => alpha=1, older => alpha=0.5
   const lastIndex = summaryIcons.length - 1;
-
   for (let i = 0; i < summaryIcons.length; i++) {
     const iconData = summaryIcons[i];
 
-    // We'll build a small <div> with an <img> plus a <div> for the zone text
     const cellDiv = document.createElement("div");
     cellDiv.style.textAlign = "center"; 
     cellDiv.style.opacity = (i === lastIndex) ? "1" : "0.5";
 
-    // The image (we build a path "assets/<imageKey>.png")
     const img = document.createElement("img");
     img.src = "assets/" + iconData.imageKey + ".png";
-    img.style.width = "40px";  // or whatever size
-    img.style.display = "block"; // ensures label goes below
+    img.style.width = "40px";
+    img.style.display = "block";
 
-    // The zone label
     const label = document.createElement("div");
     label.textContent = "Zone " + iconData.zone;
     label.style.color = "#fff";
@@ -182,7 +173,6 @@ function redrawSummaryBarDOM() {
 
     cellDiv.appendChild(img);
     cellDiv.appendChild(label);
-
     bar.appendChild(cellDiv);
   }
 }
@@ -228,7 +218,7 @@ function setupIntroduction(stage) {
  * Common logic for practice/play
  */
 function setupPlayOrPractice(stage, isPractice) {
-  const { bandit, num_arm_pulls } = stage;
+  const { bandit, num_arm_pulls, zone } = stage;
   let gridSize = bandit.length;
   let cellSize = 400 / gridSize;
 
@@ -237,36 +227,19 @@ function setupPlayOrPractice(stage, isPractice) {
   const gridBottomY = gridOriginY + (gridSize * cellSize);
 
   this.add.text(10, 10, 
-    `${isPractice ? "[PRACTICE]" : "[PLAY]"}: user below each cell, highlight, small dot markers, vertical tank.`,
+    `${isPractice ? "[PRACTICE]" : "[PLAY]"} stage. Arrows to move, Space to pull.`,
     { font: '16px Arial', fill: '#ffffff' }
   );
 
-  // draw grid
-  this.add.rectangle(
-    gridOriginX + (cellSize * gridSize)/2,
-    gridOriginY + (cellSize * gridSize)/2,
-    cellSize * gridSize,
-    cellSize * gridSize,
-    0x222222
-  ).setOrigin(0.5).setAlpha(0.3);
+  // 1) Create a zone background if needed:
+  createZoneBackgroundMask.call(this, zone, gridOriginX, gridOriginY, gridSize, cellSize);
 
-  for (let r = 0; r < gridSize; r++) {
-    for (let c = 0; c < gridSize; c++) {
-      this.add.rectangle(
-        gridOriginX + c*cellSize + cellSize/2,
-        gridOriginY + r*cellSize + cellSize/2,
-        cellSize-2, cellSize-2,
-        0x666666
-      ).setOrigin(0.5).setAlpha(0.3);
-    }
-  }
-
-  // outcomes for the reward tank
+  // 2) outcomes for the reward tank
   let pullOutcomes = [];
   const rewardTankContainer = this.add.container(REWARD_TANK_X_OFFSET, gridBottomY);
   drawRewardTank.call(this, rewardTankContainer, num_arm_pulls, pullOutcomes);
 
-  // user sprite
+  // 3) User sprite
   let cursorR = 0, cursorC = 0;
   let { x: initX, y: initY } = getCellBelow(gridOriginX, gridOriginY, cellSize, 0, 0);
   let userSprite = this.add.image(initX, initY, 'user')
@@ -274,13 +247,12 @@ function setupPlayOrPractice(stage, isPractice) {
     .setDepth(9999)
     .setOrigin(0.5);
 
-  // highlight
+  // 4) highlight rectangle
   let highlightRect = createHighlightRect.call(this, cellSize);
   highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellSize);
 
+  // 5) Keyboard logic
   let pullsRemaining = num_arm_pulls;
-
-  // input logic
   this.input.keyboard.on('keydown', (evt) => {
     if (pullsRemaining <= 0) return;
 
@@ -318,7 +290,7 @@ function setupPlayOrPractice(stage, isPractice) {
  * WATCH Stage with Manhattan movement
  */
 function setupWatch(stage) {
-  const { bandit, trajectory, demonstrator } = stage;
+  const { bandit, trajectory, demonstrator, zone } = stage;
   let gridSize = bandit.length;
   let cellSize = 400 / gridSize;
   const gridOriginX = 50;
@@ -330,33 +302,17 @@ function setupWatch(stage) {
     { font: '16px Arial', fill: '#ffffff' }
   );
 
-  // grid
-  this.add.rectangle(
-    gridOriginX + (cellSize * gridSize)/2,
-    gridOriginY + (cellSize * gridSize)/2,
-    cellSize * gridSize,
-    cellSize * gridSize,
-    0x222222
-  ).setOrigin(0.5).setAlpha(0.3);
+  // 1) zone background
+  createZoneBackgroundMask.call(this, zone, gridOriginX, gridOriginY, gridSize, cellSize);
 
-  for (let r=0; r<gridSize; r++){
-    for (let c=0; c<gridSize; c++){
-      this.add.rectangle(
-        gridOriginX + c*cellSize + cellSize/2,
-        gridOriginY + r*cellSize + cellSize/2,
-        cellSize-2, cellSize-2,
-        0x666666
-      ).setOrigin(0.5).setAlpha(0.3);
-    }
-  }
-
+  // 2) watch outcomes
   let watchOutcomes = [];
   const rewardTankContainer = this.add.container(REWARD_TANK_X_OFFSET, gridBottomY);
   drawRewardTank.call(this, rewardTankContainer, trajectory.length, watchOutcomes);
 
   let highlightRect = createHighlightRect.call(this, cellSize);
 
-  // start the demonstrator
+  // start demonstrator
   let currentR = 0, currentC = 0;
   if (trajectory.length > 0) {
     currentR = trajectory[0].row;
@@ -370,7 +326,6 @@ function setupWatch(stage) {
 
   let currentStep = 0;
   let totalSteps = trajectory.length;
-
   moveAlongTrajectoryStep.call(this);
 
   function moveAlongTrajectoryStep() {
@@ -397,11 +352,10 @@ function setupWatch(stage) {
         index++;
         if (index >= pathCells.length) {
           pathTimer.remove();
-
           currentR = target.row;
           currentC = target.col;
 
-          // pull arm
+          // pull
           let payoff = bandit[currentR][currentC];
           let outcome = (Math.random() < payoff) ? 1 : 0;
           watchOutcomes.push(outcome);
@@ -421,7 +375,7 @@ function setupWatch(stage) {
  * INDICATE Stage with Manhattan Movement
  */
 function setupIndicate(stage) {
-  const { bandit, trajectory, demonstrator } = stage;
+  const { bandit, trajectory, demonstrator, zone } = stage;
   let gridSize = bandit.length;
   let cellSize = 400 / gridSize;
   const gridOriginX = 50;
@@ -433,31 +387,10 @@ function setupIndicate(stage) {
     { font: '16px Arial', fill: '#ffffff' }
   );
 
-  // grid
-  this.add.rectangle(
-    gridOriginX + (cellSize * gridSize)/2,
-    gridOriginY + (cellSize * gridSize)/2,
-    cellSize * gridSize,
-    cellSize * gridSize,
-    0x222222
-  ).setOrigin(0.5).setAlpha(0.3);
+  // 1) zone background
+  createZoneBackgroundMask.call(this, zone, gridOriginX, gridOriginY, gridSize, cellSize);
 
-  let cellGraphics = [];
-  for (let r=0; r<gridSize; r++){
-    cellGraphics[r] = [];
-    for (let c=0; c<gridSize; c++){
-      let rect = this.add.rectangle(
-        gridOriginX + c*cellSize + cellSize/2,
-        gridOriginY + r*cellSize + cellSize/2,
-        cellSize-2,
-        cellSize-2,
-        0x666666
-      ).setOrigin(0.5).setAlpha(0.3);
-      cellGraphics[r][c] = rect;
-    }
-  }
-
-  // no success/fail
+  // 2) no success/fail
   let indicateOutcomes = [];
   const rewardTankContainer = this.add.container(REWARD_TANK_X_OFFSET, gridBottomY);
   drawRewardTank.call(this, rewardTankContainer, trajectory.length, indicateOutcomes);
@@ -475,7 +408,6 @@ function setupIndicate(stage) {
 
   let currentStep = 0;
   let totalSteps = trajectory.length;
-
   moveAlongTrajectoryStep.call(this);
 
   function moveAlongTrajectoryStep() {
@@ -502,25 +434,31 @@ function setupIndicate(stage) {
         if (index >= pathCells.length) {
           pathTimer.remove();
 
-          // arrived
           currentR = target.row;
           currentC = target.col;
-
           indicateOutcomes.push(1); // step count
-          drawRewardTank.call(this, rewardTankContainer, totalSteps, indicateOutcomes);
+          drawRewardTank.call(this, rewardTankContainer, trajectory.length, indicateOutcomes);
 
-          // Blink highlight
-          let rect = cellGraphics[currentR][currentC];
-          rect.setFillStyle(HIGHLIGHT_COLOR, 1);
+          // blink highlight
+          let rect = null; // We no longer do separate "cell rects" here
+          // But if you want to highlight, or do something similar to watch, you can
+          // do a phaser shape or find a stored shape, etc.
 
+          let g = this.add.graphics();
+          g.fillStyle(HIGHLIGHT_COLOR, 1);
+          g.fillRect(
+            gridOriginX + currentC*cellSize,
+            gridOriginY + currentR*cellSize,
+            cellSize, cellSize
+          );
           this.tweens.add({
-            targets: rect,
+            targets: g,
             alpha: 0.1,
             duration: 300,
             yoyo: true,
             repeat: 1,
             onComplete: () => {
-              rect.setFillStyle(0x666666, 0.3);
+              g.destroy();
             }
           });
 
@@ -560,6 +498,56 @@ function makeNextButton(label, callback) {
   btn.on('pointerdown', () => {
     if (callback) callback();
   });
+}
+
+/**
+ * Creates a background image for the given 'zone' and masks it so
+ * only the bandit cells are visible. Also draws the cell borders.
+ * 
+ * zone => number, e.g. 0 => zone00.png, 1 => zone01.png, etc.
+ * If zone is undefined, do nothing.
+ */
+function createZoneBackgroundMask(zone, gridX, gridY, gridSize, cellSize) {
+  if (zone === undefined || zone === null) return;
+  // Build an image key => e.g. "zone01" if zone=1
+  const zoneKey = "zone0" + zone; 
+  // If you have zone < 10 => "zone00", "zone01", etc. Just ensure the keys match your assets.
+
+  // 1) Place the zone image behind everything. 
+  //    We'll position it so its top-left aligns with (gridX, gridY).
+  //    Make sure your zone image is 400×400 if your grid is 400×400.
+  let zoneBg = this.add.image(gridX, gridY, zoneKey)
+    .setOrigin(0, 0)
+    .setDepth(0); // behind other objects
+
+  // 2) Create a graphics shape that fills each cell => the "window" area
+  let maskGraphics = this.add.graphics({ x: 0, y: 0 });
+  maskGraphics.fillStyle(0xffffff, 1);
+
+  for (let r = 0; r < gridSize; r++) {
+    for (let c = 0; c < gridSize; c++) {
+      let rx = gridX + c * cellSize;
+      let ry = gridY + r * cellSize;
+      // fillRect full cell => reveal it
+      maskGraphics.fillRect(rx, ry, cellSize, cellSize);
+    }
+  }
+
+  // 3) Create a geometry mask from that shape
+  let cellMask = maskGraphics.createGeometryMask();
+  // Apply the mask to the zone image => only the cells become visible
+  zoneBg.setMask(cellMask);
+
+  // 4) Draw the cell borders on top
+  let lineG = this.add.graphics({ lineStyle: { width: 1, color: 0xffffff } });
+  lineG.setDepth(9998);
+  for (let r = 0; r < gridSize; r++) {
+    for (let c = 0; c < gridSize; c++) {
+      let rx = gridX + c * cellSize;
+      let ry = gridY + r * cellSize;
+      lineG.strokeRect(rx, ry, cellSize, cellSize);
+    }
+  }
 }
 
 /**
@@ -629,17 +617,17 @@ function demonstratorKey(path) {
   return path.replace('assets/', '').replace('.png','');
 }
 
-/** Return a Manhattan path of grid cells from (r1,c1) to (r2,c2). */
+/**
+ * Returns a Manhattan path from (r1,c1) to (r2,c2).
+ */
 function getManhattanPath(r1, c1, r2, c2) {
   let path = [];
   let rr = r1;
   let cc = c1;
   path.push({ r: rr, c: cc });
 
-  // Row difference
   while (rr < r2) { rr++; path.push({ r: rr, c: cc }); }
   while (rr > r2) { rr--; path.push({ r: rr, c: cc }); }
-  // Col difference
   while (cc < c2) { cc++; path.push({ r: rr, c: cc }); }
   while (cc > c2) { cc--; path.push({ r: rr, c: cc }); }
 
