@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Bandit MVP with Overview Grid</title>
+  <title>Bandit MVP with Overview Grid and Controls</title>
   <!-- Phaser 3 via CDN -->
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
 
@@ -16,21 +16,54 @@
       font-family: sans-serif;
       display: flex; flex-direction: column; align-items: center;
     }
-    h1 { color: #fff; }
+    h1 {
+      color: #fff;
+    }
     #game-container {
       margin-top: 10px;
       position: relative; /* The Phaser canvas goes here */
     }
-    /* This is our new single-row grid for the summary icons. */
+
+    /* The single-row "grid" for displaying user/demonstrator + zone icons. */
     #summary-bar {
-      width: 800px;         /* Match the Phaser game width, or as you wish */
-      min-height: 80px;     /* Some space to ensure images fit */
-      margin-top: 10px;     
-      display: flex;        /* Flex row */
+      width: 800px;         /* match the Phaser width, or as you prefer */
+      min-height: 80px;
+      margin-top: 10px;
+      display: flex;
       flex-direction: row;
-      align-items: flex-start;  /* top-align */
+      align-items: flex-start;
       justify-content: flex-start;
-      gap: 20px;            /* space between icons/cells */
+      gap: 20px;
+    }
+
+    /* NEW: The controls display row below the summary bar. */
+    #controls-display {
+      width: 800px;
+      margin-top: 10px;
+      display: flex;
+      flex-direction: row;
+      align-items: flex-start;
+      justify-content: center; /* center them horizontally */
+      gap: 40px;
+    }
+    .control-key {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      color: #fff;
+    }
+    .control-icon {
+      font-size: 24px; /* bigger arrow icons */
+      margin-bottom: 5px;
+    }
+    .control-icon.space {
+      /* For spacebar, we can show a visual rectangle or just the word "SPACE" */
+      display: inline-block;
+      padding: 5px 12px;
+      border: 2px solid #fff;
+      border-radius: 4px;
+      font-size: 16px;
     }
 
     /* The overlay for Prolific ID form (unchanged) */
@@ -58,12 +91,40 @@
   </style>
 </head>
 <body>
-  <h1>Spatially Correlated Multi-Armed Bandit MVP</h1>
-
+  <h1>Spatially Correlated Multi-Armed Bandit MVP (Debug Mode)</h1>
   <div id="game-container"></div>
 
-  <!-- The single-row "grid" for displaying user/demonstrator + zone icons -->
+  <!-- Single-row "grid" for user/demonstrator icons & zone text -->
   <div id="summary-bar"></div>
+
+  <!-- NEW: Controls display below the summary bar -->
+  <div id="controls-display">
+    <!-- Arrow Up -->
+    <div class="control-key">
+      <div class="control-icon">↑</div>
+      <div>Up</div>
+    </div>
+    <!-- Arrow Down -->
+    <div class="control-key">
+      <div class="control-icon">↓</div>
+      <div>Down</div>
+    </div>
+    <!-- Arrow Left -->
+    <div class="control-key">
+      <div class="control-icon">←</div>
+      <div>Left</div>
+    </div>
+    <!-- Arrow Right -->
+    <div class="control-key">
+      <div class="control-icon">→</div>
+      <div>Right</div>
+    </div>
+    <!-- Spacebar -->
+    <div class="control-key">
+      <div class="control-icon space">Spacebar</div>
+      <div>Mine for Minerals</div>
+    </div>
+  </div>
 
   <!-- Overlaid form for Prolific ID -->
   <div id="prolific-form-overlay">
