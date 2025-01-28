@@ -10,23 +10,32 @@
   <script defer src="main.js"></script>
 
   <style>
+    /* Basic page styling */
     body {
-      margin: 0; padding: 0;
-      background: #222; color: #ddd;
+      margin: 0; 
+      padding: 0;
+      background: #222; 
+      color: #ddd;
       font-family: sans-serif;
-      display: flex; flex-direction: column; align-items: center;
+      display: flex; 
+      flex-direction: column; 
+      align-items: center;
     }
     h1 {
       color: #fff;
     }
+
+    /* The Phaser canvas container */
     #game-container {
       margin-top: 10px;
-      position: relative; /* The Phaser canvas goes here */
+      position: relative;
+      /* We'll apply a thick border in main.js via JS, e.g.:
+         element.style.border = "10px solid #ff0000"; */
     }
 
-    /* The single-row "grid" for displaying user/demonstrator + zone icons. */
+    /* The single-row "grid" for user/demonstrator + zone icons. */
     #summary-bar {
-      width: 800px;         /* match the Phaser width, or as you prefer */
+      width: 800px;         
       min-height: 80px;
       margin-top: 10px;
       display: flex;
@@ -36,7 +45,7 @@
       gap: 20px;
     }
 
-    /* NEW: The controls display row below the summary bar. */
+    /* The controls display row below the summary bar. */
     #controls-display {
       width: 800px;
       margin-top: 10px;
@@ -66,38 +75,49 @@
       font-size: 16px;
     }
 
-    /* The overlay for Prolific ID form (unchanged) */
+    /* The overlay for Prolific ID form */
     #prolific-form-overlay {
       position: fixed;
       top: 0; left: 0;
-      width: 100%; height: 100%;
+      width: 100%; 
+      height: 100%;
       background-color: rgba(20, 20, 20, 0.7);
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      display: flex; 
+      flex-direction: column; 
+      align-items: center; 
+      justify-content: center;
       z-index: 9999;
-      visibility: hidden;
+      visibility: hidden; /* toggled via JS */
     }
+
     #prolific-form-overlay form {
       onsubmit: return false;
-      background: #333;
-      padding: 20px;
+      background: #333; 
+      padding: 20px; 
       border-radius: 8px;
     }
     #prolific-form-overlay input {
-      padding: 8px; margin-bottom: 10px; font-size: 16px;
+      padding: 8px; 
+      margin-bottom: 10px; 
+      font-size: 16px;
     }
     #prolific-form-overlay button {
-      padding: 8px 16px; font-size: 16px; cursor: pointer;
+      padding: 8px 16px; 
+      font-size: 16px; 
+      cursor: pointer;
     }
   </style>
 </head>
 <body>
   <h1>Spatially Correlated Multi-Armed Bandit MVP (Debug Mode)</h1>
+
+  <!-- The Phaser game container -->
   <div id="game-container"></div>
 
   <!-- Single-row "grid" for user/demonstrator icons & zone text -->
   <div id="summary-bar"></div>
 
-  <!-- NEW: Controls display below the summary bar -->
+  <!-- Controls display below the summary bar -->
   <div id="controls-display">
     <!-- Arrow Up -->
     <div class="control-key">
@@ -126,7 +146,7 @@
     </div>
   </div>
 
-  <!-- Overlaid form for Prolific ID -->
+  <!-- Overlaid Prolific form -->
   <div id="prolific-form-overlay">
     <form onsubmit="return false;">
       <p id="prolific-form-message">Please enter your Prolific ID below:</p>

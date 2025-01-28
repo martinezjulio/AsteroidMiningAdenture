@@ -1,10 +1,13 @@
 /*****************************************
  * main.js
  * - Demonstrators move via Manhattan path
- * - Mining tank is closer to bandit (x=550)
- * - Summary bar in HTML below the bandit
- * - NEW: Zone-specific background image revealed
- *   only inside the cells.
+ * - Vertical reward tank
+ * - Summary bar in DOM below the bandit
+ * - Zone background masked in bandit cells
+ * - NEW features:
+ *   1) Light highlight color (white-ish).
+ *   2) Thick random-color border around #game-container for each zone
+ *   3) Same random color used as border for summary bar icons of that zone
  ****************************************/
 
 let timelineData = null;        
@@ -14,12 +17,17 @@ let prolificID = "";
 // We'll store summary icons (one per "game" stage).
 let summaryIcons = []; 
 
+// We'll store random colors for each zone: zoneColors[zoneNumber] = "#rrggbb"
+let zoneColors = {};
+
+
 // Adjust these as you wish:
 const DEMO_SPRITE_SIZE = 40;       // user/demonstrator sprite size
-const HIGHLIGHT_COLOR = 0xbbbbbb;
+const HIGHLIGHT_COLOR = 0xffffff;  // Lighter highlight => 0xffffff
+const HIGHLIGHT_ALPHA = 0.25;      // Lighter alpha
 const MARKER_DOT_RADIUS = 2;
 const TANK_SLOT_SIZE = 12;
-const REWARD_TANK_X_OFFSET = 550;  // mining tank's X position
+const REWARD_TANK_X_OFFSET = 550;
 
 // Phaser config
 const config = {
@@ -37,23 +45,17 @@ const config = {
 
 const game = new Phaser.Game(config);
 
-/**
- * Preload images:
- *  - user, demonstrator01, demonstrator02, etc.
- *  - Also zone00.png, zone01.png, zone02.png, etc. if needed.
- */
 function preload() {
-  // Required
+  // Standard images
   this.load.image('user', 'assets/user.png');
   this.load.image('demonstrator01', 'assets/demonstrator01.png');
   this.load.image('demonstrator02', 'assets/demonstrator02.png');
 
-  // If you have multiple zones, load them here:
-  // Example for zone=0,1,2:
+  // Zone backgrounds (400x400 recommended)
   this.load.image('zone00', 'assets/zone00.png');
   this.load.image('zone01', 'assets/zone01.png');
   this.load.image('zone02', 'assets/zone02.png');
-  // Add more if you have more zones...
+  // add more if needed
 }
 
 function create() {
@@ -78,7 +80,8 @@ function update(time, delta) {
 /****************************************************
  * loadStage():
  * Moves to the current stage. Also updates summary
- * icons if it's a practice/play/watch/indicate stage.
+ * icons if it's a practice/play/watch/indicate stage,
+ * and sets a random color border on #game-container.
  ****************************************************/
 function loadStage() {
   if (!timelineData) return;
@@ -95,6 +98,19 @@ function loadStage() {
 
   // Possibly add an icon for summary
   maybeAddSummaryIcon(stage);
+
+  // If stage has a zone, apply or retrieve random color
+  if (stage.zone !== undefined && stage.zone !== null) {
+    // If we have no color for this zone, generate one
+    if (!zoneColors.hasOwnProperty(stage.zone)) {
+      zoneColors[stage.zone] = pickRandomColor();
+    }
+    // Apply to #game-container border
+    const gameContainer = document.getElementById('game-container');
+    if (gameContainer) {
+      gameContainer.style.border = `10px solid ${zoneColors[stage.zone]}`;
+    }
+  }
 
   // Switch to correct stage
   switch(stage.stage_type) {
@@ -126,13 +142,22 @@ function loadStage() {
 }
 
 /*******************************************************
- * DOM-Based Summary Overview
+ * Summaries / Icons below the bandit
  *******************************************************/
+
+/**
+ * If the stage is a game stage with a zone,
+ * add a new summary icon. Also store the zone color for that icon.
+ */
 function maybeAddSummaryIcon(stage) {
-  // Must have a zone, and be practice/play/watch/indicate
-  if (!stage.zone && stage.zone !== 0) return;
+  if (!stage.zone && stage.zone !== 0) return;  
   const t = stage.stage_type;
   if (!['practice','play','watch','indicate'].includes(t)) return;
+
+  // Ensure a color is assigned to this zone
+  if (!zoneColors.hasOwnProperty(stage.zone)) {
+    zoneColors[stage.zone] = pickRandomColor();
+  }
 
   let imageKey = 'user';
   if (t === 'watch' || t === 'indicate') {
@@ -143,9 +168,18 @@ function maybeAddSummaryIcon(stage) {
     }
   }
 
-  summaryIcons.push({ imageKey, zone: stage.zone });
+  summaryIcons.push({
+    imageKey: imageKey,
+    zone: stage.zone,
+    color: zoneColors[stage.zone]  // store the random color
+  });
 }
 
+/**
+ * Re-draw the summary bar (#summary-bar in HTML).
+ * Past icons are dimmed, the current icon is bright.
+ * We also apply the zone color as a border for each cell.
+ */
 function redrawSummaryBarDOM() {
   const bar = document.getElementById('summary-bar');
   if (!bar) return;
@@ -157,15 +191,22 @@ function redrawSummaryBarDOM() {
   for (let i = 0; i < summaryIcons.length; i++) {
     const iconData = summaryIcons[i];
 
+    // Create a container div
     const cellDiv = document.createElement("div");
     cellDiv.style.textAlign = "center"; 
     cellDiv.style.opacity = (i === lastIndex) ? "1" : "0.5";
 
+    // Give it a border of the zone color
+    cellDiv.style.border = `3px solid ${iconData.color}`;
+    cellDiv.style.padding = "5px"; // some spacing from border
+
+    // The image
     const img = document.createElement("img");
     img.src = "assets/" + iconData.imageKey + ".png";
     img.style.width = "40px";
     img.style.display = "block";
 
+    // The zone label
     const label = document.createElement("div");
     label.textContent = "Zone " + iconData.zone;
     label.style.color = "#fff";
@@ -227,19 +268,19 @@ function setupPlayOrPractice(stage, isPractice) {
   const gridBottomY = gridOriginY + (gridSize * cellSize);
 
   this.add.text(10, 10, 
-    `${isPractice ? "[PRACTICE]" : "[PLAY]"} stage. Arrows to move, Space to pull.`,
+    `${isPractice ? "[PRACTICE]" : "[PLAY]"} stage. Arrows=Move, Space=Pull`,
     { font: '16px Arial', fill: '#ffffff' }
   );
 
-  // 1) Create a zone background if needed:
+  // zone background
   createZoneBackgroundMask.call(this, zone, gridOriginX, gridOriginY, gridSize, cellSize);
 
-  // 2) outcomes for the reward tank
+  // Reward tank
   let pullOutcomes = [];
   const rewardTankContainer = this.add.container(REWARD_TANK_X_OFFSET, gridBottomY);
   drawRewardTank.call(this, rewardTankContainer, num_arm_pulls, pullOutcomes);
 
-  // 3) User sprite
+  // user sprite
   let cursorR = 0, cursorC = 0;
   let { x: initX, y: initY } = getCellBelow(gridOriginX, gridOriginY, cellSize, 0, 0);
   let userSprite = this.add.image(initX, initY, 'user')
@@ -247,11 +288,10 @@ function setupPlayOrPractice(stage, isPractice) {
     .setDepth(9999)
     .setOrigin(0.5);
 
-  // 4) highlight rectangle
+  // highlight rect
   let highlightRect = createHighlightRect.call(this, cellSize);
   highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellSize);
 
-  // 5) Keyboard logic
   let pullsRemaining = num_arm_pulls;
   this.input.keyboard.on('keydown', (evt) => {
     if (pullsRemaining <= 0) return;
@@ -287,7 +327,7 @@ function setupPlayOrPractice(stage, isPractice) {
 }
 
 /**
- * WATCH Stage with Manhattan movement
+ * WATCH Stage
  */
 function setupWatch(stage) {
   const { bandit, trajectory, demonstrator, zone } = stage;
@@ -302,17 +342,14 @@ function setupWatch(stage) {
     { font: '16px Arial', fill: '#ffffff' }
   );
 
-  // 1) zone background
   createZoneBackgroundMask.call(this, zone, gridOriginX, gridOriginY, gridSize, cellSize);
 
-  // 2) watch outcomes
   let watchOutcomes = [];
   const rewardTankContainer = this.add.container(REWARD_TANK_X_OFFSET, gridBottomY);
   drawRewardTank.call(this, rewardTankContainer, trajectory.length, watchOutcomes);
 
   let highlightRect = createHighlightRect.call(this, cellSize);
 
-  // start demonstrator
   let currentR = 0, currentC = 0;
   if (trajectory.length > 0) {
     currentR = trajectory[0].row;
@@ -326,6 +363,7 @@ function setupWatch(stage) {
 
   let currentStep = 0;
   let totalSteps = trajectory.length;
+
   moveAlongTrajectoryStep.call(this);
 
   function moveAlongTrajectoryStep() {
@@ -372,7 +410,7 @@ function setupWatch(stage) {
 }
 
 /**
- * INDICATE Stage with Manhattan Movement
+ * INDICATE Stage
  */
 function setupIndicate(stage) {
   const { bandit, trajectory, demonstrator, zone } = stage;
@@ -387,10 +425,8 @@ function setupIndicate(stage) {
     { font: '16px Arial', fill: '#ffffff' }
   );
 
-  // 1) zone background
   createZoneBackgroundMask.call(this, zone, gridOriginX, gridOriginY, gridSize, cellSize);
 
-  // 2) no success/fail
   let indicateOutcomes = [];
   const rewardTankContainer = this.add.container(REWARD_TANK_X_OFFSET, gridBottomY);
   drawRewardTank.call(this, rewardTankContainer, trajectory.length, indicateOutcomes);
@@ -408,6 +444,7 @@ function setupIndicate(stage) {
 
   let currentStep = 0;
   let totalSteps = trajectory.length;
+
   moveAlongTrajectoryStep.call(this);
 
   function moveAlongTrajectoryStep() {
@@ -440,10 +477,6 @@ function setupIndicate(stage) {
           drawRewardTank.call(this, rewardTankContainer, trajectory.length, indicateOutcomes);
 
           // blink highlight
-          let rect = null; // We no longer do separate "cell rects" here
-          // But if you want to highlight, or do something similar to watch, you can
-          // do a phaser shape or find a stored shape, etc.
-
           let g = this.add.graphics();
           g.fillStyle(HIGHLIGHT_COLOR, 1);
           g.fillRect(
@@ -471,7 +504,7 @@ function setupIndicate(stage) {
 }
 
 /************************************************
- * Utility / Support
+ * Utility
  ************************************************/
 function nextStage() {
   currentStageIndex++;
@@ -487,65 +520,55 @@ function showEndOfGameMessage() {
   ).setOrigin(0.5);
 }
 
-function makeNextButton(label, callback) {
-  const btn = this.add.text(
-    this.sys.game.config.width - 100,
-    this.sys.game.config.height - 40,
-    label,
-    { font: '18px Arial', fill: '#00ff00', backgroundColor: '#333', padding: 5 }
-  ).setOrigin(0.5).setInteractive();
-
-  btn.on('pointerdown', () => {
-    if (callback) callback();
-  });
+function pickRandomColor() {
+  // Generate random R,G,B
+  let r = Math.floor(Math.random()*256);
+  let g = Math.floor(Math.random()*256);
+  let b = Math.floor(Math.random()*256);
+  // Convert to hex string
+  let rr = r.toString(16).padStart(2,"0");
+  let gg = g.toString(16).padStart(2,"0");
+  let bb = b.toString(16).padStart(2,"0");
+  return "#" + rr + gg + bb;
 }
 
-/**
- * Creates a background image for the given 'zone' and masks it so
- * only the bandit cells are visible. Also draws the cell borders.
- * 
- * zone => number, e.g. 0 => zone00.png, 1 => zone01.png, etc.
- * If zone is undefined, do nothing.
+/** 
+ * createZoneBackgroundMask => same as before:
+ * draws a zone background image masked by cells,
+ * then draws cell borders on top
  */
 function createZoneBackgroundMask(zone, gridX, gridY, gridSize, cellSize) {
   if (zone === undefined || zone === null) return;
-  // Build an image key => e.g. "zone01" if zone=1
-  const zoneKey = "zone0" + zone; 
-  // If you have zone < 10 => "zone00", "zone01", etc. Just ensure the keys match your assets.
 
-  // 1) Place the zone image behind everything. 
-  //    We'll position it so its top-left aligns with (gridX, gridY).
-  //    Make sure your zone image is 400×400 if your grid is 400×400.
+  // E.g. zone=1 => "zone01"
+  let zoneKey = "zone0" + zone; 
   let zoneBg = this.add.image(gridX, gridY, zoneKey)
     .setOrigin(0, 0)
-    .setDepth(0); // behind other objects
+    .setDepth(0);
 
-  // 2) Create a graphics shape that fills each cell => the "window" area
   let maskGraphics = this.add.graphics({ x: 0, y: 0 });
   maskGraphics.fillStyle(0xffffff, 1);
-
   for (let r = 0; r < gridSize; r++) {
     for (let c = 0; c < gridSize; c++) {
-      let rx = gridX + c * cellSize;
-      let ry = gridY + r * cellSize;
-      // fillRect full cell => reveal it
+      let rx = gridX + c*cellSize;
+      let ry = gridY + r*cellSize;
       maskGraphics.fillRect(rx, ry, cellSize, cellSize);
     }
   }
 
-  // 3) Create a geometry mask from that shape
   let cellMask = maskGraphics.createGeometryMask();
-  // Apply the mask to the zone image => only the cells become visible
   zoneBg.setMask(cellMask);
+
+  // Hide the white shape so it doesn't appear
   maskGraphics.setVisible(false);
 
-  // 4) Draw the cell borders on top
+  // Draw the cell borders
   let lineG = this.add.graphics({ lineStyle: { width: 1, color: 0xffffff } });
   lineG.setDepth(9998);
   for (let r = 0; r < gridSize; r++) {
     for (let c = 0; c < gridSize; c++) {
-      let rx = gridX + c * cellSize;
-      let ry = gridY + r * cellSize;
+      let rx = gridX + c*cellSize;
+      let ry = gridY + r*cellSize;
       lineG.strokeRect(rx, ry, cellSize, cellSize);
     }
   }
@@ -553,7 +576,7 @@ function createZoneBackgroundMask(zone, gridX, gridY, gridSize, cellSize) {
 
 /**
  * Draw the vertical reward tank with smaller slots.
- * 'outcomes': an array of 1=success(green),0=fail(red)
+ * 'outcomes': array of 1=success(green), 0=fail(red)
  */
 function drawRewardTank(container, totalSlots, outcomes) {
   container.removeAll(true);
@@ -571,7 +594,7 @@ function drawRewardTank(container, totalSlots, outcomes) {
   }
 }
 
-/** Draw a small success/fail dot in the bandit. */
+/** Smaller success/fail dot. */
 function drawMarkerDot(gridX, gridY, cellSize, row, col, outcome) {
   let { x, y } = getCellCenter(gridX, gridY, cellSize, row, col);
   let offsetX = Phaser.Math.Between(-cellSize/4, cellSize/4);
@@ -582,7 +605,9 @@ function drawMarkerDot(gridX, gridY, cellSize, row, col, outcome) {
   dot.setDepth(99999);
 }
 
-/** Position the sprite below the cell by ~20px. */
+/** 
+ * place the sprite ~20px below the bottom edge of the cell
+ */
 function getCellBelow(gridX, gridY, cellSize, row, col) {
   const cellBottom = gridY + (row+1)*cellSize;
   let x = gridX + col*cellSize + (cellSize/2);
@@ -590,7 +615,9 @@ function getCellBelow(gridX, gridY, cellSize, row, col) {
   return { x, y };
 }
 
-/** Return the center of the cell. */
+/**
+ * Return the center of the cell
+ */
 function getCellCenter(gridX, gridY, cellSize, row, col) {
   return {
     x: gridX + col*cellSize + cellSize/2,
@@ -598,22 +625,29 @@ function getCellCenter(gridX, gridY, cellSize, row, col) {
   };
 }
 
-/** Create highlight rectangle for a single cell. */
+/**
+ * Create a highlight rectangle for a single cell:
+ * uses the new lighter color + alpha
+ */
 function createHighlightRect(cellSize) {
   let highlightRect = this.add.rectangle(0, 0, cellSize-2, cellSize-2, HIGHLIGHT_COLOR, 1);
-  highlightRect.setDepth(9998).setOrigin(0.5).setAlpha(0.4);
+  highlightRect.setDepth(9998).setOrigin(0.5).setAlpha(HIGHLIGHT_ALPHA);
   return highlightRect;
 }
 
-/** Move highlightRect to (r,c). */
+/**
+ * Move highlightRect to (r,c).
+ */
 function highlightCurrentCell(highRect, r, c, gridX, gridY, cellSize) {
   let x = gridX + c*cellSize + cellSize/2;
   let y = gridY + r*cellSize + cellSize/2;
   highRect.setPosition(x, y);
-  highRect.setFillStyle(HIGHLIGHT_COLOR, 0.4);
+  highRect.setFillStyle(HIGHLIGHT_COLOR, HIGHLIGHT_ALPHA);
 }
 
-/** Convert "assets/demonstrator01.png" => "demonstrator01". */
+/**
+ * Convert e.g. "assets/demonstrator01.png" => "demonstrator01"
+ */
 function demonstratorKey(path) {
   return path.replace('assets/', '').replace('.png','');
 }
@@ -634,3 +668,30 @@ function getManhattanPath(r1, c1, r2, c2) {
 
   return path;
 }
+
+function showEndOfGameMessage() {
+  this.add.text(
+    this.sys.game.config.width / 2,
+    this.sys.game.config.height / 2,
+    "End of Game. Thank you!",
+    { font: '24px Arial', fill: '#ffffff' }
+  ).setOrigin(0.5);
+}
+
+/**
+ * Creates a Phaser text button in the lower-right corner 
+ * that, when clicked, runs the given callback.
+ */
+function makeNextButton(label, callback) {
+    // Adjust these positions if you prefer
+    const btn = this.add.text(
+      this.sys.game.config.width - 100, // near right edge
+      this.sys.game.config.height - 40, // near bottom
+      label,
+      { font: '18px Arial', fill: '#00ff00', backgroundColor: '#333', padding: 5 }
+    ).setOrigin(0.5).setInteractive();
+  
+    btn.on('pointerdown', () => {
+      if (callback) callback();
+    });
+  }
