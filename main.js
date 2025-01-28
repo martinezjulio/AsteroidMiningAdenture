@@ -537,6 +537,7 @@ function createZoneBackgroundMask(zone, gridX, gridY, gridSize, cellSize) {
   let cellMask = maskGraphics.createGeometryMask();
   // Apply the mask to the zone image => only the cells become visible
   zoneBg.setMask(cellMask);
+  maskGraphics.setVisible(false);
 
   // 4) Draw the cell borders on top
   let lineG = this.add.graphics({ lineStyle: { width: 1, color: 0xffffff } });
