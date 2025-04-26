@@ -26,14 +26,16 @@ const DEMO_SPRITE_SIZE = 40;       // user/demonstrator sprite size
 const HIGHLIGHT_COLOR = 0xffffff;  // Lighter highlight => 0xffffff
 const HIGHLIGHT_ALPHA = 0.25;      // Lighter alpha
 const MARKER_DOT_RADIUS = 2;
-const TANK_SLOT_SIZE = 12;
-const REWARD_TANK_X_OFFSET = 550;
+const TANK_SLOT_SIZE = 12;         // Size of each slot in the reward tank
+const TANK_SLOT_PADDING = 2;       // Padding between tank slots
+const TANK_MARGIN_TOP = 100;       // Space between grid bottom and tank
+const CELL_PADDING = 5;            // Spacing between cells (in pixels)
 
 // Phaser config
 const config = {
   type: Phaser.AUTO,
   width: 800,
-  height: 600,
+  height: 700,
   parent: 'game-container',
   backgroundColor: '#000000',
   scene: {
@@ -260,47 +262,63 @@ function setupIntroduction(stage) {
  */
 function setupPlayOrPractice(stage, isPractice) {
   const { bandit, num_arm_pulls, zone } = stage;
-  let gridSize = bandit.length;
-  let cellSize = 400 / gridSize;
-
-  const gridOriginX = 50;
-  const gridOriginY = 100;
-  const gridBottomY = gridOriginY + (gridSize * cellSize);
+  let numRows = bandit.length;
+  let numCols = bandit[0].length;
+  
+  // Debug log to check dimensions
+  console.log(`Loading ${isPractice ? 'PRACTICE' : 'PLAY'} with grid: ${numRows}x${numCols}`);
+  console.log('Bandit array:', JSON.stringify(bandit));
+  
+  // Fixed cell size based on 12x12 grid
+  const FIXED_CELL_SIZE = 400 / 12; // ~33.33px per cell
+  let cellWidth = FIXED_CELL_SIZE;
+  let cellHeight = FIXED_CELL_SIZE;
+  
+  // Calculate total grid size based on fixed cell size
+  const totalGridWidth = numCols * cellWidth + (numCols - 1) * CELL_PADDING;
+  const totalGridHeight = numRows * cellHeight + (numRows - 1) * CELL_PADDING;
+  
+  // Center the grid in the full container width (not just in the left portion)
+  const gridOriginX = (this.sys.game.config.width - totalGridWidth) / 2;
+  const gridOriginY = 100 + (400 - totalGridHeight) / 2;
+  const gridBottomY = gridOriginY + totalGridHeight;
 
   this.add.text(10, 10, 
-    `${isPractice ? "[PRACTICE]" : "[PLAY]"} stage. Arrows=Move, Space=Pull`,
+    `${isPractice ? "[PRACTICE]" : "[PLAY]"} stage. Grid: ${numRows}x${numCols}. Arrows=Move, Space=Pull`,
     { font: '16px Arial', fill: '#ffffff' }
   );
 
   // zone background
-  createZoneBackgroundMask.call(this, zone, gridOriginX, gridOriginY, gridSize, cellSize);
+  createZoneBackgroundMask.call(this, zone, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
 
   // Reward tank
   let pullOutcomes = [];
-  const rewardTankContainer = this.add.container(REWARD_TANK_X_OFFSET, gridBottomY);
+  const tankX = gridOriginX + (totalGridWidth / 2);
+  const tankY = gridBottomY + TANK_MARGIN_TOP;
+  const rewardTankContainer = this.add.container(tankX, tankY);
   drawRewardTank.call(this, rewardTankContainer, num_arm_pulls, pullOutcomes);
 
   // user sprite
   let cursorR = 0, cursorC = 0;
-  let { x: initX, y: initY } = getCellBelow(gridOriginX, gridOriginY, cellSize, 0, 0);
+  let { x: initX, y: initY } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, 0, 0);
   let userSprite = this.add.image(initX, initY, 'user')
     .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
     .setDepth(9999)
     .setOrigin(0.5);
 
   // highlight rect
-  let highlightRect = createHighlightRect.call(this, cellSize);
-  highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellSize);
+  let highlightRect = createHighlightRect.call(this, cellWidth, cellHeight);
+  highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
 
   let pullsRemaining = num_arm_pulls;
   this.input.keyboard.on('keydown', (evt) => {
     if (pullsRemaining <= 0) return;
 
     let oldR = cursorR, oldC = cursorC;
-    if (evt.code === 'ArrowUp')    cursorR = Phaser.Math.Clamp(cursorR - 1, 0, gridSize-1);
-    if (evt.code === 'ArrowDown')  cursorR = Phaser.Math.Clamp(cursorR + 1, 0, gridSize-1);
-    if (evt.code === 'ArrowLeft')  cursorC = Phaser.Math.Clamp(cursorC - 1, 0, gridSize-1);
-    if (evt.code === 'ArrowRight') cursorC = Phaser.Math.Clamp(cursorC + 1, 0, gridSize-1);
+    if (evt.code === 'ArrowUp')    cursorR = Phaser.Math.Clamp(cursorR - 1, 0, numRows-1);
+    if (evt.code === 'ArrowDown')  cursorR = Phaser.Math.Clamp(cursorR + 1, 0, numRows-1);
+    if (evt.code === 'ArrowLeft')  cursorC = Phaser.Math.Clamp(cursorC - 1, 0, numCols-1);
+    if (evt.code === 'ArrowRight') cursorC = Phaser.Math.Clamp(cursorC + 1, 0, numCols-1);
 
     if (evt.code === 'Space') {
       pullsRemaining--;
@@ -308,7 +326,7 @@ function setupPlayOrPractice(stage, isPractice) {
       let outcome = (Math.random() < payoff) ? 1 : 0;
       pullOutcomes.push(outcome);
 
-      drawMarkerDot.call(this, gridOriginX, gridOriginY, cellSize, cursorR, cursorC, outcome);
+      drawMarkerDot.call(this, gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC, outcome);
       drawRewardTank.call(this, rewardTankContainer, num_arm_pulls, pullOutcomes);
 
       if (pullsRemaining <= 0) {
@@ -319,9 +337,9 @@ function setupPlayOrPractice(stage, isPractice) {
     }
 
     if (oldR !== cursorR || oldC !== cursorC) {
-      let { x, y } = getCellBelow(gridOriginX, gridOriginY, cellSize, cursorR, cursorC);
+      let { x, y } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
       userSprite.setPosition(x, y);
-      highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellSize);
+      highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
     }
   });
 }
@@ -331,31 +349,47 @@ function setupPlayOrPractice(stage, isPractice) {
  */
 function setupWatch(stage) {
   const { bandit, trajectory, demonstrator, zone } = stage;
-  let gridSize = bandit.length;
-  let cellSize = 400 / gridSize;
-  const gridOriginX = 50;
-  const gridOriginY = 100;
-  const gridBottomY = gridOriginY + (gridSize * cellSize);
+  let numRows = bandit.length;
+  let numCols = bandit[0].length;
+  
+  // Debug log to check dimensions
+  console.log(`Loading WATCH with grid: ${numRows}x${numCols}`);
+  
+  // Fixed cell size based on 12x12 grid
+  const FIXED_CELL_SIZE = 400 / 12; // ~33.33px per cell
+  let cellWidth = FIXED_CELL_SIZE;
+  let cellHeight = FIXED_CELL_SIZE;
+  
+  // Calculate total grid size based on fixed cell size
+  const totalGridWidth = numCols * cellWidth + (numCols - 1) * CELL_PADDING;
+  const totalGridHeight = numRows * cellHeight + (numRows - 1) * CELL_PADDING;
+  
+  // Center the grid in the full container width
+  const gridOriginX = (this.sys.game.config.width - totalGridWidth) / 2;
+  const gridOriginY = 100 + (400 - totalGridHeight) / 2;
+  const gridBottomY = gridOriginY + totalGridHeight;
 
   this.add.text(10, 10, 
     "[WATCH] Manhattan path, highlight, red/green tank",
     { font: '16px Arial', fill: '#ffffff' }
   );
 
-  createZoneBackgroundMask.call(this, zone, gridOriginX, gridOriginY, gridSize, cellSize);
+  createZoneBackgroundMask.call(this, zone, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
 
   let watchOutcomes = [];
-  const rewardTankContainer = this.add.container(REWARD_TANK_X_OFFSET, gridBottomY);
+  const tankX = gridOriginX + (totalGridWidth / 2);
+  const tankY = gridBottomY + TANK_MARGIN_TOP;
+  const rewardTankContainer = this.add.container(tankX, tankY);
   drawRewardTank.call(this, rewardTankContainer, trajectory.length, watchOutcomes);
 
-  let highlightRect = createHighlightRect.call(this, cellSize);
+  let highlightRect = createHighlightRect.call(this, cellWidth, cellHeight);
 
   let currentR = 0, currentC = 0;
   if (trajectory.length > 0) {
     currentR = trajectory[0].row;
     currentC = trajectory[0].col;
   }
-  let startPos = getCellBelow(gridOriginX, gridOriginY, cellSize, currentR, currentC);
+  let startPos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC);
   let dSprite = this.add.image(startPos.x, startPos.y, demonstratorKey(demonstrator.image))
     .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
     .setDepth(9999)
@@ -383,9 +417,9 @@ function setupWatch(stage) {
       repeat: pathCells.length - 1,
       callback: () => {
         let cell = pathCells[index];
-        let pos = getCellBelow(gridOriginX, gridOriginY, cellSize, cell.r, cell.c);
+        let pos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cell.r, cell.c);
         dSprite.setPosition(pos.x, pos.y);
-        highlightCurrentCell(highlightRect, cell.r, cell.c, gridOriginX, gridOriginY, cellSize);
+        highlightCurrentCell(highlightRect, cell.r, cell.c, gridOriginX, gridOriginY, cellWidth, cellHeight);
 
         index++;
         if (index >= pathCells.length) {
@@ -398,7 +432,7 @@ function setupWatch(stage) {
           let outcome = (Math.random() < payoff) ? 1 : 0;
           watchOutcomes.push(outcome);
 
-          drawMarkerDot.call(this, gridOriginX, gridOriginY, cellSize, currentR, currentC, outcome);
+          drawMarkerDot.call(this, gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC, outcome);
           drawRewardTank.call(this, rewardTankContainer, totalSteps, watchOutcomes);
 
           currentStep++;
@@ -414,21 +448,37 @@ function setupWatch(stage) {
  */
 function setupIndicate(stage) {
   const { bandit, trajectory, demonstrator, zone } = stage;
-  let gridSize = bandit.length;
-  let cellSize = 400 / gridSize;
-  const gridOriginX = 50;
-  const gridOriginY = 100;
-  const gridBottomY = gridOriginY + (gridSize * cellSize);
+  let numRows = bandit.length;
+  let numCols = bandit[0].length;
+  
+  // Debug log to check dimensions
+  console.log(`Loading INDICATE with grid: ${numRows}x${numCols}`);
+  
+  // Fixed cell size based on 12x12 grid
+  const FIXED_CELL_SIZE = 400 / 12; // ~33.33px per cell
+  let cellWidth = FIXED_CELL_SIZE;
+  let cellHeight = FIXED_CELL_SIZE;
+  
+  // Calculate total grid size based on fixed cell size
+  const totalGridWidth = numCols * cellWidth + (numCols - 1) * CELL_PADDING;
+  const totalGridHeight = numRows * cellHeight + (numRows - 1) * CELL_PADDING;
+  
+  // Center the grid in the full container width
+  const gridOriginX = (this.sys.game.config.width - totalGridWidth) / 2;
+  const gridOriginY = 100 + (400 - totalGridHeight) / 2;
+  const gridBottomY = gridOriginY + totalGridHeight;
 
   this.add.text(10, 10, 
     "[INDICATE] Manhattan path, blinking highlight, no success/fail",
     { font: '16px Arial', fill: '#ffffff' }
   );
 
-  createZoneBackgroundMask.call(this, zone, gridOriginX, gridOriginY, gridSize, cellSize);
+  createZoneBackgroundMask.call(this, zone, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
 
   let indicateOutcomes = [];
-  const rewardTankContainer = this.add.container(REWARD_TANK_X_OFFSET, gridBottomY);
+  const tankX = gridOriginX + (totalGridWidth / 2);
+  const tankY = gridBottomY + TANK_MARGIN_TOP;
+  const rewardTankContainer = this.add.container(tankX, tankY);
   drawRewardTank.call(this, rewardTankContainer, trajectory.length, indicateOutcomes);
 
   let currentR = 0, currentC = 0;
@@ -436,7 +486,7 @@ function setupIndicate(stage) {
     currentR = trajectory[0].row;
     currentC = trajectory[0].col;
   }
-  let startPos = getCellBelow(gridOriginX, gridOriginY, cellSize, currentR, currentC);
+  let startPos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC);
   let dSprite = this.add.image(startPos.x, startPos.y, demonstratorKey(demonstrator.image))
     .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
     .setDepth(9999)
@@ -464,7 +514,7 @@ function setupIndicate(stage) {
       repeat: pathCells.length - 1,
       callback: () => {
         let cell = pathCells[index];
-        let pos = getCellBelow(gridOriginX, gridOriginY, cellSize, cell.r, cell.c);
+        let pos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cell.r, cell.c);
         dSprite.setPosition(pos.x, pos.y);
 
         index++;
@@ -480,9 +530,9 @@ function setupIndicate(stage) {
           let g = this.add.graphics();
           g.fillStyle(HIGHLIGHT_COLOR, 1);
           g.fillRect(
-            gridOriginX + currentC*cellSize,
-            gridOriginY + currentR*cellSize,
-            cellSize, cellSize
+            gridOriginX + currentC*(cellWidth + CELL_PADDING),
+            gridOriginY + currentR*(cellHeight + CELL_PADDING),
+            cellWidth, cellHeight
           );
           this.tweens.add({
             targets: g,
@@ -537,22 +587,36 @@ function pickRandomColor() {
  * draws a zone background image masked by cells,
  * then draws cell borders on top
  */
-function createZoneBackgroundMask(zone, gridX, gridY, gridSize, cellSize) {
+function createZoneBackgroundMask(zone, gridX, gridY, numRows, numCols, cellWidth, cellHeight) {
   if (zone === undefined || zone === null) return;
+
+  // First, add a black background for the entire grid area plus padding
+  const totalWidth = (numCols * cellWidth) + ((numCols - 1) * CELL_PADDING);
+  const totalHeight = (numRows * cellHeight) + ((numRows - 1) * CELL_PADDING);
+  
+  let bgRect = this.add.rectangle(
+    gridX, 
+    gridY, 
+    totalWidth, 
+    totalHeight, 
+    0x000000
+  ).setOrigin(0, 0).setDepth(0);
 
   // E.g. zone=1 => "zone01"
   let zoneKey = "zone0" + zone; 
   let zoneBg = this.add.image(gridX, gridY, zoneKey)
     .setOrigin(0, 0)
-    .setDepth(0);
+    .setDepth(1);
 
   let maskGraphics = this.add.graphics({ x: 0, y: 0 });
   maskGraphics.fillStyle(0xffffff, 1);
-  for (let r = 0; r < gridSize; r++) {
-    for (let c = 0; c < gridSize; c++) {
-      let rx = gridX + c*cellSize;
-      let ry = gridY + r*cellSize;
-      maskGraphics.fillRect(rx, ry, cellSize, cellSize);
+  
+  for (let r = 0; r < numRows; r++) {
+    for (let c = 0; c < numCols; c++) {
+      // Calculate position with padding
+      let rx = gridX + c * (cellWidth + CELL_PADDING);
+      let ry = gridY + r * (cellHeight + CELL_PADDING);
+      maskGraphics.fillRect(rx, ry, cellWidth, cellHeight);
     }
   }
 
@@ -562,24 +626,40 @@ function createZoneBackgroundMask(zone, gridX, gridY, gridSize, cellSize) {
   // Hide the white shape so it doesn't appear
   maskGraphics.setVisible(false);
 
-  // Draw the cell borders
-  let lineG = this.add.graphics({ lineStyle: { width: 1, color: 0xffffff } });
+  // Draw the cell borders with a subtle white line
+  let lineG = this.add.graphics({ lineStyle: { width: 1, color: 0x444444 } });
   lineG.setDepth(9998);
-  for (let r = 0; r < gridSize; r++) {
-    for (let c = 0; c < gridSize; c++) {
-      let rx = gridX + c*cellSize;
-      let ry = gridY + r*cellSize;
-      lineG.strokeRect(rx, ry, cellSize, cellSize);
+  
+  for (let r = 0; r < numRows; r++) {
+    for (let c = 0; c < numCols; c++) {
+      // Calculate position with padding
+      let rx = gridX + c * (cellWidth + CELL_PADDING);
+      let ry = gridY + r * (cellHeight + CELL_PADDING);
+      lineG.strokeRect(rx, ry, cellWidth, cellHeight);
     }
   }
 }
 
 /**
- * Draw the vertical reward tank with smaller slots.
+ * Draw the horizontal reward tank with smaller slots.
  * 'outcomes': array of 1=success(green), 0=fail(red)
  */
 function drawRewardTank(container, totalSlots, outcomes) {
   container.removeAll(true);
+
+  // Add a border/background for the tank
+  const totalWidth = totalSlots * (TANK_SLOT_SIZE + TANK_SLOT_PADDING) - TANK_SLOT_PADDING;
+  const tankBg = this.add.rectangle(0, 0, totalWidth + 4, TANK_SLOT_SIZE + 4, 0x333333);
+  tankBg.setOrigin(0.5, 0.5);  // Center the background
+  container.add(tankBg);
+  
+  // Add a title above the tank
+  const tankTitle = this.add.text(0, -15, "Mining Progress:", { 
+    font: '14px Arial', 
+    fill: '#ffffff' 
+  });
+  tankTitle.setOrigin(0.5, 0.5);  // Center the title
+  container.add(tankTitle);
 
   for (let i = 0; i < totalSlots; i++) {
     let color = 0x444444;
@@ -587,18 +667,20 @@ function drawRewardTank(container, totalSlots, outcomes) {
       let val = outcomes[i];
       color = (val === 1) ? 0x00ff00 : 0xff0000; 
     }
-    let slotY = -i * (TANK_SLOT_SIZE + 2);
-    let slotRect = this.add.rectangle(0, slotY, TANK_SLOT_SIZE, TANK_SLOT_SIZE, color);
-    slotRect.setOrigin(0.5, 1);
+    
+    // Position slots horizontally, left to right, centered around the origin
+    let slotX = (i * (TANK_SLOT_SIZE + TANK_SLOT_PADDING)) - (totalWidth / 2) + (TANK_SLOT_SIZE / 2);
+    let slotRect = this.add.rectangle(slotX, 0, TANK_SLOT_SIZE, TANK_SLOT_SIZE, color);
+    slotRect.setOrigin(0.5, 0.5);  // Center each slot
     container.add(slotRect);
   }
 }
 
 /** Smaller success/fail dot. */
-function drawMarkerDot(gridX, gridY, cellSize, row, col, outcome) {
-  let { x, y } = getCellCenter(gridX, gridY, cellSize, row, col);
-  let offsetX = Phaser.Math.Between(-cellSize/4, cellSize/4);
-  let offsetY = Phaser.Math.Between(-cellSize/4, cellSize/4);
+function drawMarkerDot(gridX, gridY, cellWidth, cellHeight, row, col, outcome) {
+  let { x, y } = getCellCenter(gridX, gridY, cellWidth, cellHeight, row, col);
+  let offsetX = Phaser.Math.Between(-cellWidth/4, cellWidth/4);
+  let offsetY = Phaser.Math.Between(-cellHeight/4, cellHeight/4);
   let color = (outcome === 1) ? 0x00ff00 : 0xff0000;
 
   let dot = this.add.circle(x + offsetX, y + offsetY, MARKER_DOT_RADIUS, color);
@@ -608,20 +690,21 @@ function drawMarkerDot(gridX, gridY, cellSize, row, col, outcome) {
 /** 
  * place the sprite ~20px below the bottom edge of the cell
  */
-function getCellBelow(gridX, gridY, cellSize, row, col) {
-  const cellBottom = gridY + (row+1)*cellSize;
-  let x = gridX + col*cellSize + (cellSize/2);
-  let y = cellBottom + 20;
+function getCellBelow(gridX, gridY, cellWidth, cellHeight, row, col) {
+  // Calculate position with padding
+  const x = gridX + col * (cellWidth + CELL_PADDING) + (cellWidth/2);
+  const cellBottom = gridY + row * (cellHeight + CELL_PADDING) + cellHeight;
+  const y = cellBottom + 20;
   return { x, y };
 }
 
 /**
  * Return the center of the cell
  */
-function getCellCenter(gridX, gridY, cellSize, row, col) {
+function getCellCenter(gridX, gridY, cellWidth, cellHeight, row, col) {
   return {
-    x: gridX + col*cellSize + cellSize/2,
-    y: gridY + row*cellSize + cellSize/2
+    x: gridX + col * (cellWidth + CELL_PADDING) + cellWidth/2,
+    y: gridY + row * (cellHeight + CELL_PADDING) + cellHeight/2
   };
 }
 
@@ -629,8 +712,8 @@ function getCellCenter(gridX, gridY, cellSize, row, col) {
  * Create a highlight rectangle for a single cell:
  * uses the new lighter color + alpha
  */
-function createHighlightRect(cellSize) {
-  let highlightRect = this.add.rectangle(0, 0, cellSize-2, cellSize-2, HIGHLIGHT_COLOR, 1);
+function createHighlightRect(cellWidth, cellHeight) {
+  let highlightRect = this.add.rectangle(0, 0, cellWidth-2, cellHeight-2, HIGHLIGHT_COLOR, 1);
   highlightRect.setDepth(9998).setOrigin(0.5).setAlpha(HIGHLIGHT_ALPHA);
   return highlightRect;
 }
@@ -638,9 +721,9 @@ function createHighlightRect(cellSize) {
 /**
  * Move highlightRect to (r,c).
  */
-function highlightCurrentCell(highRect, r, c, gridX, gridY, cellSize) {
-  let x = gridX + c*cellSize + cellSize/2;
-  let y = gridY + r*cellSize + cellSize/2;
+function highlightCurrentCell(highRect, r, c, gridX, gridY, cellWidth, cellHeight) {
+  let x = gridX + c * (cellWidth + CELL_PADDING) + cellWidth/2;
+  let y = gridY + r * (cellHeight + CELL_PADDING) + cellHeight/2;
   highRect.setPosition(x, y);
   highRect.setFillStyle(HIGHLIGHT_COLOR, HIGHLIGHT_ALPHA);
 }
