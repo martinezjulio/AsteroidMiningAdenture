@@ -133,6 +133,9 @@ function loadStage() {
     case 'blind':
       setupBlind.call(this, stage);
       break;
+    case 'choice':
+      setupChoice.call(this, stage);
+      break;
     case 'watch':
       setupWatch.call(this, stage);
       break;
@@ -157,9 +160,9 @@ function loadStage() {
  * add a new summary icon.
  */
 function maybeAddSummaryIcon(stage) {
-  if (!stage.zone) return;  
+  if (!stage.zone && stage.stage_type !== 'choice') return;  
   const t = stage.stage_type;
-  if (!['practice','play','watch','indicate','blind'].includes(t)) return;
+  if (!['practice','play','watch','indicate','blind','choice'].includes(t)) return;
 
   let imageKey = 'user';
   if (t === 'watch' || t === 'indicate') {
@@ -171,11 +174,20 @@ function maybeAddSummaryIcon(stage) {
     }
   }
 
-  summaryIcons.push({
-    imageKey: imageKey,
-    zone: stage.zone.index,
-    color: stage.zone.color || '#ffffff'
-  });
+  // For choice type, use a special format
+  if (t === 'choice') {
+    summaryIcons.push({
+      imageKey: imageKey,
+      zone: 'Choice',
+      color: stage.zone && stage.zone.color ? stage.zone.color : '#888888'
+    });
+  } else {
+    summaryIcons.push({
+      imageKey: imageKey,
+      zone: stage.zone.index,
+      color: stage.zone.color || '#ffffff'
+    });
+  }
 }
 
 /**
@@ -215,7 +227,12 @@ function redrawSummaryBarDOM() {
 
     // The zone label
     const label = document.createElement("div");
-    label.textContent = "Zone " + iconData.zone;
+    // Handle special case for Choice zone
+    if (iconData.zone === 'Choice') {
+      label.textContent = "Choice Zone";
+    } else {
+      label.textContent = "Zone " + iconData.zone;
+    }
     label.style.color = "#fff";
     label.style.marginTop = "4px";
 
@@ -756,6 +773,261 @@ function setupBlind(stage) {
   });
 }
 
+/**
+ * CHOICE stage - user chooses between demonstrators 
+ */
+function setupChoice(stage) {
+  console.log("Loading CHOICE stage");
+  console.log("Full stage data:", JSON.stringify(stage, null, 2));
+  
+  // Default color if none provided
+  const zoneColor = stage.zone && stage.zone.color ? stage.zone.color : "#888888";
+  
+  // Check demonstrator data - log details to help debug
+  console.log("Demonstrator data:", JSON.stringify(stage.demonstrator || {}));
+  
+  // Create demonstrator data if missing or invalid
+  if (!stage.demonstrator || Object.keys(stage.demonstrator).length === 0) {
+    console.warn("Missing or empty demonstrator data for choice stage. Creating default data.");
+    stage.demonstrator = {
+      "index_0": 1,
+      "index_1": 2,
+      "image_0": "demonstrator_01.png",
+      "image_1": "demonstrator_02.png"
+    };
+  }
+  
+  const demonstrator = stage.demonstrator;
+  
+  // Get demonstrator images and indices
+  const demonstratorImages = [];
+  const demonstratorIndices = [];
+  
+  // Find all demonstrator images by checking keys
+  for (let i = 0; i < 10; i++) { // Assuming max 10 demonstrators
+    const imageKey = `image_${i}`;
+    const indexKey = `index_${i}`;
+    
+    if (demonstrator[imageKey]) {
+      demonstratorImages.push(demonstrator[imageKey]);
+      demonstratorIndices.push(demonstrator[indexKey] || i + 1);
+    }
+  }
+  
+  // If no demonstrator images were found using the image_X pattern, check for alternative structures
+  if (demonstratorImages.length === 0) {
+    console.warn("No demonstrator images found using image_X pattern. Checking for image property.");
+    
+    // Try accessing image directly if it exists
+    if (demonstrator.image) {
+      demonstratorImages.push(demonstrator.image);
+      demonstratorIndices.push(demonstrator.index || 1);
+    }
+    
+    // If still no images, add defaults
+    if (demonstratorImages.length === 0) {
+      console.warn("Still no demonstrator images found. Using defaults.");
+      demonstratorImages.push("demonstrator_01.png");
+      demonstratorImages.push("demonstrator_02.png");
+      demonstratorIndices.push(1);
+      demonstratorIndices.push(2);
+    }
+  }
+  
+  console.log(`Found ${demonstratorImages.length} demonstrator images:`, demonstratorImages);
+  
+  // Configuration
+  const numDemonstrators = demonstratorImages.length;
+  const cellWidth = 150;
+  const cellHeight = 150;
+  const cellPadding = 30;
+  
+  // Calculate total grid width
+  const totalWidth = numDemonstrators * cellWidth + (numDemonstrators - 1) * cellPadding;
+  
+  // Position grid in center of screen
+  const gridX = (this.sys.game.config.width - totalWidth) / 2;
+  const gridY = 200;
+  
+  // Create title text
+  const titleText = this.add.text(
+    this.sys.game.config.width / 2,
+    100,
+    "Choose your preferred partner:",
+    { 
+      font: '28px Arial', 
+      fill: '#ffffff',
+      align: 'center'
+    }
+  ).setOrigin(0.5);
+  
+  // Create instruction text
+  const instructionText = this.add.text(
+    this.sys.game.config.width / 2,
+    gridY + cellHeight + 150,
+    "If you play again in a new zone, which starship partner would you choose watch before playing to optimize your reward?",
+    { 
+      font: '18px Arial', 
+      fill: '#ffffff',
+      align: 'center',
+      wordWrap: { width: 600 }
+    }
+  ).setOrigin(0.5);
+  
+  // Create instruction for controls
+  const controlsText = this.add.text(
+    this.sys.game.config.width / 2,
+    gridY + cellHeight + 200,
+    "Use arrow keys to move and spacebar to select",
+    { 
+      font: '16px Arial', 
+      fill: '#aaaaaa',
+      align: 'center'
+    }
+  ).setOrigin(0.5);
+  
+  // Selection feedback text (initially hidden)
+  const feedbackText = this.add.text(
+    this.sys.game.config.width / 2,
+    gridY + cellHeight + 120,
+    "",
+    { 
+      font: '20px Arial', 
+      fill: '#4CAF50',
+      align: 'center',
+      backgroundColor: '#333333',
+      padding: { x: 15, y: 10 }
+    }
+  ).setOrigin(0.5).setVisible(false);
+  
+  // Track selection
+  let selectedDemonstrator = null;
+  let currentPosition = 0;
+  
+  // Demonstrator cells array
+  const cells = [];
+  
+  // Create cells for each demonstrator
+  for (let i = 0; i < numDemonstrators; i++) {
+    const x = gridX + i * (cellWidth + cellPadding) + cellWidth/2;
+    const y = gridY + cellHeight/2;
+    
+    // Create background for cell
+    const cellBg = this.add.rectangle(
+      x, y,
+      cellWidth, cellHeight,
+      0x333333
+    ).setOrigin(0.5);
+    
+    // Create letter label
+    const letter = String.fromCharCode(65 + i); // A, B, C, etc.
+    const letterText = this.add.text(
+      x,
+      gridY - 30,
+      `Partner ${letter}`,
+      { 
+        font: '18px Arial', 
+        fill: '#ffffff',
+        backgroundColor: '#333333',
+        padding: { x: 10, y: 5 }
+      }
+    ).setOrigin(0.5);
+    
+    // Load demonstrator image
+    const imageKey = `choice_demonstrator_${i}`;
+    this.load.image(imageKey, `assets/demonstrators/${demonstratorImages[i]}`);
+    
+    // Store cell info
+    cells.push({
+      x: x,
+      y: y,
+      letter: letter,
+      background: cellBg,
+      letterText: letterText,
+      imageKey: imageKey,
+      image: null
+    });
+  }
+  
+  // Once all images are loaded, create the demonstrator sprites
+  this.load.once('complete', () => {
+    // Create demonstrator images
+    for (let i = 0; i < cells.length; i++) {
+      const cell = cells[i];
+      cell.image = this.add.image(cell.x, cell.y, cell.imageKey)
+        .setOrigin(0.5);
+      
+      // Scale image to fit cell
+      const scale = Math.min(
+        (cellWidth - 20) / cell.image.width,
+        (cellHeight - 20) / cell.image.height
+      );
+      cell.image.setScale(scale);
+    }
+    
+    // Add highlight rect
+    const highlightRect = this.add.rectangle(
+      cells[0].x, cells[0].y,
+      cellWidth + 10, cellHeight + 10,
+      parseInt(zoneColor.replace('#', '0x')) || 0x888888
+    ).setOrigin(0.5).setAlpha(0.3);
+    
+    // Position for user sprite (below the cells)
+    const userY = gridY + cellHeight + 40;
+    let userX = cells[0].x;
+    
+    // Add user sprite
+    const userSprite = this.add.image(userX, userY, 'user')
+      .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
+      .setDepth(9999)
+      .setOrigin(0.5);
+    
+    // Keyboard input
+    this.input.keyboard.on('keydown', (evt) => {
+      // Only allow movement if not already selected
+      if (selectedDemonstrator !== null) return;
+      
+      let oldPosition = currentPosition;
+      
+      if (evt.code === 'ArrowLeft') {
+        currentPosition = Math.max(0, currentPosition - 1);
+      }
+      if (evt.code === 'ArrowRight') {
+        currentPosition = Math.min(cells.length - 1, currentPosition + 1);
+      }
+      
+      // If position changed, update user sprite and highlight
+      if (oldPosition !== currentPosition) {
+        userX = cells[currentPosition].x;
+        userSprite.setPosition(userX, userY);
+        highlightRect.setPosition(cells[currentPosition].x, cells[currentPosition].y);
+      }
+      
+      // Space to select
+      if (evt.code === 'Space') {
+        selectedDemonstrator = cells[currentPosition].letter;
+        
+        // Show selection feedback
+        feedbackText.setText(`You selected Partner ${selectedDemonstrator}`);
+        feedbackText.setVisible(true);
+        
+        // Highlight selected with stronger border
+        highlightRect.setStrokeStyle(4, parseInt(zoneColor.replace('#', '0x')) || 0x888888);
+        highlightRect.setAlpha(0.6);
+        
+        // Add next button
+        makeNextButton.call(this, "Next", () => {
+          console.log(`Selected Partner ${selectedDemonstrator}`);
+          nextStage.call(this);
+        });
+      }
+    });
+  });
+  
+  // Start loading the images
+  this.load.start();
+}
+
 /************************************************
  * Utility
  ************************************************/
@@ -794,7 +1066,7 @@ function nextStage() {
   const nextStage = timelineData.timeline[currentSessionIndex][currentStageIndex];
   
   // Check if it's a gameplay stage that needs a transition overlay
-  const gameplayStages = ['practice', 'play', 'watch', 'indicate', 'blind'];
+  const gameplayStages = ['practice', 'play', 'watch', 'indicate', 'blind', 'choice'];
   if (gameplayStages.includes(nextStage.stage_type)) {
     // Show the transition overlay
     showTransitionOverlay(this, nextStage, () => {
@@ -1214,6 +1486,7 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
     case 'practice': buttonText = 'Practice'; break;
     case 'play': buttonText = 'Play'; break;
     case 'blind': buttonText = 'Play'; break; // Use "Play" for blind too
+    case 'choice': buttonText = 'Choose'; break; // Add "Choose" for choice game
     case 'watch': buttonText = 'Watch'; break;
     case 'indicate': buttonText = 'Watch'; break; // Indicate also uses "Watch"
     default: buttonText = 'Next';
@@ -1254,12 +1527,172 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
     const zoneColor = zone.color || '#ffffff';
     const zoneIndex = zone.index;
     
-    // Create a single icon similar to the summary bar items
-    createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneIndex);
+    // For choice game, use a special zone display
+    if (stageType === 'choice') {
+      createChoiceZoneIcon(scene, zoneColor || '#888888');
+    } else {
+      // Create a single icon similar to the summary bar items
+      createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneIndex);
+    }
+  } else if (stageType === 'choice') {
+    // Fallback for choice with no zone
+    createChoiceZoneIcon(scene, '#888888');
   }
   
-  // Create a summary-style icon (similar to the summary bar)
-  function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneIndex) {
+  // Special function to create the choice zone icon
+  function createChoiceZoneIcon(scene, zoneColor) {
+    console.log("Creating choice zone icon");
+    
+    // Convert color string to hex number - handle both named colors and hex codes
+    let colorHex;
+    
+    // Color name to hex mapping
+    const colorMap = {
+        'red': 0xFF0000,
+        'green': 0x00FF00,
+        'blue': 0x0000FF,
+        'yellow': 0xFFFF00,
+        'purple': 0x800080,
+        'orange': 0xFFA500,
+        'black': 0x000000,
+        'white': 0xFFFFFF,
+        'gray': 0x808080,
+        'grey': 0x808080,
+        'cyan': 0x00FFFF,
+        'magenta': 0xFF00FF,
+        'brown': 0xA52A2A,
+        'pink': 0xFFC0CB
+    };
+    
+    // Check if it's a named color or hex code
+    if (zoneColor.startsWith('#')) {
+        // It's a hex code, convert it to a number
+        colorHex = parseInt(zoneColor.replace('#', '0x'));
+    } else {
+        // It's a named color, look it up in our map
+        colorHex = colorMap[zoneColor.toLowerCase()] || 0xFF0000; // Default to red if not found
+    }
+    
+    console.log(`Choice zone color: ${zoneColor}, hex: ${colorHex}`);
+    
+    // Create dimensions for the icon
+    const iconWidth = 140;
+    const iconHeight = 160;
+    const borderThickness = 10;
+    
+    // Create a container at the center of the screen
+    const container = scene.add.container(scene.sys.game.config.width / 2, 300);
+    
+    // Create a graphics object for drawing the border
+    const border = scene.add.graphics();
+    
+    // Set fill style to zone color
+    border.fillStyle(colorHex, 1);
+    
+    // Draw the outer rectangle (this is the border)
+    border.fillRect(
+        -iconWidth/2 - borderThickness, 
+        -iconHeight/2 - borderThickness, 
+        iconWidth + borderThickness*2, 
+        iconHeight + borderThickness*2
+    );
+    
+    // Set fill style to dark background
+    border.fillStyle(0x222222, 1);
+    
+    // Draw the inner rectangle (creates border effect)
+    border.fillRect(
+        -iconWidth/2, 
+        -iconHeight/2, 
+        iconWidth, 
+        iconHeight
+    );
+    
+    // Add the graphics to the container
+    container.add(border);
+    
+    // Make sure the user image is loaded
+    if (!scene.textures.exists('user')) {
+        scene.load.image('user', 'assets/user.png');
+        scene.load.once('complete', () => {
+            addUserImage();
+        });
+        scene.load.start();
+    } else {
+        addUserImage();
+    }
+    
+    function addUserImage() {
+        // Add the player image
+        const playerImage = scene.add.image(
+            0,
+            -20,
+            'user'
+        );
+        
+        // Debug the user image
+        console.log("Adding user image:", playerImage);
+        
+        // Scale image to fit
+        const imageSize = 80;
+        const scale = Math.min(
+            imageSize / playerImage.width,
+            imageSize / playerImage.height
+        );
+        playerImage.setScale(scale);
+        container.add(playerImage);
+        
+        // Add custom zone text
+        const zoneText = scene.add.text(
+            0,
+            50,
+            "Choice Zone",
+            { font: '20px Arial', fill: '#ffffff' }
+        ).setOrigin(0.5);
+        container.add(zoneText);
+    }
+  }
+  
+  // Create the button
+  function createButton() {
+    const buttonWidth = 200;
+    const buttonHeight = 50;
+    
+    const button = scene.add.rectangle(
+      scene.sys.game.config.width / 2,
+      scene.sys.game.config.height - 100,
+      buttonWidth,
+      buttonHeight,
+      0x4CAF50
+    ).setInteractive();
+    
+    const buttonLabel = scene.add.text(
+      scene.sys.game.config.width / 2,
+      scene.sys.game.config.height - 100,
+      buttonText,
+      { font: '20px Arial', fill: '#ffffff' }
+    ).setOrigin(0.5);
+    
+    // Button hover effects
+    button.on('pointerover', () => {
+      button.setFillStyle(0x45a049); // Darker shade when hovered
+      scene.game.canvas.style.cursor = 'pointer';
+    });
+    
+    button.on('pointerout', () => {
+      button.setFillStyle(0x4CAF50); // Original color
+      scene.game.canvas.style.cursor = 'default';
+    });
+    
+    // Button click
+    button.on('pointerdown', () => {
+      if (startCallback) startCallback();
+    });
+  }
+}
+
+// Create a summary-style icon (similar to the summary bar)
+function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneIndex) {
     console.log(`Creating summary icon with zone color: ${zoneColor}`);
     
     // Convert color string to hex number - handle both named colors and hex codes
@@ -1384,42 +1817,4 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
         playerImage.setScale(scale);
         container.add(playerImage);
     }
-  }
-  
-  // Create the button
-  function createButton() {
-    const buttonWidth = 200;
-    const buttonHeight = 50;
-    
-    const button = scene.add.rectangle(
-      scene.sys.game.config.width / 2,
-      scene.sys.game.config.height - 100,
-      buttonWidth,
-      buttonHeight,
-      0x4CAF50
-    ).setInteractive();
-    
-    const buttonLabel = scene.add.text(
-      scene.sys.game.config.width / 2,
-      scene.sys.game.config.height - 100,
-      buttonText,
-      { font: '20px Arial', fill: '#ffffff' }
-    ).setOrigin(0.5);
-    
-    // Button hover effects
-    button.on('pointerover', () => {
-      button.setFillStyle(0x45a049); // Darker shade when hovered
-      scene.game.canvas.style.cursor = 'pointer';
-    });
-    
-    button.on('pointerout', () => {
-      button.setFillStyle(0x4CAF50); // Original color
-      scene.game.canvas.style.cursor = 'default';
-    });
-    
-    // Button click
-    button.on('pointerdown', () => {
-      if (startCallback) startCallback();
-    });
-  }
 }

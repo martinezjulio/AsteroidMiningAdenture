@@ -52,6 +52,16 @@
                 }
             },
             {
+                "stage_type": "choice",
+                "zone": {
+                    "overlay-message": "You will now be presented with choices of which partner you prefer to choose if you were to play again."
+                },
+                "demonstrators": {
+                                "indices": [1,2],
+                                "images": ["demonstrator_01.png", "demonstrator_02.png"]
+                            }
+            },
+            {
                 "stage_type": "watch",
                 "num_arm_pulls": null,
                 "demonstrator": {
