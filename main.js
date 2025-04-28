@@ -642,6 +642,10 @@ function setupIndicate(stage) {
  * Utility
  ************************************************/
 function nextStage() {
+  // Check if this is the last game in the current session BEFORE incrementing
+  const isLastGameInSession = (currentStageIndex + 1) >= timelineData.timeline[currentSessionIndex].length;
+  
+  // Increment the stage index
   currentStageIndex++;
   
   // Check if we need to move to the next session or if we're at the end
@@ -650,6 +654,7 @@ function nextStage() {
     return;
   }
   
+  // If we've reached the end of the current session
   if (currentStageIndex >= timelineData.timeline[currentSessionIndex].length) {
     currentSessionIndex++;
     currentStageIndex = 0;
@@ -658,6 +663,13 @@ function nextStage() {
       showEndOfGameMessage.call(this);
       return;
     }
+  }
+  
+  // Clear the summary icons immediately if the previous game was the last in its session
+  if (isLastGameInSession) {
+    summaryIcons = [];
+    redrawSummaryBarDOM(); // Redraw the empty summary bar
+    console.log("Session ended - cleared summary bar");
   }
   
   // Get the next stage
