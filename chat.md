@@ -8,3 +8,39 @@ game types:
 
 game sequences:
     1. games sequences are lists of lists as follows: [[play, watch], [indicate, play]], so we can think about this game sequence as having two parts, part 1 being the play game followed by a watch game, and part 2 being an indicate game followed by a play game, 
+
+
+Add a blind game
+
+
+{
+    "stage_type": "blind",
+    "num_arm_pulls": 24,
+    "demonstrator": null,
+    "zone": {
+        "index": 0,
+        "color": "green",
+        "mode": "asteroid",
+        "bandit": [[0.45, 0.55, 0.65, 0.75, 0.85, 0.95, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95]], 
+        "images": ["landscape_00.png"],
+        "overlay-message": "This is a blind game. You will play the game however you will not be able to see any reward outcomes from your choices."
+    }
+}
+
+
+Add a choice game
+{
+    "stage_type": "choice",
+    "num_arm_pulls": 24,
+    "zone": {
+        "index": 0,
+        "color": "green",
+        "overlay-message": "You will now be presented with choices of which partner you prefer to choose if you were to play again."
+    }
+    "demonstrator": {
+                    "index_0": 1,
+                    "index_1": 2, 
+                    "image_0": "demonstrator_01.png",
+                    "image_1": "demonstrator_02.png",
+                },
+}
