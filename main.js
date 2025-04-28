@@ -136,6 +136,9 @@ function loadStage() {
     case 'choice':
       setupChoice.call(this, stage);
       break;
+    case 'online-choice':
+      setupOnlineChoice.call(this, stage);
+      break;
     case 'watch':
       setupWatch.call(this, stage);
       break;
@@ -160,9 +163,23 @@ function loadStage() {
  * add a new summary icon.
  */
 function maybeAddSummaryIcon(stage) {
-  if (!stage.zone && stage.stage_type !== 'choice') return;  
+  if (!stage.zone && stage.stage_type !== 'choice' && stage.stage_type !== 'online-choice') return;  
   const t = stage.stage_type;
-  if (!['practice','play','watch','indicate','blind','choice'].includes(t)) return;
+  if (!['practice','play','watch','indicate','blind','choice','online-choice'].includes(t)) return;
+
+  // For online-choice, only add icon on the first play of each session
+  if (t === 'online-choice') {
+    // Check if this is the first time we're seeing this stage in this session
+    if (window.onlineChoiceState && window.onlineChoiceState.summaryIconAdded) {
+      // Already added an icon for this online-choice session, don't add again
+      return;
+    }
+    
+    // Mark that we've added the icon
+    if (window.onlineChoiceState) {
+      window.onlineChoiceState.summaryIconAdded = true;
+    }
+  }
 
   let imageKey = 'user';
   if (t === 'watch' || t === 'indicate') {
@@ -176,9 +193,16 @@ function maybeAddSummaryIcon(stage) {
 
   // For choice type, use a special format
   if (t === 'choice') {
+  summaryIcons.push({
+    imageKey: imageKey,
+      zone: 'Choice',
+      color: stage.zone && stage.zone.color ? stage.zone.color : '#888888'
+    });
+  } else if (t === 'online-choice') {
+    // For online-choice, use regular zone number
     summaryIcons.push({
       imageKey: imageKey,
-      zone: 'Choice',
+      zone: stage.zone && stage.zone.index ? stage.zone.index : 0,
       color: stage.zone && stage.zone.color ? stage.zone.color : '#888888'
     });
   } else {
@@ -231,7 +255,7 @@ function redrawSummaryBarDOM() {
     if (iconData.zone === 'Choice') {
       label.textContent = "Choice Zone";
     } else {
-      label.textContent = "Zone " + iconData.zone;
+    label.textContent = "Zone " + iconData.zone;
     }
     label.style.color = "#fff";
     label.style.marginTop = "4px";
@@ -310,7 +334,7 @@ function setupPlayOrPractice(stage, isPractice) {
 
   // Add zone labels
   addZoneLabels(this, stage.zone.index);
-  
+
   // zone background
   createZoneBackgroundMask.call(this, stage, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
 
@@ -368,13 +392,13 @@ function setupPlayOrPractice(stage, isPractice) {
           // Record outcome and update tank
           pullOutcomes.push(outcome);
           drawMarkerDot.call(this, gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC, outcome);
-          drawRewardTank.call(this, rewardTankContainer, num_arm_pulls, pullOutcomes);
+      drawRewardTank.call(this, rewardTankContainer, num_arm_pulls, pullOutcomes);
 
-          if (pullsRemaining <= 0) {
-            makeNextButton.call(this, "Next", () => {
-              nextStage.call(this);
-            });
-          }
+      if (pullsRemaining <= 0) {
+        makeNextButton.call(this, "Next", () => {
+          nextStage.call(this);
+        });
+      }
         }
       });
     }
@@ -454,22 +478,32 @@ function setupWatch(stage) {
   function startDemonstration() {
     let startPos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC);
     let dSprite = this.add.image(startPos.x, startPos.y, demoImageKey)
-      .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
-      .setDepth(9999)
-      .setOrigin(0.5);
+    .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
+    .setDepth(9999)
+    .setOrigin(0.5);
 
-    let currentStep = 0;
-    let totalSteps = trajectory.length;
+  let currentStep = 0;
+  let totalSteps = trajectory.length;
 
-    moveAlongTrajectoryStep.call(this);
+  moveAlongTrajectoryStep.call(this);
 
-    function moveAlongTrajectoryStep() {
-      if (currentStep >= totalSteps) {
-        makeNextButton.call(this, "Next", () => {
+  function moveAlongTrajectoryStep() {
+    if (currentStep >= totalSteps) {
+        // When demonstration is complete, show next button
+        const nextButton = this.add.text(
+          this.sys.game.config.width - 100,
+          this.sys.game.config.height - 40,
+          "Next",
+          { font: '18px Arial', fill: '#00ff00', backgroundColor: '#333', padding: 5 }
+        ).setOrigin(0.5).setInteractive();
+        
+        nextButton.on('pointerdown', () => {
+          // This is where the error happens - state isn't defined in regular watch mode
+          // Remove the online-choice specific code and just call nextStage
           nextStage.call(this);
         });
-        return;
-      }
+      return;
+    }
 
       let targetLinearIndex = trajectory[currentStep];
       let targetR = Math.floor(targetLinearIndex / numCols);
@@ -477,25 +511,25 @@ function setupWatch(stage) {
       
       let pathCells = getManhattanPath(currentR, currentC, targetR, targetC);
 
-      let index = 0;
-      let pathTimer = this.time.addEvent({
-        delay: 300,
-        repeat: pathCells.length - 1,
-        callback: () => {
-          let cell = pathCells[index];
+    let index = 0;
+    let pathTimer = this.time.addEvent({
+        delay: 600, // Increased from 300 to 600 (doubled)
+      repeat: pathCells.length - 1,
+      callback: () => {
+        let cell = pathCells[index];
           let pos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cell.r, cell.c);
-          dSprite.setPosition(pos.x, pos.y);
+        dSprite.setPosition(pos.x, pos.y);
           highlightCurrentCell(highlightRect, cell.r, cell.c, gridOriginX, gridOriginY, cellWidth, cellHeight);
 
-          index++;
-          if (index >= pathCells.length) {
-            pathTimer.remove();
+        index++;
+        if (index >= pathCells.length) {
+          pathTimer.remove();
             currentR = targetR;
             currentC = targetC;
 
             // Calculate outcome first
-            let payoff = bandit[currentR][currentC];
-            let outcome = (Math.random() < payoff) ? 1 : 0;
+          let payoff = bandit[currentR][currentC];
+          let outcome = (Math.random() < payoff) ? 1 : 0;
             
             // Create a simple flash effect (just one flash)
             let g = this.add.graphics();
@@ -519,13 +553,13 @@ function setupWatch(stage) {
                 drawMarkerDot.call(this, gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC, outcome);
                 drawRewardTank.call(this, rewardTankContainer, totalPulls, watchOutcomes);
 
-                currentStep++;
-                moveAlongTrajectoryStep.call(this);
+          currentStep++;
+          moveAlongTrajectoryStep.call(this);
               }
             });
-          }
         }
-      });
+      }
+    });
     }
   }
 }
@@ -589,22 +623,22 @@ function setupIndicate(stage) {
   function startDemonstration() {
     let startPos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC);
     let dSprite = this.add.image(startPos.x, startPos.y, demoImageKey)
-      .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
-      .setDepth(9999)
-      .setOrigin(0.5);
+    .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
+    .setDepth(9999)
+    .setOrigin(0.5);
 
-    let currentStep = 0;
-    let totalSteps = trajectory.length;
+  let currentStep = 0;
+  let totalSteps = trajectory.length;
 
-    moveAlongTrajectoryStep.call(this);
+  moveAlongTrajectoryStep.call(this);
 
-    function moveAlongTrajectoryStep() {
-      if (currentStep >= totalSteps) {
-        makeNextButton.call(this, "Next", () => {
-          nextStage.call(this);
-        });
-        return;
-      }
+  function moveAlongTrajectoryStep() {
+    if (currentStep >= totalSteps) {
+      makeNextButton.call(this, "Next", () => {
+        nextStage.call(this);
+      });
+      return;
+    }
 
       let targetLinearIndex = trajectory[currentStep];
       let targetR = Math.floor(targetLinearIndex / numCols);
@@ -612,18 +646,18 @@ function setupIndicate(stage) {
       
       let pathCells = getManhattanPath(currentR, currentC, targetR, targetC);
 
-      let index = 0;
-      let pathTimer = this.time.addEvent({
-        delay: 300,
-        repeat: pathCells.length - 1,
-        callback: () => {
-          let cell = pathCells[index];
+    let index = 0;
+    let pathTimer = this.time.addEvent({
+        delay: 600, // Increased from 300 to 600 (doubled)
+      repeat: pathCells.length - 1,
+      callback: () => {
+        let cell = pathCells[index];
           let pos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cell.r, cell.c);
-          dSprite.setPosition(pos.x, pos.y);
+        dSprite.setPosition(pos.x, pos.y);
 
-          index++;
-          if (index >= pathCells.length) {
-            pathTimer.remove();
+        index++;
+        if (index >= pathCells.length) {
+          pathTimer.remove();
 
             currentR = targetR;
             currentC = targetC;
@@ -631,29 +665,29 @@ function setupIndicate(stage) {
             // No mining tank updates in indicate mode
             
             // Create a more pronounced blinking highlight
-            let g = this.add.graphics();
-            g.fillStyle(HIGHLIGHT_COLOR, 1);
-            g.fillRect(
+          let g = this.add.graphics();
+          g.fillStyle(HIGHLIGHT_COLOR, 1);
+          g.fillRect(
               gridOriginX + currentC*(cellWidth + CELL_PADDING),
               gridOriginY + currentR*(cellHeight + CELL_PADDING),
               cellWidth, cellHeight
-            );
-            this.tweens.add({
-              targets: g,
-              alpha: 0.1,
-              duration: 300,
-              yoyo: true,
+          );
+          this.tweens.add({
+            targets: g,
+            alpha: 0.1,
+            duration: 300,
+            yoyo: true,
               repeat: 2, // More repeats for better visibility
-              onComplete: () => {
-                g.destroy();
-              }
-            });
+            onComplete: () => {
+              g.destroy();
+            }
+          });
 
-            currentStep++;
-            moveAlongTrajectoryStep.call(this);
-          }
+          currentStep++;
+          moveAlongTrajectoryStep.call(this);
         }
-      });
+      }
+    });
     }
   }
 }
@@ -1028,6 +1062,812 @@ function setupChoice(stage) {
   this.load.start();
 }
 
+/**
+ * ONLINE-CHOICE stage - manages play-choice-watch cycles
+ */
+function setupOnlineChoice(stage) {
+  console.log("Loading ONLINE-CHOICE stage");
+  console.log("Full stage data:", JSON.stringify(stage, null, 2));
+  
+  // Validate that we have all required data
+  if (!stage.zone || !stage.zone.bandit) {
+    console.error("Missing zone or bandit data for online-choice stage");
+    return;
+  }
+  
+  if (!stage.demonstrators || Object.keys(stage.demonstrators).length < 2) {
+    console.error("Missing or insufficient demonstrator data for online-choice stage");
+    return;
+  }
+  
+  if (!stage.rounds || !stage.num_arm_pulls_per_block || !stage.num_demonstrator_arm_pulls_per_block) {
+    console.error("Missing required parameters (rounds, pulls per block)");
+    return;
+  }
+  
+  // Store game state in a global object to persist across sub-stages
+  if (!window.onlineChoiceState) {
+    // Initialize state on first load
+    window.onlineChoiceState = {
+      currentRound: 1,
+      totalRounds: stage.rounds,
+      currentSubStage: "play", // "play", "choice", "watch", or "final-play"
+      chosenDemonstrator: null,
+      demoTrajectoryIndices: {}, // Will store indices for each demonstrator
+      demonstratorHistory: [],
+      // Create a map of demonstrator keys to letters (A, B, C, etc.)
+      demoLetters: {},
+      // Flag to track if summary icon has been added
+      summaryIconAdded: false
+    };
+    
+    // Assign letters to demonstrators (A, B, C, etc.)
+    const demoKeys = Object.keys(stage.demonstrators);
+    demoKeys.forEach((key, index) => {
+      window.onlineChoiceState.demoLetters[key] = String.fromCharCode(65 + index); // A, B, C, etc.
+      window.onlineChoiceState.demoTrajectoryIndices[key] = 0; // Initialize trajectory indices
+    });
+    
+    console.log("Initialized online choice state:", window.onlineChoiceState);
+  }
+  
+  const state = window.onlineChoiceState;
+  
+  // Handle each sub-stage
+  switch (state.currentSubStage) {
+    case "play":
+      console.log(`Starting PLAY sub-stage (Round ${state.currentRound} of ${state.totalRounds})`);
+      setupOnlineChoicePlay.call(this, stage);
+      break;
+    case "choice":
+      console.log(`Starting CHOICE sub-stage (Round ${state.currentRound} of ${state.totalRounds})`);
+      setupOnlineChoiceChoice.call(this, stage);
+      break;
+    case "watch":
+      console.log(`Starting WATCH sub-stage (Round ${state.currentRound} of ${state.totalRounds})`);
+      setupOnlineChoiceWatch.call(this, stage);
+      break;
+    case "final-play":
+      console.log(`Starting FINAL PLAY sub-stage (after Round ${state.totalRounds})`);
+      setupOnlineChoiceFinalPlay.call(this, stage);
+      break;
+  }
+}
+
+/**
+ * Play sub-stage for online-choice
+ */
+function setupOnlineChoicePlay(stage) {
+  const state = window.onlineChoiceState;
+  const bandit = stage.zone.bandit;
+  const num_arm_pulls = stage.num_arm_pulls_per_block;
+  
+  let numRows = bandit.length;
+  let numCols = bandit[0].length;
+  
+  // Check if this is the final play after all rounds
+  const isFinalPlay = state.currentRound === state.totalRounds && 
+                     state.demonstratorHistory.length >= state.totalRounds;
+  
+  console.log(`Loading ONLINE-CHOICE ${isFinalPlay ? 'FINAL ' : ''}PLAY with grid: ${numRows}x${numCols}`);
+  
+  // Use the larger fixed cell size 
+  let cellWidth = BASE_CELL_SIZE;
+  let cellHeight = BASE_CELL_SIZE;
+  
+  // Calculate total grid size based on fixed cell size
+  const totalGridWidth = numCols * cellWidth + (numCols - 1) * CELL_PADDING;
+  const totalGridHeight = numRows * cellHeight + (numRows - 1) * CELL_PADDING;
+  
+  // Center the grid in the full container width
+  const gridOriginX = (this.sys.game.config.width - totalGridWidth) / 2;
+  const gridOriginY = 100 + (400 - totalGridHeight) / 2;
+  const gridBottomY = gridOriginY + totalGridHeight;
+
+  // Add zone labels
+  addZoneLabels(this, stage.zone.index);
+  
+  // Show round information with final play indicator if applicable
+  const roundText = this.add.text(
+    this.sys.game.config.width / 2,
+    50,
+    isFinalPlay ? `Final Play (Round ${state.currentRound})` : `Round ${state.currentRound} of ${state.totalRounds}`,
+    { font: '20px Arial', fill: '#ffffff' }
+  ).setOrigin(0.5);
+  
+  // zone background
+  createZoneBackgroundMask.call(this, stage, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
+
+  // Reward tank
+  let pullOutcomes = [];
+  const tankX = gridOriginX + (totalGridWidth / 2);
+  const tankY = gridBottomY + TANK_MARGIN_TOP;
+  const rewardTankContainer = this.add.container(tankX, tankY);
+  drawRewardTank.call(this, rewardTankContainer, num_arm_pulls, pullOutcomes);
+
+  // user sprite
+  let cursorR = 0, cursorC = 0;
+  let { x: initX, y: initY } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, 0, 0);
+  let userSprite = this.add.image(initX, initY, 'user')
+    .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
+    .setDepth(9999)
+    .setOrigin(0.5);
+
+  // highlight rect
+  let highlightRect = createHighlightRect.call(this, cellWidth, cellHeight);
+  highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
+
+  let pullsRemaining = num_arm_pulls;
+  this.input.keyboard.on('keydown', (evt) => {
+    if (pullsRemaining <= 0) return;
+
+    let oldR = cursorR, oldC = cursorC;
+    if (evt.code === 'ArrowUp')    cursorR = Phaser.Math.Clamp(cursorR - 1, 0, numRows-1);
+    if (evt.code === 'ArrowDown')  cursorR = Phaser.Math.Clamp(cursorR + 1, 0, numRows-1);
+    if (evt.code === 'ArrowLeft')  cursorC = Phaser.Math.Clamp(cursorC - 1, 0, numCols-1);
+    if (evt.code === 'ArrowRight') cursorC = Phaser.Math.Clamp(cursorC + 1, 0, numCols-1);
+
+    if (evt.code === 'Space') {
+      pullsRemaining--;
+      let payoff = bandit[cursorR][cursorC];
+      let outcome = (Math.random() < payoff) ? 1 : 0;
+      
+      // Create a simple flash effect (just one flash)
+      let g = this.add.graphics();
+      g.fillStyle(HIGHLIGHT_COLOR, 1);
+      g.fillRect(
+        gridOriginX + cursorC*(cellWidth + CELL_PADDING),
+        gridOriginY + cursorR*(cellHeight + CELL_PADDING),
+        cellWidth, cellHeight
+      );
+      
+      // Fade out only to get a single flash
+      this.tweens.add({
+        targets: g,
+        alpha: 0,
+        duration: 400,
+        onComplete: () => {
+          g.destroy();
+          
+          // Record outcome and update tank
+          pullOutcomes.push(outcome);
+          drawMarkerDot.call(this, gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC, outcome);
+          drawRewardTank.call(this, rewardTankContainer, num_arm_pulls, pullOutcomes);
+
+          if (pullsRemaining <= 0) {
+            // Create next button
+            const nextButton = this.add.text(
+              this.sys.game.config.width - 100,
+              this.sys.game.config.height - 40,
+              "Next",
+              { font: '18px Arial', fill: '#00ff00', backgroundColor: '#333', padding: 5 }
+            ).setOrigin(0.5).setInteractive();
+            
+            nextButton.on('pointerdown', () => {
+              if (isFinalPlay) {
+                // If this is the final play after all rounds, move to next stage in timeline
+                window.onlineChoiceState = null; // Clear state
+                nextStage.call(this);
+              } else {
+                // Move to choice sub-stage
+                state.currentSubStage = "choice";
+                loadStage.call(this);
+              }
+            });
+          }
+        }
+      });
+    }
+
+    if (oldR !== cursorR || oldC !== cursorC) {
+      let { x, y } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
+      userSprite.setPosition(x, y);
+      highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
+    }
+  });
+}
+
+/**
+ * Choice sub-stage for online-choice
+ */
+function setupOnlineChoiceChoice(stage) {
+  const state = window.onlineChoiceState;
+  const zoneColor = stage.zone && stage.zone.color ? stage.zone.color : "#888888";
+  
+  console.log("Loading ONLINE-CHOICE CHOICE sub-stage");
+  
+  // Create title text
+  const titleText = this.add.text(
+    this.sys.game.config.width / 2,
+    100,
+    "Choose a partner to watch:",
+    { 
+      font: '28px Arial', 
+      fill: '#ffffff',
+      align: 'center'
+    }
+  ).setOrigin(0.5);
+  
+  // Show round information
+  const roundText = this.add.text(
+    this.sys.game.config.width / 2,
+    50,
+    `Round ${state.currentRound} of ${state.totalRounds}`,
+    { font: '20px Arial', fill: '#ffffff' }
+  ).setOrigin(0.5);
+  
+  // Create the demonstrator cells
+  const demonstrators = stage.demonstrators;
+  const demoKeys = Object.keys(demonstrators);
+  
+  // Configuration
+  const numDemonstrators = demoKeys.length;
+  const cellWidth = 150;
+  const cellHeight = 150;
+  const cellPadding = 100; // More padding for clearer separation
+  
+  // Calculate total grid width
+  const totalWidth = numDemonstrators * cellWidth + (numDemonstrators - 1) * cellPadding;
+  
+  // Position grid in center of screen
+  const gridX = (this.sys.game.config.width - totalWidth) / 2;
+  const gridY = 200;
+  
+  // Create cells for each demonstrator
+  const cells = [];
+  
+  for (let i = 0; i < demoKeys.length; i++) {
+    const demoKey = demoKeys[i];
+    const demo = demonstrators[demoKey];
+    const partnerLetter = state.demoLetters[demoKey]; // Get assigned letter (A, B, etc.)
+    
+    const x = gridX + i * (cellWidth + cellPadding) + cellWidth/2;
+    const y = gridY + cellHeight/2;
+    
+    // Create background
+    const cellBg = this.add.rectangle(
+      x, y,
+      cellWidth, cellHeight,
+      0x333333
+    ).setOrigin(0.5);
+    
+    // Create label with Partner + Letter
+    const label = this.add.text(
+      x,
+      gridY - 30,
+      `Partner ${partnerLetter}`,
+      { 
+        font: '18px Arial', 
+        fill: '#ffffff',
+        backgroundColor: '#333333',
+        padding: { x: 10, y: 5 }
+      }
+    ).setOrigin(0.5);
+    
+    // Load demonstrator image
+    const imageKey = `online_choice_${demoKey}`;
+    this.load.image(imageKey, `assets/demonstrators/${demo.image}`);
+    
+    cells.push({
+      key: demoKey,
+      letter: partnerLetter,
+      x,
+      y,
+      background: cellBg,
+      label,
+      imageKey
+    });
+  }
+  
+  // Once all images are loaded, create the demonstrator sprites
+  this.load.once('complete', () => {
+    // Add images to cells
+    for (let i = 0; i < cells.length; i++) {
+      const cell = cells[i];
+      cell.image = this.add.image(cell.x, cell.y, cell.imageKey).setOrigin(0.5);
+      
+      // Scale to fit
+      const scale = Math.min(
+        (cellWidth - 20) / cell.image.width,
+        (cellHeight - 20) / cell.image.height
+      );
+      cell.image.setScale(scale);
+    }
+    
+    // Add highlight for selection
+    const highlightRect = this.add.rectangle(
+      cells[0].x, cells[0].y,
+      cellWidth + 10, cellHeight + 10,
+      parseInt(zoneColor.replace('#', '0x')) || 0x888888
+    ).setOrigin(0.5).setAlpha(0.3);
+    
+    // User sprite below cells
+    const userY = gridY + cellHeight + 40;
+    let userX = cells[0].x;
+    let currentPosition = 0;
+    let selectedDemonstrator = null;
+    
+    // Add user sprite
+    const userSprite = this.add.image(userX, userY, 'user')
+      .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
+      .setDepth(9999)
+      .setOrigin(0.5);
+    
+    // Selection feedback text (initially hidden)
+    const feedbackText = this.add.text(
+      this.sys.game.config.width / 2,
+      gridY + cellHeight + 120,
+      "",
+      { 
+        font: '20px Arial', 
+        fill: '#4CAF50',
+        align: 'center',
+        backgroundColor: '#333333',
+        padding: { x: 15, y: 10 }
+      }
+    ).setOrigin(0.5).setVisible(false);
+    
+    // Listen for arrow keys and spacebar
+    this.input.keyboard.on('keydown', (evt) => {
+      // Only allow movement if not already selected
+      if (selectedDemonstrator !== null) return;
+      
+      let oldPosition = currentPosition;
+      
+      if (evt.code === 'ArrowLeft') {
+        currentPosition = Math.max(0, currentPosition - 1);
+      }
+      if (evt.code === 'ArrowRight') {
+        currentPosition = Math.min(cells.length - 1, currentPosition + 1);
+      }
+      
+      // If position changed, update user sprite and highlight
+      if (oldPosition !== currentPosition) {
+        userX = cells[currentPosition].x;
+        userSprite.setPosition(userX, userY);
+        highlightRect.setPosition(cells[currentPosition].x, cells[currentPosition].y);
+      }
+      
+      // Space to select
+      if (evt.code === 'Space') {
+        const demoKey = cells[currentPosition].key;
+        const partnerLetter = cells[currentPosition].letter;
+        
+        selectedDemonstrator = demoKey;
+        
+        // Store the selection
+        state.chosenDemonstrator = selectedDemonstrator;
+        state.demonstratorHistory.push(selectedDemonstrator);
+        
+        // Show selection feedback using Partner Letter
+        feedbackText.setText(`You selected Partner ${partnerLetter}`);
+        feedbackText.setVisible(true);
+        
+        // Highlight selected with stronger border
+        highlightRect.setStrokeStyle(4, parseInt(zoneColor.replace('#', '0x')) || 0x888888);
+        highlightRect.setAlpha(0.6);
+        
+        // Add next button
+        const nextButton = this.add.text(
+          this.sys.game.config.width - 100,
+          this.sys.game.config.height - 40,
+          "Next",
+          { font: '18px Arial', fill: '#00ff00', backgroundColor: '#333', padding: 5 }
+        ).setOrigin(0.5).setInteractive();
+        
+        nextButton.on('pointerdown', () => {
+          console.log(`Selected demonstrator: ${selectedDemonstrator} (Partner ${partnerLetter})`);
+          
+          // Move to watch sub-stage
+          state.currentSubStage = "watch";
+          loadStage.call(this);
+        });
+      }
+    });
+  });
+  
+  // Start loading the images
+  this.load.start();
+}
+
+/**
+ * Watch sub-stage for online-choice
+ */
+function setupOnlineChoiceWatch(stage) {
+  const state = window.onlineChoiceState;
+  const bandit = stage.zone.bandit;
+  const numPulls = stage.num_demonstrator_arm_pulls_per_block;
+  
+  let numRows = bandit.length;
+  let numCols = bandit[0].length;
+  
+  console.log(`Loading ONLINE-CHOICE WATCH with grid: ${numRows}x${numCols}`);
+  
+  // Get the selected demonstrator
+  const selectedDemoKey = state.chosenDemonstrator;
+  const selectedDemo = stage.demonstrators[selectedDemoKey];
+  const partnerLetter = state.demoLetters[selectedDemoKey]; // Get the letter (A, B, etc.)
+  
+  if (!selectedDemo) {
+    console.error("Selected demonstrator not found:", selectedDemoKey);
+    return;
+  }
+  
+  // Show which demonstrator is being shown (using Partner letter)
+  const demoTypeText = this.add.text(
+    this.sys.game.config.width / 2,
+    70,
+    `Watching Partner ${partnerLetter}`,
+    { font: '22px Arial', fill: '#ffffff' }
+  ).setOrigin(0.5);
+  
+  // Show round information
+  const roundText = this.add.text(
+    this.sys.game.config.width / 2,
+    30,
+    `Round ${state.currentRound} of ${state.totalRounds}`,
+    { font: '20px Arial', fill: '#ffffff' }
+  ).setOrigin(0.5);
+  
+  // Get the correct index for the demonstrator's trajectory
+  let trajectoryStartIndex = state.demoTrajectoryIndices[selectedDemoKey] || 0;
+  state.demoTrajectoryIndices[selectedDemoKey] = trajectoryStartIndex + numPulls;
+  
+  // Get the relevant portion of the trajectory
+  const trajectory = selectedDemo.trajectory.slice(trajectoryStartIndex, trajectoryStartIndex + numPulls);
+  console.log(`Using trajectory slice [${trajectoryStartIndex}:${trajectoryStartIndex + numPulls}]:`, trajectory);
+  
+  // If trajectory is too short, log warning but continue with what we have
+  if (trajectory.length < numPulls) {
+    console.warn(`Trajectory too short for demonstrator ${selectedDemoKey}. Using available portion.`);
+  }
+  
+  // Use the larger fixed cell size
+  let cellWidth = BASE_CELL_SIZE;
+  let cellHeight = BASE_CELL_SIZE;
+  
+  // Calculate total grid size based on fixed cell size
+  const totalGridWidth = numCols * cellWidth + (numCols - 1) * CELL_PADDING;
+  const totalGridHeight = numRows * cellHeight + (numRows - 1) * CELL_PADDING;
+  
+  // Center the grid in the full container width
+  const gridOriginX = (this.sys.game.config.width - totalGridWidth) / 2;
+  const gridOriginY = 100 + (400 - totalGridHeight) / 2;
+  const gridBottomY = gridOriginY + totalGridHeight;
+
+  // Add zone labels
+  addZoneLabels(this, stage.zone.index);
+  
+  // zone background
+  createZoneBackgroundMask.call(this, stage, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
+
+  // Keep reward tank for watch stages to show mining outcomes
+  let watchOutcomes = [];
+  const tankX = gridOriginX + (totalGridWidth / 2);
+  const tankY = gridBottomY + TANK_MARGIN_TOP;
+  const rewardTankContainer = this.add.container(tankX, tankY);
+  drawRewardTank.call(this, rewardTankContainer, trajectory.length, watchOutcomes);
+
+  let highlightRect = createHighlightRect.call(this, cellWidth, cellHeight);
+
+  // Convert first linear index to row,col
+  let currentLinearIndex = trajectory[0];
+  let currentR = Math.floor(currentLinearIndex / numCols);
+  let currentC = currentLinearIndex % numCols;
+  
+  // Load demonstrator image
+  const demoImageKey = `online_watch_${selectedDemoKey}`;
+  
+  if (!this.textures.exists(demoImageKey)) {
+    this.load.image(demoImageKey, `assets/demonstrators/${selectedDemo.image}`);
+    this.load.once('complete', () => {
+      startDemonstration.call(this);
+    });
+    this.load.start();
+  } else {
+    startDemonstration.call(this);
+  }
+  
+  function startDemonstration() {
+    let startPos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC);
+    let dSprite = this.add.image(startPos.x, startPos.y, demoImageKey)
+      .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
+      .setDepth(9999)
+      .setOrigin(0.5);
+
+    let currentStep = 0;
+    let totalSteps = trajectory.length;
+
+    moveAlongTrajectoryStep.call(this);
+
+    function moveAlongTrajectoryStep() {
+      if (currentStep >= totalSteps) {
+        // When demonstration is complete, show next button
+        const nextButton = this.add.text(
+          this.sys.game.config.width - 100,
+          this.sys.game.config.height - 40,
+          "Next",
+          { font: '18px Arial', fill: '#00ff00', backgroundColor: '#333', padding: 5 }
+        ).setOrigin(0.5).setInteractive();
+        
+        nextButton.on('pointerdown', () => {
+          // Always proceed to final play even with 1 round
+          // This is the end of a round, always go to play
+          state.currentSubStage = "play";
+          
+          // Check if we're at the last round
+          if (state.currentRound < state.totalRounds) {
+            // Not the last round, increment round counter
+            state.currentRound++;
+          } else {
+            // Last round, but we still do a final play
+            // The next play will end the game when finished
+            state.isFinalPlay = true;
+          }
+          
+          loadStage.call(this);
+        });
+        return;
+      }
+
+      let targetLinearIndex = trajectory[currentStep];
+      let targetR = Math.floor(targetLinearIndex / numCols);
+      let targetC = targetLinearIndex % numCols;
+      
+      let pathCells = getManhattanPath(currentR, currentC, targetR, targetC);
+
+      let index = 0;
+      let pathTimer = this.time.addEvent({
+        delay: 600, // Increased from 300 to 600 (doubled)
+        repeat: pathCells.length - 1,
+        callback: () => {
+          let cell = pathCells[index];
+          let pos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cell.r, cell.c);
+          dSprite.setPosition(pos.x, pos.y);
+          highlightCurrentCell(highlightRect, cell.r, cell.c, gridOriginX, gridOriginY, cellWidth, cellHeight);
+
+          index++;
+          if (index >= pathCells.length) {
+            pathTimer.remove();
+            currentR = targetR;
+            currentC = targetC;
+
+            // Calculate outcome
+            let payoff = bandit[currentR][currentC];
+            let outcome = (Math.random() < payoff) ? 1 : 0;
+            
+            // Create a simple flash effect (just one flash)
+            let g = this.add.graphics();
+            g.fillStyle(HIGHLIGHT_COLOR, 1);
+            g.fillRect(
+              gridOriginX + currentC*(cellWidth + CELL_PADDING),
+              gridOriginY + currentR*(cellHeight + CELL_PADDING),
+              cellWidth, cellHeight
+            );
+            
+            // Fade out only (NO YOYO!) to get a single flash
+            this.tweens.add({
+              targets: g,
+              alpha: 0,
+              duration: 400,
+              onComplete: () => {
+                g.destroy();
+                
+                // Record outcome and update tank
+                watchOutcomes.push(outcome);
+                drawMarkerDot.call(this, gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC, outcome);
+                drawRewardTank.call(this, rewardTankContainer, totalSteps, watchOutcomes);
+
+                currentStep++;
+                moveAlongTrajectoryStep.call(this);
+              }
+            });
+          }
+        }
+      });
+    }
+  }
+}
+
+/**
+ * FINAL PLAY sub-stage for online-choice
+ */
+function setupOnlineChoiceFinalPlay(stage) {
+  const state = window.onlineChoiceState;
+  const zoneColor = stage.zone && stage.zone.color ? stage.zone.color : "#888888";
+  
+  console.log("Loading ONLINE-CHOICE FINAL PLAY sub-stage");
+  
+  // Create title text
+  const titleText = this.add.text(
+    this.sys.game.config.width / 2,
+    100,
+    "Final Play:",
+    { 
+      font: '28px Arial', 
+      fill: '#ffffff',
+      align: 'center'
+    }
+  ).setOrigin(0.5);
+  
+  // Show round information
+  const roundText = this.add.text(
+    this.sys.game.config.width / 2,
+    50,
+    `Round ${state.totalRounds} of ${state.totalRounds}`,
+    { font: '20px Arial', fill: '#ffffff' }
+  ).setOrigin(0.5);
+  
+  // Create the demonstrator cells
+  const demonstrators = stage.demonstrators;
+  const demoKeys = Object.keys(demonstrators);
+  
+  // Configuration
+  const numDemonstrators = demoKeys.length;
+  const cellWidth = 150;
+  const cellHeight = 150;
+  const cellPadding = 100; // More padding for clearer separation
+  
+  // Calculate total grid width
+  const totalWidth = numDemonstrators * cellWidth + (numDemonstrators - 1) * cellPadding;
+  
+  // Position grid in center of screen
+  const gridX = (this.sys.game.config.width - totalWidth) / 2;
+  const gridY = 200;
+  
+  // Create cells for each demonstrator
+  const cells = [];
+  
+  for (let i = 0; i < demoKeys.length; i++) {
+    const demoKey = demoKeys[i];
+    const demo = demonstrators[demoKey];
+    
+    const x = gridX + i * (cellWidth + cellPadding) + cellWidth/2;
+    const y = gridY + cellHeight/2;
+    
+    // Create background
+    const cellBg = this.add.rectangle(
+      x, y,
+      cellWidth, cellHeight,
+      0x333333
+    ).setOrigin(0.5);
+    
+    // Create label with demonstrator type (expert/novice)
+    const labelText = demoKey.charAt(0).toUpperCase() + demoKey.slice(1); // Capitalize
+    const label = this.add.text(
+      x,
+      gridY - 30,
+      labelText,
+      { 
+        font: '18px Arial', 
+        fill: '#ffffff',
+        backgroundColor: '#333333',
+        padding: { x: 10, y: 5 }
+      }
+    ).setOrigin(0.5);
+    
+    // Load demonstrator image
+    const imageKey = `online_choice_${demoKey}`;
+    this.load.image(imageKey, `assets/demonstrators/${demo.image}`);
+    
+    cells.push({
+      key: demoKey,
+      x,
+      y,
+      background: cellBg,
+      label,
+      imageKey
+    });
+  }
+  
+  // Once all images are loaded, create the demonstrator sprites
+  this.load.once('complete', () => {
+    // Add images to cells
+    for (let i = 0; i < cells.length; i++) {
+      const cell = cells[i];
+      cell.image = this.add.image(cell.x, cell.y, cell.imageKey).setOrigin(0.5);
+      
+      // Scale to fit
+      const scale = Math.min(
+        (cellWidth - 20) / cell.image.width,
+        (cellHeight - 20) / cell.image.height
+      );
+      cell.image.setScale(scale);
+    }
+    
+    // Add highlight for selection
+    const highlightRect = this.add.rectangle(
+      cells[0].x, cells[0].y,
+      cellWidth + 10, cellHeight + 10,
+      parseInt(zoneColor.replace('#', '0x')) || 0x888888
+    ).setOrigin(0.5).setAlpha(0.3);
+    
+    // User sprite below cells
+    const userY = gridY + cellHeight + 40;
+    let userX = cells[0].x;
+    let currentPosition = 0;
+    let selectedDemonstrator = null;
+    
+    // Add user sprite
+    const userSprite = this.add.image(userX, userY, 'user')
+      .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
+      .setDepth(9999)
+      .setOrigin(0.5);
+    
+    // Selection feedback text (initially hidden)
+    const feedbackText = this.add.text(
+      this.sys.game.config.width / 2,
+      gridY + cellHeight + 120,
+      "",
+      { 
+        font: '20px Arial', 
+        fill: '#4CAF50',
+        align: 'center',
+        backgroundColor: '#333333',
+        padding: { x: 15, y: 10 }
+      }
+    ).setOrigin(0.5).setVisible(false);
+    
+    // Listen for arrow keys and spacebar
+    this.input.keyboard.on('keydown', (evt) => {
+      // Only allow movement if not already selected
+      if (selectedDemonstrator !== null) return;
+      
+      let oldPosition = currentPosition;
+      
+      if (evt.code === 'ArrowLeft') {
+        currentPosition = Math.max(0, currentPosition - 1);
+      }
+      if (evt.code === 'ArrowRight') {
+        currentPosition = Math.min(cells.length - 1, currentPosition + 1);
+      }
+      
+      // If position changed, update user sprite and highlight
+      if (oldPosition !== currentPosition) {
+        userX = cells[currentPosition].x;
+        userSprite.setPosition(userX, userY);
+        highlightRect.setPosition(cells[currentPosition].x, cells[currentPosition].y);
+      }
+      
+      // Space to select
+      if (evt.code === 'Space') {
+        selectedDemonstrator = cells[currentPosition].key;
+        
+        // Store the selection
+        state.chosenDemonstrator = selectedDemonstrator;
+        state.demonstratorHistory.push(selectedDemonstrator);
+        
+        // Show selection feedback
+        feedbackText.setText(`You selected: ${selectedDemonstrator}`);
+        feedbackText.setVisible(true);
+        
+        // Highlight selected with stronger border
+        highlightRect.setStrokeStyle(4, parseInt(zoneColor.replace('#', '0x')) || 0x888888);
+        highlightRect.setAlpha(0.6);
+        
+        // Add next button
+        const nextButton = this.add.text(
+          this.sys.game.config.width - 100,
+          this.sys.game.config.height - 40,
+          "Next",
+          { font: '18px Arial', fill: '#00ff00', backgroundColor: '#333', padding: 5 }
+        ).setOrigin(0.5).setInteractive();
+        
+        nextButton.on('pointerdown', () => {
+          console.log(`Selected demonstrator: ${selectedDemonstrator}`);
+          
+          // Move to watch sub-stage
+          state.currentSubStage = "watch";
+          loadStage.call(this);
+        });
+      }
+    });
+  });
+  
+  // Start loading the images
+  this.load.start();
+}
+
 /************************************************
  * Utility
  ************************************************/
@@ -1066,7 +1906,7 @@ function nextStage() {
   const nextStage = timelineData.timeline[currentSessionIndex][currentStageIndex];
   
   // Check if it's a gameplay stage that needs a transition overlay
-  const gameplayStages = ['practice', 'play', 'watch', 'indicate', 'blind', 'choice'];
+  const gameplayStages = ['practice', 'play', 'watch', 'indicate', 'blind', 'choice', 'online-choice'];
   if (gameplayStages.includes(nextStage.stage_type)) {
     // Show the transition overlay
     showTransitionOverlay(this, nextStage, () => {
@@ -1075,7 +1915,7 @@ function nextStage() {
     });
   } else {
     // For non-gameplay stages, just load directly
-    loadStage.call(this);
+  loadStage.call(this);
   }
 }
 
@@ -1233,7 +2073,7 @@ function createLandscapeBackground(landscapeKey, gridX, gridY, numRows, numCols,
   let zoneBg = this.add.image(gridX, gridY, landscapeKey)
     .setOrigin(0, 0)
     .setDepth(1);
-    
+
   // Create mask for all cells
   let maskGraphics = this.add.graphics({ x: 0, y: 0 });
   maskGraphics.fillStyle(0xffffff, 1);
@@ -1487,13 +2327,16 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
     case 'play': buttonText = 'Play'; break;
     case 'blind': buttonText = 'Play'; break; // Use "Play" for blind too
     case 'choice': buttonText = 'Choose'; break; // Add "Choose" for choice game
+    case 'online-choice': buttonText = 'Start'; break; // Add "Start" for online-choice
     case 'watch': buttonText = 'Watch'; break;
     case 'indicate': buttonText = 'Watch'; break; // Indicate also uses "Watch"
     default: buttonText = 'Next';
   }
   
-  // Get the overlay message
-  const message = nextStage["overlay-message"] || `Get ready to ${buttonText.toLowerCase()}!`;
+  // Get the overlay message - check both at top level and in zone
+  const message = nextStage["overlay-message"] || 
+                 (nextStage.zone && nextStage.zone["overlay-message"]) || 
+                 `Get ready to ${buttonText.toLowerCase()}!`;
   
   // Add the message text
   const messageText = scene.add.text(
@@ -1530,6 +2373,9 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
     // For choice game, use a special zone display
     if (stageType === 'choice') {
       createChoiceZoneIcon(scene, zoneColor || '#888888');
+    } else if (stageType === 'online-choice') {
+      // For online-choice, also use the user.png image
+      createOnlineChoiceZoneIcon(scene, zoneColor || '#888888', zoneIndex);
     } else {
       // Create a single icon similar to the summary bar items
       createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneIndex);
@@ -1537,6 +2383,123 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   } else if (stageType === 'choice') {
     // Fallback for choice with no zone
     createChoiceZoneIcon(scene, '#888888');
+  } else if (stageType === 'online-choice') {
+    // Fallback for online-choice with no zone
+    createOnlineChoiceZoneIcon(scene, '#888888', 0);
+  }
+  
+  // Special function for online-choice zone icon
+  function createOnlineChoiceZoneIcon(scene, zoneColor, zoneIndex) {
+    console.log("Creating online-choice zone icon");
+    
+    // Convert color string to hex number - handle both named colors and hex codes
+    let colorHex;
+    
+    // Color name to hex mapping
+    const colorMap = {
+        'red': 0xFF0000,
+        'green': 0x00FF00,
+        'blue': 0x0000FF,
+        'yellow': 0xFFFF00,
+        'purple': 0x800080,
+        'orange': 0xFFA500,
+        'black': 0x000000,
+        'white': 0xFFFFFF,
+        'gray': 0x808080,
+        'grey': 0x808080,
+        'cyan': 0x00FFFF,
+        'magenta': 0xFF00FF,
+        'brown': 0xA52A2A,
+        'pink': 0xFFC0CB
+    };
+    
+    // Check if it's a named color or hex code
+    if (zoneColor.startsWith('#')) {
+        // It's a hex code, convert it to a number
+        colorHex = parseInt(zoneColor.replace('#', '0x'));
+    } else {
+        // It's a named color, look it up in our map
+        colorHex = colorMap[zoneColor.toLowerCase()] || 0xFF0000; // Default to red if not found
+    }
+    
+    console.log(`Online-choice zone color: ${zoneColor}, hex: ${colorHex}`);
+    
+    // Create dimensions for the icon
+    const iconWidth = 140;
+    const iconHeight = 160;
+    const borderThickness = 10;
+    
+    // Create a container at the center of the screen
+    const container = scene.add.container(scene.sys.game.config.width / 2, 300);
+    
+    // Create a graphics object for drawing the border
+    const border = scene.add.graphics();
+    
+    // Set fill style to zone color
+    border.fillStyle(colorHex, 1);
+    
+    // Draw the outer rectangle (this is the border)
+    border.fillRect(
+        -iconWidth/2 - borderThickness, 
+        -iconHeight/2 - borderThickness, 
+        iconWidth + borderThickness*2, 
+        iconHeight + borderThickness*2
+    );
+    
+    // Set fill style to dark background
+    border.fillStyle(0x222222, 1);
+    
+    // Draw the inner rectangle (creates border effect)
+    border.fillRect(
+        -iconWidth/2, 
+        -iconHeight/2, 
+        iconWidth, 
+        iconHeight
+    );
+    
+    // Add the graphics to the container
+    container.add(border);
+    
+    // Make sure the user image is loaded
+    if (!scene.textures.exists('user')) {
+        scene.load.image('user', 'assets/user.png');
+        scene.load.once('complete', () => {
+            addUserImage();
+        });
+        scene.load.start();
+    } else {
+        addUserImage();
+    }
+    
+    function addUserImage() {
+        // Add the player image
+        const playerImage = scene.add.image(
+            0,
+            -20,
+            'user'
+        );
+        
+        // Debug the user image
+        console.log("Adding user image for online-choice:", playerImage);
+        
+        // Scale image to fit
+        const imageSize = 80;
+        const scale = Math.min(
+            imageSize / playerImage.width,
+            imageSize / playerImage.height
+        );
+        playerImage.setScale(scale);
+        container.add(playerImage);
+        
+        // Add zone text
+        const zoneText = scene.add.text(
+            0,
+            50,
+            `Zone ${zoneIndex}`,
+            { font: '20px Arial', fill: '#ffffff' }
+        ).setOrigin(0.5);
+        container.add(zoneText);
+    }
   }
   
   // Special function to create the choice zone icon
@@ -1631,7 +2594,7 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
         );
         
         // Debug the user image
-        console.log("Adding user image:", playerImage);
+        console.log("Adding user image for choice:", playerImage);
         
         // Scale image to fit
         const imageSize = 80;
@@ -1818,3 +2781,117 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
         container.add(playerImage);
     }
 }
+
+// Special function to create the choice zone icon
+function createChoiceZoneIcon(scene, zoneColor) {
+    console.log("Creating choice zone icon");
+    
+    // Convert color string to hex number - handle both named colors and hex codes
+    let colorHex;
+    
+    // Color name to hex mapping
+    const colorMap = {
+        'red': 0xFF0000,
+        'green': 0x00FF00,
+        'blue': 0x0000FF,
+        'yellow': 0xFFFF00,
+        'purple': 0x800080,
+        'orange': 0xFFA500,
+        'black': 0x000000,
+        'white': 0xFFFFFF,
+        'gray': 0x808080,
+        'grey': 0x808080,
+        'cyan': 0x00FFFF,
+        'magenta': 0xFF00FF,
+        'brown': 0xA52A2A,
+        'pink': 0xFFC0CB
+    };
+    
+    // Check if it's a named color or hex code
+    if (zoneColor.startsWith('#')) {
+        // It's a hex code, convert it to a number
+        colorHex = parseInt(zoneColor.replace('#', '0x'));
+    } else {
+        // It's a named color, look it up in our map
+        colorHex = colorMap[zoneColor.toLowerCase()] || 0xFF0000; // Default to red if not found
+    }
+    
+    console.log(`Choice zone color: ${zoneColor}, hex: ${colorHex}`);
+    
+    // Create dimensions for the icon
+    const iconWidth = 140;
+    const iconHeight = 160;
+    const borderThickness = 10;
+    
+    // Create a container at the center of the screen
+    const container = scene.add.container(scene.sys.game.config.width / 2, 300);
+    
+    // Create a graphics object for drawing the border
+    const border = scene.add.graphics();
+    
+    // Set fill style to zone color
+    border.fillStyle(colorHex, 1);
+    
+    // Draw the outer rectangle (this is the border)
+    border.fillRect(
+        -iconWidth/2 - borderThickness, 
+        -iconHeight/2 - borderThickness, 
+        iconWidth + borderThickness*2, 
+        iconHeight + borderThickness*2
+    );
+    
+    // Set fill style to dark background
+    border.fillStyle(0x222222, 1);
+    
+    // Draw the inner rectangle (creates border effect)
+    border.fillRect(
+        -iconWidth/2, 
+        -iconHeight/2, 
+        iconWidth, 
+        iconHeight
+    );
+    
+    // Add the graphics to the container
+    container.add(border);
+    
+    // Make sure the user image is loaded
+    if (!scene.textures.exists('user')) {
+        scene.load.image('user', 'assets/user.png');
+        scene.load.once('complete', () => {
+            addUserImage();
+        });
+        scene.load.start();
+    } else {
+        addUserImage();
+    }
+    
+    function addUserImage() {
+        // Add the player image
+        const playerImage = scene.add.image(
+            0,
+            -20,
+            'user'
+        );
+        
+        // Debug the user image
+        console.log("Adding user image for choice:", playerImage);
+        
+        // Scale image to fit
+        const imageSize = 80;
+        const scale = Math.min(
+            imageSize / playerImage.width,
+            imageSize / playerImage.height
+        );
+        playerImage.setScale(scale);
+        container.add(playerImage);
+        
+        // Add custom zone text
+        const zoneText = scene.add.text(
+            0,
+            50,
+            "Choice Zone",
+            { font: '20px Arial', fill: '#ffffff' }
+        ).setOrigin(0.5);
+        container.add(zoneText);
+    }
+  }
