@@ -19,7 +19,8 @@
                     "color": "green",
                     "mode": "landscape",
                     "bandit": [[0.45, 0.55, 0.65, 0.75, 0.85, 0.95, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95]], 
-                    "images": ["landscape_00.png"]
+                    "images": ["landscape_00.png"],
+                    "overlay-message": "This is a practice stage. You can pull the arm as many times as you want."
                 }
             }
         ],
@@ -33,7 +34,8 @@
                     "color": "red",
                     "mode": "asteroid",
                     "bandit": [[0.21, 0.87, 0.34, 0.48, 0.95, 0.67, 0.23, 0.44, 0.56, 0.29, 0.72, 0.85]], 
-                    "images": ["asteroid_01.png", "asteroid_02.png", "asteroid_03.png", "asteroid_04.png", "asteroid_05.png", "asteroid_06.png", "asteroid_07.png", "asteroid_08.png", "asteroid_09.png", "asteroid_10.png", "asteroid_11.png", "asteroid_12.png"]
+                    "images": ["asteroid_01.png", "asteroid_02.png", "asteroid_03.png", "asteroid_04.png", "asteroid_05.png", "asteroid_06.png", "asteroid_07.png", "asteroid_08.png", "asteroid_09.png", "asteroid_10.png", "asteroid_11.png", "asteroid_12.png"],
+                    "overlay-message": "You will now play the game. Pull the arm to collect asteroids. The more asteroids you collect, the more points you will earn."
                 }
             },
             {
@@ -49,7 +51,8 @@
                     "color": "red", 
                     "mode": "asteroid",
                     "bandit": [[0.21, 0.87, 0.34, 0.48, 0.95, 0.67, 0.23, 0.44, 0.56, 0.29, 0.72, 0.85]], 
-                    "images": ["asteroid_01.png", "asteroid_02.png", "asteroid_03.png", "asteroid_04.png", "asteroid_05.png", "asteroid_06.png", "asteroid_07.png", "asteroid_08.png", "asteroid_09.png", "asteroid_10.png", "asteroid_11.png", "asteroid_12.png"]
+                    "images": ["asteroid_01.png", "asteroid_02.png", "asteroid_03.png", "asteroid_04.png", "asteroid_05.png", "asteroid_06.png", "asteroid_07.png", "asteroid_08.png", "asteroid_09.png", "asteroid_10.png", "asteroid_11.png", "asteroid_12.png"],
+                    "overlay-message": "You will now watch a demonstration of the game. The demonstrator will pull the arm and collect asteroids. You can watch as many times as you want."
                 }
             },
             {   
@@ -65,7 +68,8 @@
                     "color": "blue",
                     "mode": "asteroid",
                     "bandit": [[0.37, 0.65, 0.32, 0.14, 0.26, 0.71, 0.83, 0.49, 0.78, 0.56, 0.23, 0.44]], 
-                    "images": ["asteroid_11.png", "asteroid_12.png", "asteroid_13.png", "asteroid_14.png", "asteroid_15.png", "asteroid_16.png", "asteroid_17.png", "asteroid_18.png", "asteroid_19.png", "asteroid_20.png", "asteroid_21.png", "asteroid_22.png"]
+                    "images": ["asteroid_11.png", "asteroid_12.png", "asteroid_13.png", "asteroid_14.png", "asteroid_15.png", "asteroid_16.png", "asteroid_17.png", "asteroid_18.png", "asteroid_19.png", "asteroid_20.png", "asteroid_21.png", "asteroid_22.png"],
+                    "overlay-message": "You will now watch a demonstration of the game. The demonstrator will however only indicate which arms it thinks are the best to pull."
                 }
             },
             {
@@ -77,7 +81,8 @@
                     "color": "blue",
                     "mode": "asteroid",
                     "bandit": [[0.37, 0.65, 0.32, 0.14, 0.26, 0.71, 0.83, 0.49, 0.78, 0.56, 0.23, 0.44]], 
-                    "images": ["asteroid_11.png", "asteroid_12.png", "asteroid_13.png", "asteroid_14.png", "asteroid_15.png", "asteroid_16.png", "asteroid_17.png", "asteroid_18.png", "asteroid_19.png", "asteroid_20.png", "asteroid_21.png", "asteroid_22.png"]
+                    "images": ["asteroid_11.png", "asteroid_12.png", "asteroid_13.png", "asteroid_14.png", "asteroid_15.png", "asteroid_16.png", "asteroid_17.png", "asteroid_18.png", "asteroid_19.png", "asteroid_20.png", "asteroid_21.png", "asteroid_22.png"],
+                    "overlay-message": "You will now play the game again. Remember, the more asteroids you collect, the more points you will earn."
                 }
             }
         ]

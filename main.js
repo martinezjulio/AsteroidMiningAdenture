@@ -73,9 +73,7 @@ function update(time, delta) {
 
 /****************************************************
  * loadStage():
- * Moves to the current stage. Also updates summary
- * icons if it's a practice/play/watch/indicate stage,
- * and sets a random color border on #game-container.
+ * Loads and sets up the current stage based on session and stage indices.
  ****************************************************/
 function loadStage() {
   if (!timelineData) return;
@@ -89,7 +87,7 @@ function loadStage() {
   // Check if we've reached the end of current session
   const currentSession = timelineData.timeline[currentSessionIndex];
   if (currentStageIndex >= currentSession.length) {
-    // Move to next session
+    // This should be handled by nextStage now, but just in case
     currentSessionIndex++;
     currentStageIndex = 0;
     
@@ -247,8 +245,6 @@ function setupProlificIdForm(stage) {
 }
 
 function setupIntroduction(stage) {
-  alert("Introduction stage: click Next to proceed.");
-
   this.add.text(
     this.sys.game.config.width/2,
     this.sys.game.config.height/2,
@@ -647,7 +643,38 @@ function setupIndicate(stage) {
  ************************************************/
 function nextStage() {
   currentStageIndex++;
-  loadStage.call(this);
+  
+  // Check if we need to move to the next session or if we're at the end
+  if (currentSessionIndex >= timelineData.timeline.length) {
+    showEndOfGameMessage.call(this);
+    return;
+  }
+  
+  if (currentStageIndex >= timelineData.timeline[currentSessionIndex].length) {
+    currentSessionIndex++;
+    currentStageIndex = 0;
+    
+    if (currentSessionIndex >= timelineData.timeline.length) {
+      showEndOfGameMessage.call(this);
+      return;
+    }
+  }
+  
+  // Get the next stage
+  const nextStage = timelineData.timeline[currentSessionIndex][currentStageIndex];
+  
+  // Check if it's a gameplay stage that needs a transition overlay
+  const gameplayStages = ['practice', 'play', 'watch', 'indicate'];
+  if (gameplayStages.includes(nextStage.stage_type)) {
+    // Show the transition overlay
+    showTransitionOverlay(this, nextStage, () => {
+      // This callback runs when the user clicks the button
+      loadStage.call(this);
+    });
+  } else {
+    // For non-gameplay stages, just load directly
+    loadStage.call(this);
+  }
 }
 
 function showEndOfGameMessage() {
@@ -1028,4 +1055,240 @@ function addZoneLabels(scene, zoneIndex) {
     labelText, 
     { font: '16px Arial', fill: '#ffffff', backgroundColor: '#000000', padding: { x: 5, y: 2 } }
   ).setOrigin(1, 1).setDepth(10000);
+}
+
+/**
+ * Shows a transition overlay before starting a gameplay stage.
+ * @param {object} scene - The Phaser scene
+ * @param {object} nextStage - The stage that will be shown next
+ * @param {function} startCallback - Function to call when the user clicks the button
+ */
+function showTransitionOverlay(scene, nextStage, startCallback) {
+  // Clear existing scene elements
+  scene.children.removeAll();
+  
+  // Add a semi-transparent overlay background
+  const overlay = scene.add.rectangle(
+    0, 0, 
+    scene.sys.game.config.width, 
+    scene.sys.game.config.height, 
+    0x000000, 0.85
+  );
+  overlay.setOrigin(0, 0);
+  
+  // Get stage type and set button text accordingly
+  const stageType = nextStage.stage_type;
+  let buttonText;
+  
+  switch(stageType) {
+    case 'practice': buttonText = 'Practice'; break;
+    case 'play': buttonText = 'Play'; break;
+    case 'watch': buttonText = 'Watch'; break;
+    case 'indicate': buttonText = 'Watch'; break; // Indicate also uses "Watch"
+    default: buttonText = 'Next';
+  }
+  
+  // Get the overlay message
+  const message = nextStage["overlay-message"] || `Get ready to ${buttonText.toLowerCase()}!`;
+  
+  // Add the message text
+  const messageText = scene.add.text(
+    scene.sys.game.config.width / 2,
+    150,
+    message,
+    { 
+      font: '24px Arial', 
+      fill: '#ffffff',
+      align: 'center',
+      wordWrap: { width: 600 }
+    }
+  ).setOrigin(0.5);
+  
+  // Update the game container border color immediately to match the next stage's zone
+  if (nextStage.zone && nextStage.zone.color) {
+    const zoneColor = nextStage.zone.color;
+    const gameContainer = document.getElementById('game-container');
+    if (gameContainer) {
+      gameContainer.style.border = `10px solid ${zoneColor}`;
+      console.log(`Updated game container border to ${zoneColor}`);
+    }
+  }
+  
+  // Create the button early so it always appears
+  createButton();
+  
+  // Get zone info
+  const zone = nextStage.zone;
+  if (zone) {
+    const zoneColor = zone.color || '#ffffff';
+    const zoneIndex = zone.index;
+    
+    // Create a single icon similar to the summary bar items
+    createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneIndex);
+  }
+  
+  // Create a summary-style icon (similar to the summary bar)
+  function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneIndex) {
+    console.log(`Creating summary icon with zone color: ${zoneColor}`);
+    
+    // Convert color string to hex number - handle both named colors and hex codes
+    let colorHex;
+    
+    // Color name to hex mapping
+    const colorMap = {
+        'red': 0xFF0000,
+        'green': 0x00FF00,
+        'blue': 0x0000FF,
+        'yellow': 0xFFFF00,
+        'purple': 0x800080,
+        'orange': 0xFFA500,
+        'black': 0x000000,
+        'white': 0xFFFFFF,
+        'gray': 0x808080,
+        'grey': 0x808080,
+        'cyan': 0x00FFFF,
+        'magenta': 0xFF00FF,
+        'brown': 0xA52A2A,
+        'pink': 0xFFC0CB
+    };
+    
+    // Check if it's a named color or hex code
+    if (zoneColor.startsWith('#')) {
+        // It's a hex code, convert it to a number
+        colorHex = parseInt(zoneColor.replace('#', '0x'));
+    } else {
+        // It's a named color, look it up in our map
+        colorHex = colorMap[zoneColor.toLowerCase()] || 0xFF0000; // Default to red if not found
+    }
+    
+    console.log(`Converted color hex: 0x${colorHex.toString(16).padStart(6, '0').toUpperCase()}`);
+    
+    // Create dimensions for the icon
+    const iconWidth = 140;
+    const iconHeight = 160;
+    const borderThickness = 10;
+    
+    // Create a container at the center of the screen
+    const container = scene.add.container(scene.sys.game.config.width / 2, 300);
+    
+    // Create a graphics object for drawing the border
+    const border = scene.add.graphics();
+    
+    // Set fill style to zone color
+    border.fillStyle(colorHex, 1);
+    
+    // Draw the outer rectangle (this is the border)
+    border.fillRect(
+        -iconWidth/2 - borderThickness, 
+        -iconHeight/2 - borderThickness, 
+        iconWidth + borderThickness*2, 
+        iconHeight + borderThickness*2
+    );
+    
+    // Set fill style to dark background
+    border.fillStyle(0x222222, 1);
+    
+    // Draw the inner rectangle (creates border effect)
+    border.fillRect(
+        -iconWidth/2, 
+        -iconHeight/2, 
+        iconWidth, 
+        iconHeight
+    );
+    
+    // Add the graphics to the container
+    container.add(border);
+    
+    // Determine and load the appropriate player image
+    let playerImageKey;
+    if (stageType === 'practice' || stageType === 'play') {
+        playerImageKey = 'user';
+        addPlayerImageToContainer(playerImageKey);
+    } else if (stageType === 'watch' || stageType === 'indicate') {
+        if (nextStage.demonstrator && nextStage.demonstrator.image) {
+            playerImageKey = `demonstrator_${nextStage.demonstrator.index}`;
+            if (!scene.textures.exists(playerImageKey)) {
+                scene.load.image(playerImageKey, `assets/demonstrators/${nextStage.demonstrator.image}`);
+                scene.load.once('complete', () => {
+                    addPlayerImageToContainer(playerImageKey);
+                });
+                scene.load.start();
+            } else {
+                addPlayerImageToContainer(playerImageKey);
+            }
+        } else {
+            playerImageKey = 'user';
+            addPlayerImageToContainer(playerImageKey);
+        }
+    }
+    
+    // Add zone text below the image
+    const zoneText = scene.add.text(
+        0,
+        iconHeight/2 - 40,
+        `Zone ${zoneIndex}`,
+        { 
+            font: '20px Arial', 
+            fill: '#ffffff',
+            align: 'center' 
+        }
+    ).setOrigin(0.5);
+    container.add(zoneText);
+    
+    function addPlayerImageToContainer(imageKey) {
+        // Add player image centered and slightly above center
+        const playerImage = scene.add.image(
+            0,
+            -20,
+            imageKey
+        );
+        
+        // Scale the image to match summary bar style
+        const imageSize = 80;
+        const scale = Math.min(
+            imageSize / playerImage.width,
+            imageSize / playerImage.height
+        );
+        
+        playerImage.setScale(scale);
+        container.add(playerImage);
+    }
+  }
+  
+  // Create the button
+  function createButton() {
+    const buttonWidth = 200;
+    const buttonHeight = 50;
+    
+    const button = scene.add.rectangle(
+      scene.sys.game.config.width / 2,
+      scene.sys.game.config.height - 100,
+      buttonWidth,
+      buttonHeight,
+      0x4CAF50
+    ).setInteractive();
+    
+    const buttonLabel = scene.add.text(
+      scene.sys.game.config.width / 2,
+      scene.sys.game.config.height - 100,
+      buttonText,
+      { font: '20px Arial', fill: '#ffffff' }
+    ).setOrigin(0.5);
+    
+    // Button hover effects
+    button.on('pointerover', () => {
+      button.setFillStyle(0x45a049); // Darker shade when hovered
+      scene.game.canvas.style.cursor = 'pointer';
+    });
+    
+    button.on('pointerout', () => {
+      button.setFillStyle(0x4CAF50); // Original color
+      scene.game.canvas.style.cursor = 'default';
+    });
+    
+    // Button click
+    button.on('pointerdown', () => {
+      if (startCallback) startCallback();
+    });
+  }
 }
