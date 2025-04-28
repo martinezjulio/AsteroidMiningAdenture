@@ -39,6 +39,19 @@
                 }
             },
             {
+                "stage_type": "blind",
+                "num_arm_pulls": 24,
+                "demonstrator": null,
+                "zone": {
+                    "index": 0,
+                    "color": "green",
+                    "mode": "asteroid",
+                    "bandit": [[0.21, 0.87, 0.34, 0.48, 0.95, 0.67, 0.23, 0.44, 0.56, 0.29, 0.72, 0.85]], 
+                    "images": ["asteroid_01.png", "asteroid_02.png", "asteroid_03.png", "asteroid_04.png", "asteroid_05.png", "asteroid_06.png", "asteroid_07.png", "asteroid_08.png", "asteroid_09.png", "asteroid_10.png", "asteroid_11.png", "asteroid_12.png"],
+                    "overlay-message": "This is a blind game. You will play the game however you will not be able to see any reward outcomes from your choices."
+                }
+            },
+            {
                 "stage_type": "watch",
                 "num_arm_pulls": null,
                 "demonstrator": {

@@ -130,6 +130,9 @@ function loadStage() {
     case 'play':
       setupPlayOrPractice.call(this, stage, false);
       break;
+    case 'blind':
+      setupBlind.call(this, stage);
+      break;
     case 'watch':
       setupWatch.call(this, stage);
       break;
@@ -156,7 +159,7 @@ function loadStage() {
 function maybeAddSummaryIcon(stage) {
   if (!stage.zone) return;  
   const t = stage.stage_type;
-  if (!['practice','play','watch','indicate'].includes(t)) return;
+  if (!['practice','play','watch','indicate','blind'].includes(t)) return;
 
   let imageKey = 'user';
   if (t === 'watch' || t === 'indicate') {
@@ -638,6 +641,121 @@ function setupIndicate(stage) {
   }
 }
 
+/**
+ * BLIND stage - like play but without showing outcomes
+ */
+function setupBlind(stage) {
+  if (!stage.zone || !stage.zone.bandit) {
+    console.error("Missing zone or bandit data");
+    return;
+  }
+  
+  const bandit = stage.zone.bandit;
+  const num_arm_pulls = stage.num_arm_pulls;
+  
+  let numRows = bandit.length;
+  let numCols = bandit[0].length;
+  
+  // Debug log to check dimensions
+  console.log(`Loading BLIND with grid: ${numRows}x${numCols}`);
+  
+  // Use the larger fixed cell size 
+  let cellWidth = BASE_CELL_SIZE;
+  let cellHeight = BASE_CELL_SIZE;
+  
+  // Calculate total grid size based on fixed cell size
+  const totalGridWidth = numCols * cellWidth + (numCols - 1) * CELL_PADDING;
+  const totalGridHeight = numRows * cellHeight + (numRows - 1) * CELL_PADDING;
+  
+  // Center the grid in the full container width
+  const gridOriginX = (this.sys.game.config.width - totalGridWidth) / 2;
+  const gridOriginY = 100 + (400 - totalGridHeight) / 2;
+  const gridBottomY = gridOriginY + totalGridHeight;
+
+  // Add zone labels
+  addZoneLabels(this, stage.zone.index);
+  
+  // zone background
+  createZoneBackgroundMask.call(this, stage, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
+
+  // Instead of reward tank, we'll create a text counter for remaining shots
+  let pullsRemaining = num_arm_pulls;
+  
+  // Create text to display remaining shots
+  const remainingText = this.add.text(
+    this.sys.game.config.width / 2,
+    gridBottomY + TANK_MARGIN_TOP,
+    `Remaining Shots: ${pullsRemaining}`,
+    { font: '20px Arial', fill: '#ffffff' }
+  ).setOrigin(0.5);
+
+  // user sprite
+  let cursorR = 0, cursorC = 0;
+  let { x: initX, y: initY } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, 0, 0);
+  let userSprite = this.add.image(initX, initY, 'user')
+    .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
+    .setDepth(9999)
+    .setOrigin(0.5);
+
+  // highlight rect
+  let highlightRect = createHighlightRect.call(this, cellWidth, cellHeight);
+  highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
+
+  this.input.keyboard.on('keydown', (evt) => {
+    if (pullsRemaining <= 0) return;
+
+    let oldR = cursorR, oldC = cursorC;
+    if (evt.code === 'ArrowUp')    cursorR = Phaser.Math.Clamp(cursorR - 1, 0, numRows-1);
+    if (evt.code === 'ArrowDown')  cursorR = Phaser.Math.Clamp(cursorR + 1, 0, numRows-1);
+    if (evt.code === 'ArrowLeft')  cursorC = Phaser.Math.Clamp(cursorC - 1, 0, numCols-1);
+    if (evt.code === 'ArrowRight') cursorC = Phaser.Math.Clamp(cursorC + 1, 0, numCols-1);
+
+    if (evt.code === 'Space') {
+      pullsRemaining--;
+      
+      // Update remaining shots text
+      remainingText.setText(`Remaining Shots: ${pullsRemaining}`);
+      
+      // Still calculate outcome but don't display it
+      let payoff = bandit[cursorR][cursorC];
+      let outcome = (Math.random() < payoff) ? 1 : 0;
+      
+      // Create a simple flash effect (just one flash)
+      let g = this.add.graphics();
+      g.fillStyle(HIGHLIGHT_COLOR, 1);
+      g.fillRect(
+        gridOriginX + cursorC*(cellWidth + CELL_PADDING),
+        gridOriginY + cursorR*(cellHeight + CELL_PADDING),
+        cellWidth, cellHeight
+      );
+      
+      // Fade out only to get a single flash
+      this.tweens.add({
+        targets: g,
+        alpha: 0,
+        duration: 400,
+        onComplete: () => {
+          g.destroy();
+          
+          // Note: We intentionally don't draw marker dots or update a reward tank
+          
+          if (pullsRemaining <= 0) {
+            makeNextButton.call(this, "Next", () => {
+              nextStage.call(this);
+            });
+          }
+        }
+      });
+    }
+
+    if (oldR !== cursorR || oldC !== cursorC) {
+      let { x, y } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
+      userSprite.setPosition(x, y);
+      highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
+    }
+  });
+}
+
 /************************************************
  * Utility
  ************************************************/
@@ -676,7 +794,7 @@ function nextStage() {
   const nextStage = timelineData.timeline[currentSessionIndex][currentStageIndex];
   
   // Check if it's a gameplay stage that needs a transition overlay
-  const gameplayStages = ['practice', 'play', 'watch', 'indicate'];
+  const gameplayStages = ['practice', 'play', 'watch', 'indicate', 'blind'];
   if (gameplayStages.includes(nextStage.stage_type)) {
     // Show the transition overlay
     showTransitionOverlay(this, nextStage, () => {
@@ -1095,6 +1213,7 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   switch(stageType) {
     case 'practice': buttonText = 'Practice'; break;
     case 'play': buttonText = 'Play'; break;
+    case 'blind': buttonText = 'Play'; break; // Use "Play" for blind too
     case 'watch': buttonText = 'Watch'; break;
     case 'indicate': buttonText = 'Watch'; break; // Indicate also uses "Watch"
     default: buttonText = 'Next';
@@ -1213,7 +1332,7 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
     
     // Determine and load the appropriate player image
     let playerImageKey;
-    if (stageType === 'practice' || stageType === 'play') {
+    if (stageType === 'practice' || stageType === 'play' || stageType === 'blind') {
         playerImageKey = 'user';
         addPlayerImageToContainer(playerImageKey);
     } else if (stageType === 'watch' || stageType === 'indicate') {
