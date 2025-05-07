@@ -789,6 +789,9 @@ function setupBlind(stage) {
   // zone background
   createZoneBackgroundMask.call(this, stage, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
 
+  // Initialize pullOutcomes array (needed for the pullArm function)
+  let pullOutcomes = [];
+
   // Instead of reward tank, we'll create a text counter for remaining shots
   let pullsRemaining = num_arm_pulls;
   
@@ -848,7 +851,8 @@ function setupBlind(stage) {
     const scene = this; // Capture the scene context
     pullsRemaining--;
     
-    // Don't try to update remainingText - it doesn't exist in this context!
+    // Update the remainingText to show the new count
+    remainingText.setText(`Remaining Shots: ${pullsRemaining}`);
     
     let payoff = bandit[row][col];
     let outcome = (Math.random() < payoff) ? 1 : 0;
@@ -870,10 +874,9 @@ function setupBlind(stage) {
       onComplete: () => {
         g.destroy();
         
-        // Record outcome and update tank
+        // In blind mode, we don't show outcomes or update tanks
+        // But we still track outcomes internally
         pullOutcomes.push(outcome);
-        drawMarkerDot.call(scene, gridOriginX, gridOriginY, cellWidth, cellHeight, row, col, outcome);
-        drawRewardTank.call(scene, rewardTankContainer, num_arm_pulls, pullOutcomes);
 
         if (pullsRemaining <= 0) {
           makeNextButton.call(scene, "Next", () => {
@@ -1087,12 +1090,15 @@ function setupChoice(stage) {
     });
   }
   
+  // Store a reference to the scene that we can use in callbacks
+  const currentScene = this;
+  
   // Once all images are loaded, create the demonstrator sprites
   this.load.once('complete', () => {
     // Create demonstrator images
     for (let i = 0; i < cells.length; i++) {
       const cell = cells[i];
-      cell.image = this.add.image(cell.x, cell.y, cell.imageKey)
+      cell.image = currentScene.add.image(cell.x, cell.y, cell.imageKey)
         .setOrigin(0.5);
       
       // Scale image to fit cell
@@ -1108,7 +1114,7 @@ function setupChoice(stage) {
     }
     
     // Add highlight rect
-    const highlightRect = this.add.rectangle(
+    const highlightRect = currentScene.add.rectangle(
       cells[0].x, cells[0].y,
       cellWidth + 10, cellHeight + 10,
       parseInt(zoneColor.replace('#', '0x')) || 0x888888
@@ -1119,7 +1125,7 @@ function setupChoice(stage) {
     let userX = cells[0].x;
     
     // Add user sprite
-    const userSprite = this.add.image(userX, userY, 'user')
+    const userSprite = currentScene.add.image(userX, userY, 'user')
       .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
       .setDepth(9999)
       .setOrigin(0.5);
@@ -1163,17 +1169,17 @@ function setupChoice(stage) {
       // Add the selected demonstrator to summary bar
       addChoiceSelectionToSummary(cells[index].imageKey, stage.zone ? stage.zone.color : "#888888");
       
-      // Add next button
-      makeNextButton.call(this, "Next", () => {
+      // Add next button - properly bind currentScene
+      makeNextButton.call(currentScene, "Next", () => {
         console.log(`Selected Partner ${selectedDemonstrator}`);
         // Restore normal controls display before moving to next stage
         updateControlsDisplay("default");
-        nextStage.call(this);
+        nextStage.call(currentScene);
       });
     }
     
     // Keyboard input
-    this.input.keyboard.on('keydown', (evt) => {
+    currentScene.input.keyboard.on('keydown', (evt) => {
       // Only allow movement if not already selected
       if (selectedDemonstrator !== null) return;
       
@@ -1195,7 +1201,7 @@ function setupChoice(stage) {
       
       // Space to select
       if (evt.code === 'Space') {
-        selectDemonstrator.call(this, currentPosition);
+        selectDemonstrator.call(currentScene, currentPosition);
       }
     });
   });
@@ -1407,6 +1413,87 @@ function setupOnlineChoicePlay(stage) {
   highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
 
   let pullsRemaining = num_arm_pulls;
+  
+  // Store a reference to the scene
+  const currentScene = this;
+  
+  // Add clickable areas for each cell
+  for (let r = 0; r < numRows; r++) {
+    for (let c = 0; c < numCols; c++) {
+      let rx = gridOriginX + c * (cellWidth + CELL_PADDING);
+      let ry = gridOriginY + r * (cellHeight + CELL_PADDING);
+      
+      let cellRect = this.add.rectangle(rx, ry, cellWidth, cellHeight, 0xffffff, 0)
+        .setOrigin(0, 0)
+        .setInteractive();
+        
+      cellRect.on('pointerdown', function() {
+        if (pullsRemaining <= 0) return;
+        
+        // If the user is already at this position, pull the arm
+        if (r === cursorR && c === cursorC) {
+          // Pull the arm
+          pullsRemaining--;
+          let payoff = bandit[cursorR][cursorC];
+          let outcome = (Math.random() < payoff) ? 1 : 0;
+          
+          // Create a simple flash effect (just one flash)
+          let g = currentScene.add.graphics();
+          g.fillStyle(HIGHLIGHT_COLOR, 1);
+          g.fillRect(
+            gridOriginX + cursorC*(cellWidth + CELL_PADDING),
+            gridOriginY + cursorR*(cellHeight + CELL_PADDING),
+            cellWidth, cellHeight
+          );
+          
+          // Fade out only to get a single flash
+          currentScene.tweens.add({
+            targets: g,
+            alpha: 0,
+            duration: 200, // Reduced flash time for better performance
+            onComplete: () => {
+              g.destroy();
+              
+              // Record outcome and update tank
+              pullOutcomes.push(outcome);
+              drawMarkerDot.call(currentScene, gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC, outcome);
+              drawRewardTank.call(currentScene, rewardTankContainer, num_arm_pulls, pullOutcomes);
+
+              if (pullsRemaining <= 0) {
+                // Create next button
+                const nextButton = currentScene.add.text(
+                  currentScene.sys.game.config.width - 100,
+                  currentScene.sys.game.config.height - 40,
+                  "Next",
+                  { font: '18px Arial', fill: '#00ff00', backgroundColor: '#333', padding: 5 }
+                ).setOrigin(0.5).setInteractive();
+                
+                nextButton.on('pointerdown', () => {
+                  if (isFinalPlay) {
+                    // If this is the final play after all rounds, move to next stage in timeline
+                    window.onlineChoiceState = null; // Clear state
+                    nextStage.call(currentScene);
+                  } else {
+                    // Move to choice sub-stage
+                    state.currentSubStage = "choice";
+                    loadStage.call(currentScene);
+                  }
+                });
+              }
+            }
+          });
+        } else {
+          // Otherwise, move to this position
+          cursorR = r;
+          cursorC = c;
+          let { x, y } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
+          userSprite.setPosition(x, y);
+          highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
+        }
+      });
+    }
+  }
+
   this.input.keyboard.on('keydown', (evt) => {
     if (pullsRemaining <= 0) return;
 
@@ -1434,7 +1521,7 @@ function setupOnlineChoicePlay(stage) {
       this.tweens.add({
         targets: g,
         alpha: 0,
-        duration: 400,
+        duration: 200, // Reduced from 400 to 200
         onComplete: () => {
           g.destroy();
           
@@ -1484,6 +1571,9 @@ function setupOnlineChoiceChoice(stage) {
   const zoneColor = stage.zone && stage.zone.color ? stage.zone.color : "#888888";
   
   console.log("Loading ONLINE-CHOICE CHOICE sub-stage");
+  
+  // Store a reference to the scene
+  const currentScene = this;
   
   // Create title text
   const titleText = this.add.text(
@@ -1582,7 +1672,7 @@ function setupOnlineChoiceChoice(stage) {
     // Add images to cells
     for (let i = 0; i < cells.length; i++) {
       const cell = cells[i];
-      cell.image = this.add.image(cell.x, cell.y, cell.imageKey).setOrigin(0.5);
+      cell.image = currentScene.add.image(cell.x, cell.y, cell.imageKey).setOrigin(0.5);
       
       // Scale to fit
       const scale = Math.min(
@@ -1597,7 +1687,7 @@ function setupOnlineChoiceChoice(stage) {
     }
     
     // Add highlight for selection
-    const highlightRect = this.add.rectangle(
+    const highlightRect = currentScene.add.rectangle(
       cells[0].x, cells[0].y,
       cellWidth + 10, cellHeight + 10,
       parseInt(zoneColor.replace('#', '0x')) || 0x888888
@@ -1610,14 +1700,14 @@ function setupOnlineChoiceChoice(stage) {
     let selectedDemonstrator = null;
     
     // Add user sprite
-    const userSprite = this.add.image(userX, userY, 'user')
+    const userSprite = currentScene.add.image(userX, userY, 'user')
       .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
       .setDepth(9999)
       .setOrigin(0.5);
     
     // Selection feedback text (initially hidden)
-    const feedbackText = this.add.text(
-      this.sys.game.config.width / 2,
+    const feedbackText = currentScene.add.text(
+      currentScene.sys.game.config.width / 2,
       gridY + cellHeight + 120,
       "",
       { 
@@ -1676,9 +1766,9 @@ function setupOnlineChoiceChoice(stage) {
       addOnlineChoiceSelectionToSummary(cells[index].imageKey, stage.zone);
       
       // Add next button
-      const nextButton = this.add.text(
-        this.sys.game.config.width - 100,
-        this.sys.game.config.height - 40,
+      const nextButton = currentScene.add.text(
+        currentScene.sys.game.config.width - 100,
+        currentScene.sys.game.config.height - 40,
         "Next",
         { font: '18px Arial', fill: '#00ff00', backgroundColor: '#333', padding: 5 }
       ).setOrigin(0.5).setInteractive();
@@ -1691,12 +1781,12 @@ function setupOnlineChoiceChoice(stage) {
         
         // Move to watch sub-stage
         state.currentSubStage = "watch";
-        loadStage.call(this);
+        loadStage.call(currentScene);
       });
     }
     
     // Listen for arrow keys and spacebar
-    this.input.keyboard.on('keydown', (evt) => {
+    currentScene.input.keyboard.on('keydown', (evt) => {
       // Only allow movement if not already selected
       if (selectedDemonstrator !== null) return;
       
@@ -1718,7 +1808,7 @@ function setupOnlineChoiceChoice(stage) {
       
       // Space to select
       if (evt.code === 'Space') {
-        selectDemonstrator.call(this, currentPosition);
+        selectDemonstrator(currentPosition);
       }
     });
   });
@@ -1775,6 +1865,9 @@ function setupOnlineChoiceWatch(stage) {
   let numCols = bandit[0].length;
   
   console.log(`Loading ONLINE-CHOICE WATCH with grid: ${numRows}x${numCols}`);
+  
+  // Store a reference to the scene
+  const currentScene = this;
   
   // Get the selected demonstrator
   const selectedDemoKey = state.chosenDemonstrator;
@@ -1868,7 +1961,7 @@ function setupOnlineChoiceWatch(stage) {
   
   function startDemonstration() {
     let startPos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC);
-    let dSprite = this.add.image(startPos.x, startPos.y, demoImageKey)
+    let dSprite = currentScene.add.image(startPos.x, startPos.y, demoImageKey)
       .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
       .setDepth(9999)
       .setOrigin(0.5);
@@ -1876,14 +1969,14 @@ function setupOnlineChoiceWatch(stage) {
     let currentStep = 0;
     let totalSteps = trajectory.length;
 
-    moveAlongTrajectoryStep.call(this);
+    moveAlongTrajectoryStep.call(currentScene);
 
     function moveAlongTrajectoryStep() {
       if (currentStep >= totalSteps) {
         // When demonstration is complete, show next button
-        const nextButton = this.add.text(
-          this.sys.game.config.width - 100,
-          this.sys.game.config.height - 40,
+        const nextButton = currentScene.add.text(
+          currentScene.sys.game.config.width - 100,
+          currentScene.sys.game.config.height - 40,
           "Next",
           { font: '18px Arial', fill: '#00ff00', backgroundColor: '#333', padding: 5 }
         ).setOrigin(0.5).setInteractive();
@@ -1903,7 +1996,7 @@ function setupOnlineChoiceWatch(stage) {
             state.isFinalPlay = true;
           }
           
-          loadStage.call(this);
+          loadStage.call(currentScene);
         });
         return;
       }
@@ -1915,7 +2008,7 @@ function setupOnlineChoiceWatch(stage) {
       let pathCells = getManhattanPath(currentR, currentC, targetR, targetC);
 
       let index = 0;
-      let pathTimer = this.time.addEvent({
+      let pathTimer = currentScene.time.addEvent({
         delay: 600, // Increased from 300 to 600 (doubled)
         repeat: pathCells.length - 1,
         callback: () => {
@@ -1935,7 +2028,7 @@ function setupOnlineChoiceWatch(stage) {
             let outcome = (Math.random() < payoff) ? 1 : 0;
             
             // Create a simple flash effect (just one flash)
-            let g = this.add.graphics();
+            let g = currentScene.add.graphics();
             g.fillStyle(HIGHLIGHT_COLOR, 1);
             g.fillRect(
               gridOriginX + currentC*(cellWidth + CELL_PADDING),
@@ -1944,7 +2037,7 @@ function setupOnlineChoiceWatch(stage) {
             );
             
             // Fade out only (NO YOYO!) to get a single flash
-            this.tweens.add({
+            currentScene.tweens.add({
               targets: g,
               alpha: 0,
               duration: 200, // Reduced from 400 to 200 for quicker flash
@@ -1953,11 +2046,11 @@ function setupOnlineChoiceWatch(stage) {
                 
                 // Record outcome and update tank
                 watchOutcomes.push(outcome);
-                drawMarkerDot.call(this, gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC, outcome);
-                drawRewardTank.call(this, rewardTankContainer, totalSteps, watchOutcomes);
+                drawMarkerDot.call(currentScene, gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC, outcome);
+                drawRewardTank.call(currentScene, rewardTankContainer, totalSteps, watchOutcomes);
 
                 currentStep++;
-                moveAlongTrajectoryStep.call(this);
+                moveAlongTrajectoryStep.call(currentScene);
               }
             });
           }
@@ -1975,6 +2068,9 @@ function setupOnlineChoiceFinalPlay(stage) {
   const zoneColor = stage.zone && stage.zone.color ? stage.zone.color : "#888888";
   
   console.log("Loading ONLINE-CHOICE FINAL PLAY sub-stage");
+  
+  // Store a reference to the scene
+  const currentScene = this;
   
   // Create title text
   const titleText = this.add.text(
@@ -2063,7 +2159,7 @@ function setupOnlineChoiceFinalPlay(stage) {
     // Add images to cells
     for (let i = 0; i < cells.length; i++) {
       const cell = cells[i];
-      cell.image = this.add.image(cell.x, cell.y, cell.imageKey).setOrigin(0.5);
+      cell.image = currentScene.add.image(cell.x, cell.y, cell.imageKey).setOrigin(0.5);
       
       // Scale to fit
       const scale = Math.min(
@@ -2071,10 +2167,14 @@ function setupOnlineChoiceFinalPlay(stage) {
         (cellHeight - 20) / cell.image.height
       );
       cell.image.setScale(scale);
+      
+      // Make cells clickable
+      cell.background.setInteractive();
+      cell.image.setInteractive();
     }
     
     // Add highlight for selection
-    const highlightRect = this.add.rectangle(
+    const highlightRect = currentScene.add.rectangle(
       cells[0].x, cells[0].y,
       cellWidth + 10, cellHeight + 10,
       parseInt(zoneColor.replace('#', '0x')) || 0x888888
@@ -2087,14 +2187,14 @@ function setupOnlineChoiceFinalPlay(stage) {
     let selectedDemonstrator = null;
     
     // Add user sprite
-    const userSprite = this.add.image(userX, userY, 'user')
+    const userSprite = currentScene.add.image(userX, userY, 'user')
       .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
       .setDepth(9999)
       .setOrigin(0.5);
     
     // Selection feedback text (initially hidden)
-    const feedbackText = this.add.text(
-      this.sys.game.config.width / 2,
+    const feedbackText = currentScene.add.text(
+      currentScene.sys.game.config.width / 2,
       gridY + cellHeight + 120,
       "",
       { 
@@ -2106,8 +2206,65 @@ function setupOnlineChoiceFinalPlay(stage) {
       }
     ).setOrigin(0.5).setVisible(false);
     
+    // Add click handlers for all cells
+    for (let i = 0; i < cells.length; i++) {
+      const cell = cells[i];
+      
+      const clickHandler = () => {
+        // Only allow selection if not already selected
+        if (selectedDemonstrator !== null) return;
+        
+        // If already on this position, select it
+        if (currentPosition === i) {
+          selectDemonstrator(i);
+        } else {
+          // Move to this position
+          currentPosition = i;
+          userX = cells[currentPosition].x;
+          userSprite.setPosition(userX, userY);
+          highlightRect.setPosition(cells[currentPosition].x, cells[currentPosition].y);
+        }
+      };
+      
+      cell.background.on('pointerdown', clickHandler);
+      cell.image.on('pointerdown', clickHandler);
+    }
+    
+    // Function to handle selection
+    function selectDemonstrator(index) {
+      selectedDemonstrator = cells[index].key;
+      
+      // Store the selection
+      state.chosenDemonstrator = selectedDemonstrator;
+      state.demonstratorHistory.push(selectedDemonstrator);
+      
+      // Show selection feedback
+      feedbackText.setText(`You selected: ${selectedDemonstrator}`);
+      feedbackText.setVisible(true);
+      
+      // Highlight selected with stronger border
+      highlightRect.setStrokeStyle(4, parseInt(zoneColor.replace('#', '0x')) || 0x888888);
+      highlightRect.setAlpha(0.6);
+      
+      // Add next button
+      const nextButton = currentScene.add.text(
+        currentScene.sys.game.config.width - 100,
+        currentScene.sys.game.config.height - 40,
+        "Next",
+        { font: '18px Arial', fill: '#00ff00', backgroundColor: '#333', padding: 5 }
+      ).setOrigin(0.5).setInteractive();
+      
+      nextButton.on('pointerdown', () => {
+        console.log(`Selected demonstrator: ${selectedDemonstrator}`);
+        
+        // Move to watch sub-stage
+        state.currentSubStage = "watch";
+        loadStage.call(currentScene);
+      });
+    }
+    
     // Listen for arrow keys and spacebar
-    this.input.keyboard.on('keydown', (evt) => {
+    currentScene.input.keyboard.on('keydown', (evt) => {
       // Only allow movement if not already selected
       if (selectedDemonstrator !== null) return;
       
@@ -2129,35 +2286,7 @@ function setupOnlineChoiceFinalPlay(stage) {
       
       // Space to select
       if (evt.code === 'Space') {
-        selectedDemonstrator = cells[currentPosition].key;
-        
-        // Store the selection
-        state.chosenDemonstrator = selectedDemonstrator;
-        state.demonstratorHistory.push(selectedDemonstrator);
-        
-        // Show selection feedback
-        feedbackText.setText(`You selected: ${selectedDemonstrator}`);
-        feedbackText.setVisible(true);
-        
-        // Highlight selected with stronger border
-        highlightRect.setStrokeStyle(4, parseInt(zoneColor.replace('#', '0x')) || 0x888888);
-        highlightRect.setAlpha(0.6);
-        
-        // Add next button
-        const nextButton = this.add.text(
-          this.sys.game.config.width - 100,
-          this.sys.game.config.height - 40,
-          "Next",
-          { font: '18px Arial', fill: '#00ff00', backgroundColor: '#333', padding: 5 }
-        ).setOrigin(0.5).setInteractive();
-        
-        nextButton.on('pointerdown', () => {
-          console.log(`Selected demonstrator: ${selectedDemonstrator}`);
-          
-          // Move to watch sub-stage
-          state.currentSubStage = "watch";
-          loadStage.call(this);
-        });
+        selectDemonstrator(currentPosition);
       }
     });
   });
