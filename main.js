@@ -167,20 +167,40 @@ function maybeAddSummaryIcon(stage) {
   const t = stage.stage_type;
   if (!['practice','play','watch','indicate','blind','choice','online-choice'].includes(t)) return;
 
-  // For online-choice, only add icon on the first play of each session
+  // For choice games, just create a placeholder in the summaryIcons array
+  // The actual image will be set when user makes their selection
+  if (t === 'choice') {
+    // Create a placeholder that will be updated when user selects
+    summaryIcons.push({
+      imageKey: null, // Will be updated when user selects
+      zone: 'Choice',
+      color: stage.zone && stage.zone.color ? stage.zone.color : '#888888'
+    });
+    return;
+  }
+  
+  // For online-choice games, similar placeholder approach 
   if (t === 'online-choice') {
-    // Check if this is the first time we're seeing this stage in this session
+    // Only add on first play of each session
     if (window.onlineChoiceState && window.onlineChoiceState.summaryIconAdded) {
-      // Already added an icon for this online-choice session, don't add again
       return;
     }
     
-    // Mark that we've added the icon
+    // Mark that we've added the placeholder
     if (window.onlineChoiceState) {
       window.onlineChoiceState.summaryIconAdded = true;
     }
+    
+    // Create placeholder that will be updated when user selects
+    summaryIcons.push({
+      imageKey: null, // Will be updated when user selects
+      zone: stage.zone && stage.zone.index ? stage.zone.index : 0,
+      color: stage.zone && stage.zone.color ? stage.zone.color : '#888888'
+    });
+    return;
   }
-
+  
+  // For all other game types, use the normal icon logic
   let imageKey = 'user';
   if (t === 'watch' || t === 'indicate') {
     if (stage.demonstrator && stage.demonstrator.image) {
@@ -191,27 +211,12 @@ function maybeAddSummaryIcon(stage) {
     }
   }
 
-  // For choice type, use a special format
-  if (t === 'choice') {
+  // Add the icon with proper imageKey
   summaryIcons.push({
     imageKey: imageKey,
-      zone: 'Choice',
-      color: stage.zone && stage.zone.color ? stage.zone.color : '#888888'
-    });
-  } else if (t === 'online-choice') {
-    // For online-choice, use regular zone number
-    summaryIcons.push({
-      imageKey: imageKey,
-      zone: stage.zone && stage.zone.index ? stage.zone.index : 0,
-      color: stage.zone && stage.zone.color ? stage.zone.color : '#888888'
-    });
-  } else {
-    summaryIcons.push({
-      imageKey: imageKey,
-      zone: stage.zone.index,
-      color: stage.zone.color || '#ffffff'
-    });
-  }
+    zone: stage.zone.index,
+    color: stage.zone.color || '#ffffff'
+  });
 }
 
 /**
@@ -229,11 +234,17 @@ function redrawSummaryBarDOM() {
   const lastIndex = summaryIcons.length - 1;
   for (let i = 0; i < summaryIcons.length; i++) {
     const iconData = summaryIcons[i];
+    
+    // Skip icons with null imageKey (placeholders for choice/online-choice)
+    if (iconData.imageKey === null) continue;
 
     // Create a container div
     const cellDiv = document.createElement("div");
     cellDiv.style.textAlign = "center"; 
     cellDiv.style.opacity = (i === lastIndex) ? "1" : "0.5";
+    cellDiv.style.display = "flex";  // Use flexbox for better centering
+    cellDiv.style.flexDirection = "column";
+    cellDiv.style.alignItems = "center"; // Center children horizontally
 
     // Give it a border of the zone color
     cellDiv.style.border = `3px solid ${iconData.color}`;
@@ -243,11 +254,16 @@ function redrawSummaryBarDOM() {
     const img = document.createElement("img");
     if (iconData.imageKey.startsWith('demonstrator_')) {
       img.src = `assets/demonstrators/${iconData.imageKey}.png`;
+    } else if (iconData.imageKey.startsWith('choice_demonstrator_')) {
+      // For choice demonstrator keys, we need to be more cautious
+      // The key format is something like 'choice_demonstrator_0'
+      img.src = `assets/${iconData.imageKey}`; // Use the imageKey directly
     } else {
       img.src = `assets/${iconData.imageKey}.png`;
     }
     img.style.width = "40px";
     img.style.display = "block";
+    img.style.margin = "0 auto"; // Center horizontally
 
     // The zone label
     const label = document.createElement("div");
@@ -255,10 +271,11 @@ function redrawSummaryBarDOM() {
     if (iconData.zone === 'Choice') {
       label.textContent = "Choice Zone";
     } else {
-    label.textContent = "Zone " + iconData.zone;
+      label.textContent = "Zone " + iconData.zone;
     }
     label.style.color = "#fff";
     label.style.marginTop = "4px";
+    label.style.textAlign = "center"; // Center text
 
     cellDiv.appendChild(img);
     cellDiv.appendChild(label);
@@ -343,6 +360,7 @@ function setupPlayOrPractice(stage, isPractice) {
   const tankX = gridOriginX + (totalGridWidth / 2);
   const tankY = gridBottomY + TANK_MARGIN_TOP;
   const rewardTankContainer = this.add.container(tankX, tankY);
+  rewardTankContainer.setDepth(100); // Add high depth value to ensure visibility
   drawRewardTank.call(this, rewardTankContainer, num_arm_pulls, pullOutcomes);
 
   // user sprite
@@ -358,6 +376,79 @@ function setupPlayOrPractice(stage, isPractice) {
   highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
 
   let pullsRemaining = num_arm_pulls;
+  
+  // Add clickable areas for each cell
+  let cellRects = [];
+  for (let r = 0; r < numRows; r++) {
+    for (let c = 0; c < numCols; c++) {
+      let rx = gridOriginX + c * (cellWidth + CELL_PADDING);
+      let ry = gridOriginY + r * (cellHeight + CELL_PADDING);
+      
+      let cellRect = this.add.rectangle(rx, ry, cellWidth, cellHeight, 0xffffff, 0)
+        .setOrigin(0, 0)
+        .setInteractive();
+        
+      cellRect.on('pointerdown', () => {
+        if (pullsRemaining <= 0) return;
+        
+        // If the user is already at this position, pull the arm
+        if (r === cursorR && c === cursorC) {
+          pullArm.call(this, r, c); // Use call to bind 'this' correctly
+        } else {
+          // Otherwise, move to this position
+          cursorR = r;
+          cursorC = c;
+          let { x, y } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
+          userSprite.setPosition(x, y);
+          highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
+        }
+      });
+      
+      cellRects.push(cellRect);
+    }
+  }
+  
+  // Function to handle pulling the arm
+  function pullArm(row, col) {
+    const scene = this; // Capture the scene context
+    pullsRemaining--;
+    
+    // Don't try to update remainingText - it doesn't exist in this context!
+    
+    let payoff = bandit[row][col];
+    let outcome = (Math.random() < payoff) ? 1 : 0;
+    
+    // Create a simple flash effect (just one flash)
+    let g = scene.add.graphics();
+    g.fillStyle(HIGHLIGHT_COLOR, 1);
+    g.fillRect(
+      gridOriginX + col*(cellWidth + CELL_PADDING),
+      gridOriginY + row*(cellHeight + CELL_PADDING),
+      cellWidth, cellHeight
+    );
+    
+    // Fade out only to get a single flash
+    scene.tweens.add({
+      targets: g,
+      alpha: 0,
+      duration: 200, // Reduced from 400 to 200
+      onComplete: () => {
+        g.destroy();
+        
+        // Record outcome and update tank
+        pullOutcomes.push(outcome);
+        drawMarkerDot.call(scene, gridOriginX, gridOriginY, cellWidth, cellHeight, row, col, outcome);
+        drawRewardTank.call(scene, rewardTankContainer, num_arm_pulls, pullOutcomes);
+
+        if (pullsRemaining <= 0) {
+          makeNextButton.call(scene, "Next", () => {
+            nextStage.call(scene);
+          });
+        }
+      }
+    });
+  }
+
   this.input.keyboard.on('keydown', (evt) => {
     if (pullsRemaining <= 0) return;
 
@@ -368,39 +459,7 @@ function setupPlayOrPractice(stage, isPractice) {
     if (evt.code === 'ArrowRight') cursorC = Phaser.Math.Clamp(cursorC + 1, 0, numCols-1);
 
     if (evt.code === 'Space') {
-      pullsRemaining--;
-      let payoff = bandit[cursorR][cursorC];
-      let outcome = (Math.random() < payoff) ? 1 : 0;
-      
-      // Create a simple flash effect (just one flash)
-      let g = this.add.graphics();
-      g.fillStyle(HIGHLIGHT_COLOR, 1);
-      g.fillRect(
-        gridOriginX + cursorC*(cellWidth + CELL_PADDING),
-        gridOriginY + cursorR*(cellHeight + CELL_PADDING),
-        cellWidth, cellHeight
-      );
-      
-      // Fade out only to get a single flash
-      this.tweens.add({
-        targets: g,
-        alpha: 0,
-        duration: 400,
-        onComplete: () => {
-          g.destroy();
-          
-          // Record outcome and update tank
-          pullOutcomes.push(outcome);
-          drawMarkerDot.call(this, gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC, outcome);
-      drawRewardTank.call(this, rewardTankContainer, num_arm_pulls, pullOutcomes);
-
-      if (pullsRemaining <= 0) {
-        makeNextButton.call(this, "Next", () => {
-          nextStage.call(this);
-        });
-      }
-        }
-      });
+      pullArm.call(this, cursorR, cursorC);
     }
 
     if (oldR !== cursorR || oldC !== cursorC) {
@@ -454,6 +513,7 @@ function setupWatch(stage) {
   const tankX = gridOriginX + (totalGridWidth / 2);
   const tankY = gridBottomY + TANK_MARGIN_TOP;
   const rewardTankContainer = this.add.container(tankX, tankY);
+  rewardTankContainer.setDepth(100); // Add high depth value to ensure visibility
   drawRewardTank.call(this, rewardTankContainer, totalPulls, watchOutcomes);
 
   let highlightRect = createHighlightRect.call(this, cellWidth, cellHeight);
@@ -544,7 +604,7 @@ function setupWatch(stage) {
             this.tweens.add({
               targets: g,
               alpha: 0,
-              duration: 400,
+              duration: 200, // Reduced from 400 to 200 for quicker flash
               onComplete: () => {
                 g.destroy();
                 
@@ -675,9 +735,9 @@ function setupIndicate(stage) {
           this.tweens.add({
             targets: g,
             alpha: 0.1,
-            duration: 300,
+            duration: 150, // Reduced from 300 to 150 for quicker flash
             yoyo: true,
-              repeat: 2, // More repeats for better visibility
+            repeat: 1, // Reduced from 2 to 1 for quicker overall effect
             onComplete: () => {
               g.destroy();
             }
@@ -752,6 +812,78 @@ function setupBlind(stage) {
   let highlightRect = createHighlightRect.call(this, cellWidth, cellHeight);
   highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
 
+  // Add clickable areas for each cell
+  let cellRects = [];
+  for (let r = 0; r < numRows; r++) {
+    for (let c = 0; c < numCols; c++) {
+      let rx = gridOriginX + c * (cellWidth + CELL_PADDING);
+      let ry = gridOriginY + r * (cellHeight + CELL_PADDING);
+      
+      let cellRect = this.add.rectangle(rx, ry, cellWidth, cellHeight, 0xffffff, 0)
+        .setOrigin(0, 0)
+        .setInteractive();
+        
+      cellRect.on('pointerdown', () => {
+        if (pullsRemaining <= 0) return;
+        
+        // If the user is already at this position, pull the arm
+        if (r === cursorR && c === cursorC) {
+          pullArm.call(this, r, c); // Use call to bind 'this' correctly
+        } else {
+          // Otherwise, move to this position
+          cursorR = r;
+          cursorC = c;
+          let { x, y } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
+          userSprite.setPosition(x, y);
+          highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
+        }
+      });
+      
+      cellRects.push(cellRect);
+    }
+  }
+  
+  // Function to handle pulling the arm
+  function pullArm(row, col) {
+    const scene = this; // Capture the scene context
+    pullsRemaining--;
+    
+    // Don't try to update remainingText - it doesn't exist in this context!
+    
+    let payoff = bandit[row][col];
+    let outcome = (Math.random() < payoff) ? 1 : 0;
+    
+    // Create a simple flash effect (just one flash)
+    let g = scene.add.graphics();
+    g.fillStyle(HIGHLIGHT_COLOR, 1);
+    g.fillRect(
+      gridOriginX + col*(cellWidth + CELL_PADDING),
+      gridOriginY + row*(cellHeight + CELL_PADDING),
+      cellWidth, cellHeight
+    );
+    
+    // Fade out only to get a single flash
+    scene.tweens.add({
+      targets: g,
+      alpha: 0,
+      duration: 200, // Reduced from 400 to 200
+      onComplete: () => {
+        g.destroy();
+        
+        // Record outcome and update tank
+        pullOutcomes.push(outcome);
+        drawMarkerDot.call(scene, gridOriginX, gridOriginY, cellWidth, cellHeight, row, col, outcome);
+        drawRewardTank.call(scene, rewardTankContainer, num_arm_pulls, pullOutcomes);
+
+        if (pullsRemaining <= 0) {
+          makeNextButton.call(scene, "Next", () => {
+            nextStage.call(scene);
+          });
+        }
+      }
+    });
+  }
+
   this.input.keyboard.on('keydown', (evt) => {
     if (pullsRemaining <= 0) return;
 
@@ -762,41 +894,7 @@ function setupBlind(stage) {
     if (evt.code === 'ArrowRight') cursorC = Phaser.Math.Clamp(cursorC + 1, 0, numCols-1);
 
     if (evt.code === 'Space') {
-      pullsRemaining--;
-      
-      // Update remaining shots text
-      remainingText.setText(`Remaining Shots: ${pullsRemaining}`);
-      
-      // Still calculate outcome but don't display it
-      let payoff = bandit[cursorR][cursorC];
-      let outcome = (Math.random() < payoff) ? 1 : 0;
-      
-      // Create a simple flash effect (just one flash)
-      let g = this.add.graphics();
-      g.fillStyle(HIGHLIGHT_COLOR, 1);
-      g.fillRect(
-        gridOriginX + cursorC*(cellWidth + CELL_PADDING),
-        gridOriginY + cursorR*(cellHeight + CELL_PADDING),
-        cellWidth, cellHeight
-      );
-      
-      // Fade out only to get a single flash
-      this.tweens.add({
-        targets: g,
-        alpha: 0,
-        duration: 400,
-        onComplete: () => {
-          g.destroy();
-          
-          // Note: We intentionally don't draw marker dots or update a reward tank
-          
-          if (pullsRemaining <= 0) {
-            makeNextButton.call(this, "Next", () => {
-              nextStage.call(this);
-            });
-          }
-        }
-      });
+      pullArm.call(this, cursorR, cursorC);
     }
 
     if (oldR !== cursorR || oldC !== cursorC) {
@@ -826,8 +924,8 @@ function setupChoice(stage) {
     stage.demonstrator = {
       "index_0": 1,
       "index_1": 2,
-      "image_0": "demonstrator_01.png",
-      "image_1": "demonstrator_02.png"
+      "image_0": "demonstrator_00.png",
+      "image_1": "demonstrator_01.png"
     };
   }
   
@@ -861,8 +959,8 @@ function setupChoice(stage) {
     // If still no images, add defaults
     if (demonstratorImages.length === 0) {
       console.warn("Still no demonstrator images found. Using defaults.");
-      demonstratorImages.push("demonstrator_01.png");
-      demonstratorImages.push("demonstrator_02.png");
+      demonstratorImages.push("demonstrator_00.png"); // Updated to use zero-indexed naming
+      demonstratorImages.push("demonstrator_01.png"); // Updated to use zero-indexed naming
       demonstratorIndices.push(1);
       demonstratorIndices.push(2);
     }
@@ -920,6 +1018,9 @@ function setupChoice(stage) {
     }
   ).setOrigin(0.5);
   
+  // Update the control display section to show choice-specific controls
+  updateControlsDisplay("choice");
+  
   // Selection feedback text (initially hidden)
   const feedbackText = this.add.text(
     this.sys.game.config.width / 2,
@@ -967,8 +1068,11 @@ function setupChoice(stage) {
       }
     ).setOrigin(0.5);
     
-    // Load demonstrator image
+    // Load demonstrator image - use a unique key for the texture
     const imageKey = `choice_demonstrator_${i}`;
+    
+    // Make sure the image path is correct
+    console.log(`Loading demonstrator image ${i}: ${demonstratorImages[i]}`);
     this.load.image(imageKey, `assets/demonstrators/${demonstratorImages[i]}`);
     
     // Store cell info
@@ -997,6 +1101,10 @@ function setupChoice(stage) {
         (cellHeight - 20) / cell.image.height
       );
       cell.image.setScale(scale);
+      
+      // Make the cells clickable
+      cell.background.setInteractive();
+      cell.image.setInteractive();
     }
     
     // Add highlight rect
@@ -1015,6 +1123,54 @@ function setupChoice(stage) {
       .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
       .setDepth(9999)
       .setOrigin(0.5);
+    
+    // Add click handlers for all cells
+    for (let i = 0; i < cells.length; i++) {
+      const cell = cells[i];
+      
+      const clickHandler = () => {
+        // Only allow selection if not already selected
+        if (selectedDemonstrator !== null) return;
+        
+        // If already on this position, select it
+        if (currentPosition === i) {
+          selectDemonstrator(i);
+        } else {
+          // Move to this position
+          currentPosition = i;
+          userX = cells[currentPosition].x;
+          userSprite.setPosition(userX, userY);
+          highlightRect.setPosition(cells[currentPosition].x, cells[currentPosition].y);
+        }
+      };
+      
+      cell.background.on('pointerdown', clickHandler);
+      cell.image.on('pointerdown', clickHandler);
+    }
+    
+    // Function to handle selection
+    function selectDemonstrator(index) {
+      selectedDemonstrator = cells[index].letter;
+      
+      // Show selection feedback
+      feedbackText.setText(`You selected Partner ${selectedDemonstrator}`);
+      feedbackText.setVisible(true);
+      
+      // Highlight selected with stronger border
+      highlightRect.setStrokeStyle(4, parseInt(zoneColor.replace('#', '0x')) || 0x888888);
+      highlightRect.setAlpha(0.6);
+      
+      // Add the selected demonstrator to summary bar
+      addChoiceSelectionToSummary(cells[index].imageKey, stage.zone ? stage.zone.color : "#888888");
+      
+      // Add next button
+      makeNextButton.call(this, "Next", () => {
+        console.log(`Selected Partner ${selectedDemonstrator}`);
+        // Restore normal controls display before moving to next stage
+        updateControlsDisplay("default");
+        nextStage.call(this);
+      });
+    }
     
     // Keyboard input
     this.input.keyboard.on('keydown', (evt) => {
@@ -1039,27 +1195,79 @@ function setupChoice(stage) {
       
       // Space to select
       if (evt.code === 'Space') {
-        selectedDemonstrator = cells[currentPosition].letter;
-        
-        // Show selection feedback
-        feedbackText.setText(`You selected Partner ${selectedDemonstrator}`);
-        feedbackText.setVisible(true);
-        
-        // Highlight selected with stronger border
-        highlightRect.setStrokeStyle(4, parseInt(zoneColor.replace('#', '0x')) || 0x888888);
-        highlightRect.setAlpha(0.6);
-        
-        // Add next button
-        makeNextButton.call(this, "Next", () => {
-          console.log(`Selected Partner ${selectedDemonstrator}`);
-          nextStage.call(this);
-        });
+        selectDemonstrator.call(this, currentPosition);
       }
     });
   });
   
   // Start loading the images
   this.load.start();
+}
+
+/**
+ * Add a function to update the controls display based on game type
+ */
+function updateControlsDisplay(type = "default") {
+  const controlsDisplay = document.getElementById('controls-display');
+  if (!controlsDisplay) return;
+  
+  // Store the original HTML to restore later
+  if (!window.originalControlsHTML) {
+    window.originalControlsHTML = controlsDisplay.innerHTML;
+  }
+  
+  if (type === "choice") {
+    // Custom controls for choice games
+    controlsDisplay.innerHTML = `
+      <!-- Arrow Left -->
+      <div class="control-key">
+        <div class="control-icon">←</div>
+        <div>Move Left</div>
+      </div>
+      <!-- Arrow Right -->
+      <div class="control-key">
+        <div class="control-icon">→</div>
+        <div>Move Right</div>
+      </div>
+      <!-- Spacebar -->
+      <div class="control-key">
+        <div class="control-icon space">Spacebar</div>
+        <div>Select Partner</div>
+      </div>
+    `;
+  } else {
+    // Restore default controls
+    if (window.originalControlsHTML) {
+      controlsDisplay.innerHTML = window.originalControlsHTML;
+    }
+  }
+}
+
+/**
+ * Add the selected demonstrator to the summary bar after choice
+ */
+function addChoiceSelectionToSummary(imageKey, zoneColor) {
+  // Look for a choice icon in the summaryIcons array
+  let choiceIconIndex = -1;
+  for (let i = 0; i < summaryIcons.length; i++) {
+    if (summaryIcons[i].zone === 'Choice') {
+      choiceIconIndex = i;
+      break;
+    }
+  }
+  
+  // If we found a choice icon, update it with the selected demonstrator
+  if (choiceIconIndex >= 0) {
+    // For choice_demonstrator keys, we need to modify it to a valid path format
+    // Extract the demonstrator index from imageKey (format: choice_demonstrator_X)
+    const demoIndex = imageKey.split('_')[2];
+    
+    // Use a fixed path format that works with our asset structure
+    summaryIcons[choiceIconIndex].imageKey = `demonstrator_0${demoIndex}`;
+    
+    // Redraw the summary bar to show the change
+    redrawSummaryBarDOM();
+  }
 }
 
 /**
@@ -1183,6 +1391,7 @@ function setupOnlineChoicePlay(stage) {
   const tankX = gridOriginX + (totalGridWidth / 2);
   const tankY = gridBottomY + TANK_MARGIN_TOP;
   const rewardTankContainer = this.add.container(tankX, tankY);
+  rewardTankContainer.setDepth(100); // Add high depth value to ensure visibility
   drawRewardTank.call(this, rewardTankContainer, num_arm_pulls, pullOutcomes);
 
   // user sprite
@@ -1296,6 +1505,9 @@ function setupOnlineChoiceChoice(stage) {
     { font: '20px Arial', fill: '#ffffff' }
   ).setOrigin(0.5);
   
+  // Update the control display section to show choice-specific controls
+  updateControlsDisplay("choice");
+  
   // Create the demonstrator cells
   const demonstrators = stage.demonstrators;
   const demoKeys = Object.keys(demonstrators);
@@ -1344,9 +1556,15 @@ function setupOnlineChoiceChoice(stage) {
       }
     ).setOrigin(0.5);
     
-    // Load demonstrator image
+    // Load demonstrator image - use path directly from json
     const imageKey = `online_choice_${demoKey}`;
-    this.load.image(imageKey, `assets/demonstrators/${demo.image}`);
+    
+    // Get the image path from the demonstrator configuration
+    const imagePath = demo.image;
+    console.log(`Loading online-choice demonstrator image for ${demoKey}: ${imagePath}`);
+    
+    // Load from the demonstrators folder with the actual image path
+    this.load.image(imageKey, `assets/demonstrators/${imagePath}`);
     
     cells.push({
       key: demoKey,
@@ -1372,6 +1590,10 @@ function setupOnlineChoiceChoice(stage) {
         (cellHeight - 20) / cell.image.height
       );
       cell.image.setScale(scale);
+      
+      // Make cells clickable
+      cell.background.setInteractive();
+      cell.image.setInteractive();
     }
     
     // Add highlight for selection
@@ -1407,6 +1629,72 @@ function setupOnlineChoiceChoice(stage) {
       }
     ).setOrigin(0.5).setVisible(false);
     
+    // Add click handlers for all cells
+    for (let i = 0; i < cells.length; i++) {
+      const cell = cells[i];
+      
+      const clickHandler = () => {
+        // Only allow selection if not already selected
+        if (selectedDemonstrator !== null) return;
+        
+        // If already on this position, select it
+        if (currentPosition === i) {
+          selectDemonstrator(i);
+        } else {
+          // Move to this position
+          currentPosition = i;
+          userX = cells[currentPosition].x;
+          userSprite.setPosition(userX, userY);
+          highlightRect.setPosition(cells[currentPosition].x, cells[currentPosition].y);
+        }
+      };
+      
+      cell.background.on('pointerdown', clickHandler);
+      cell.image.on('pointerdown', clickHandler);
+    }
+    
+    // Function to handle selection
+    function selectDemonstrator(index) {
+      const demoKey = cells[index].key;
+      const partnerLetter = cells[index].letter;
+      
+      selectedDemonstrator = demoKey;
+      
+      // Store the selection
+      state.chosenDemonstrator = selectedDemonstrator;
+      state.demonstratorHistory.push(selectedDemonstrator);
+      
+      // Show selection feedback using Partner Letter
+      feedbackText.setText(`You selected Partner ${partnerLetter}`);
+      feedbackText.setVisible(true);
+      
+      // Highlight selected with stronger border
+      highlightRect.setStrokeStyle(4, parseInt(zoneColor.replace('#', '0x')) || 0x888888);
+      highlightRect.setAlpha(0.6);
+      
+      // Add the selected demonstrator to the summary bar
+      addOnlineChoiceSelectionToSummary(cells[index].imageKey, stage.zone);
+      
+      // Add next button
+      const nextButton = this.add.text(
+        this.sys.game.config.width - 100,
+        this.sys.game.config.height - 40,
+        "Next",
+        { font: '18px Arial', fill: '#00ff00', backgroundColor: '#333', padding: 5 }
+      ).setOrigin(0.5).setInteractive();
+      
+      nextButton.on('pointerdown', () => {
+        console.log(`Selected demonstrator: ${selectedDemonstrator} (Partner ${partnerLetter})`);
+        
+        // Restore default controls
+        updateControlsDisplay("default");
+        
+        // Move to watch sub-stage
+        state.currentSubStage = "watch";
+        loadStage.call(this);
+      });
+    }
+    
     // Listen for arrow keys and spacebar
     this.input.keyboard.on('keydown', (evt) => {
       // Only allow movement if not already selected
@@ -1430,44 +1718,49 @@ function setupOnlineChoiceChoice(stage) {
       
       // Space to select
       if (evt.code === 'Space') {
-        const demoKey = cells[currentPosition].key;
-        const partnerLetter = cells[currentPosition].letter;
-        
-        selectedDemonstrator = demoKey;
-        
-        // Store the selection
-        state.chosenDemonstrator = selectedDemonstrator;
-        state.demonstratorHistory.push(selectedDemonstrator);
-        
-        // Show selection feedback using Partner Letter
-        feedbackText.setText(`You selected Partner ${partnerLetter}`);
-        feedbackText.setVisible(true);
-        
-        // Highlight selected with stronger border
-        highlightRect.setStrokeStyle(4, parseInt(zoneColor.replace('#', '0x')) || 0x888888);
-        highlightRect.setAlpha(0.6);
-        
-        // Add next button
-        const nextButton = this.add.text(
-          this.sys.game.config.width - 100,
-          this.sys.game.config.height - 40,
-          "Next",
-          { font: '18px Arial', fill: '#00ff00', backgroundColor: '#333', padding: 5 }
-        ).setOrigin(0.5).setInteractive();
-        
-        nextButton.on('pointerdown', () => {
-          console.log(`Selected demonstrator: ${selectedDemonstrator} (Partner ${partnerLetter})`);
-          
-          // Move to watch sub-stage
-          state.currentSubStage = "watch";
-          loadStage.call(this);
-        });
+        selectDemonstrator.call(this, currentPosition);
       }
     });
   });
   
   // Start loading the images
   this.load.start();
+}
+
+/**
+ * Add the selected demonstrator to the summary bar after online choice
+ */
+function addOnlineChoiceSelectionToSummary(imageKey, zone) {
+  if (!zone) return;
+  
+  // Look for an online-choice icon in the summaryIcons array
+  let choiceIconIndex = -1;
+  for (let i = 0; i < summaryIcons.length; i++) {
+    if (summaryIcons[i].zone === zone.index) {
+      choiceIconIndex = i;
+      break;
+    }
+  }
+  
+  // If we found an online-choice icon, update it with the selected demonstrator
+  if (choiceIconIndex >= 0) {
+    // For online_choice keys (format: online_choice_expert or online_choice_novice)
+    // Extract the demonstrator type from imageKey
+    const demoType = imageKey.split('_').slice(2).join('_'); // Gets "expert" or "novice"
+    
+    // Find the corresponding image in the demonstrators object of the stage
+    const demo = window.onlineChoiceState.chosenDemonstrator;
+    
+    // Use demonstrator format for summary icon
+    const demoIndex = zone.demonstrators && zone.demonstrators[demo] ? 
+      zone.demonstrators[demo].index : 0;
+      
+    // Convert to the proper format expected by redrawSummaryBarDOM
+    summaryIcons[choiceIconIndex].imageKey = `demonstrator_0${demoIndex}`;
+    
+    // Redraw the summary bar to show the change
+    redrawSummaryBarDOM();
+  }
 }
 
 /**
@@ -1546,6 +1839,7 @@ function setupOnlineChoiceWatch(stage) {
   const tankX = gridOriginX + (totalGridWidth / 2);
   const tankY = gridBottomY + TANK_MARGIN_TOP;
   const rewardTankContainer = this.add.container(tankX, tankY);
+  rewardTankContainer.setDepth(100); // Add high depth value to ensure visibility
   drawRewardTank.call(this, rewardTankContainer, trajectory.length, watchOutcomes);
 
   let highlightRect = createHighlightRect.call(this, cellWidth, cellHeight);
@@ -1558,8 +1852,12 @@ function setupOnlineChoiceWatch(stage) {
   // Load demonstrator image
   const demoImageKey = `online_watch_${selectedDemoKey}`;
   
+  // Get the image path directly from the selected demonstrator config
+  const demoImagePath = selectedDemo.image;
+  console.log(`Loading online-choice watch demonstrator image: ${demoImagePath}`);
+  
   if (!this.textures.exists(demoImageKey)) {
-    this.load.image(demoImageKey, `assets/demonstrators/${selectedDemo.image}`);
+    this.load.image(demoImageKey, `assets/demonstrators/${demoImagePath}`);
     this.load.once('complete', () => {
       startDemonstration.call(this);
     });
@@ -1649,7 +1947,7 @@ function setupOnlineChoiceWatch(stage) {
             this.tweens.add({
               targets: g,
               alpha: 0,
-              duration: 400,
+              duration: 200, // Reduced from 400 to 200 for quicker flash
               onComplete: () => {
                 g.destroy();
                 
@@ -1993,74 +2291,130 @@ function showEndOfGameMessage() {
 function createZoneBackgroundMask(stage, gridX, gridY, numRows, numCols, cellWidth, cellHeight) {
   if (!stage.zone) return;
 
-  // First, add a black background for the entire grid area plus padding
-  const totalWidth = (numCols * cellWidth) + ((numCols - 1) * CELL_PADDING);
-  const totalHeight = (numRows * cellHeight) + ((numRows - 1) * CELL_PADDING);
+  // Check for a custom background in the zone
+  let bgColor = 0x000000; // Default black
+  let hasBackgroundImage = false;
+  let backgroundImageKey = null;
   
-  let bgRect = this.add.rectangle(
-    gridX, 
-    gridY, 
-    totalWidth, 
-    totalHeight, 
-    0x000000
-  ).setOrigin(0, 0).setDepth(0);
-
-  const zoneMode = stage.zone.mode || "landscape";
-
-  if (zoneMode === "landscape") {
-    // LANDSCAPE MODE: one background for all cells
-    // Make sure we've loaded the landscape image
-    const landscapeImage = stage.zone.images[0];
-    const landscapeKey = `landscape_${stage.zone.index}`;
-    
-    if (!this.textures.exists(landscapeKey)) {
-      this.load.image(landscapeKey, `assets/landscapes/${landscapeImage}`);
-      this.load.once('complete', () => {
-        createLandscapeBackground.call(this, landscapeKey, gridX, gridY, numRows, numCols, cellWidth, cellHeight);
-      });
-      this.load.start();
-    } else {
-      createLandscapeBackground.call(this, landscapeKey, gridX, gridY, numRows, numCols, cellWidth, cellHeight);
-    }
-  } 
-  else if (zoneMode === "asteroid") {
-    // ASTEROID MODE: each cell gets its own asteroid
-    // Make sure we've loaded all the asteroid images
-    const asteroidImages = stage.zone.images;
-    const imageKeys = [];
-
-    // Create a loader for all asteroid images
-    let loadingRequired = false;
-    for (let i = 0; i < asteroidImages.length; i++) {
-      const asteroidKey = `asteroid_${stage.zone.index}_${i}`;
-      imageKeys.push(asteroidKey);
+  if (stage.zone.background) {
+    // If background ends with .png, it's an image file
+    if (stage.zone.background.endsWith('.png')) {
+      hasBackgroundImage = true;
+      backgroundImageKey = `zone_bg_${stage.zone.index}`;
       
-      if (!this.textures.exists(asteroidKey)) {
-        this.load.image(asteroidKey, `assets/asteroids/${asteroidImages[i]}`);
-        loadingRequired = true;
+      // Check if image is already loaded
+      if (!this.textures.exists(backgroundImageKey)) {
+        // Load the background image from zone_backgrounds folder
+        console.log(`Loading zone background image: ${stage.zone.background}`);
+        this.load.image(backgroundImageKey, `assets/zone_backgrounds/${stage.zone.background}`);
+        this.load.once('complete', () => {
+          applyBackground.call(this);
+        });
+        this.load.start();
+        return; // Wait for image to load
+      }
+    } else {
+      // It's a color name, convert to hex
+      const colorMap = {
+        'red': 0xFF0000,
+        'green': 0x00FF00,
+        'blue': 0x0000FF,
+        'yellow': 0xFFFF00,
+        'purple': 0x800080,
+        'orange': 0xFFA500,
+        'black': 0x000000,
+        'white': 0xFFFFFF,
+        'gray': 0x808080,
+        'grey': 0x808080
+      };
+      
+      // If it's a hex code, convert it
+      if (stage.zone.background.startsWith('#')) {
+        bgColor = parseInt(stage.zone.background.replace('#', '0x'));
+      } else {
+        // Otherwise look it up in our color map
+        bgColor = colorMap[stage.zone.background.toLowerCase()] || 0x000000;
       }
     }
-
-    if (loadingRequired) {
-      this.load.once('complete', () => {
-        createAsteroidBackgrounds.call(this, imageKeys, gridX, gridY, numRows, numCols, cellWidth, cellHeight);
-      });
-      this.load.start();
-    } else {
-      createAsteroidBackgrounds.call(this, imageKeys, gridX, gridY, numRows, numCols, cellWidth, cellHeight);
-    }
   }
-
-  // Draw the cell borders with a subtle white line
-  let lineG = this.add.graphics({ lineStyle: { width: 1, color: 0x444444 } });
-  lineG.setDepth(9998);
   
-  for (let r = 0; r < numRows; r++) {
-    for (let c = 0; c < numCols; c++) {
-      // Calculate position with padding
-      let rx = gridX + c * (cellWidth + CELL_PADDING);
-      let ry = gridY + r * (cellHeight + CELL_PADDING);
-      lineG.strokeRect(rx, ry, cellWidth, cellHeight);
+  // If we aren't waiting for an image to load, proceed with the background
+  if (!hasBackgroundImage || this.textures.exists(backgroundImageKey)) {
+    applyBackground.call(this);
+  }
+  
+  function applyBackground() {
+    // Create background for the ENTIRE game container, not just the grid
+    const gameWidth = this.sys.game.config.width;
+    const gameHeight = this.sys.game.config.height;
+    
+    // Create background - either color or image
+    if (hasBackgroundImage) {
+      // Add the background image to cover the entire game container
+      let zoneBg = this.add.image(0, 0, backgroundImageKey)
+        .setOrigin(0, 0)
+        .setDisplaySize(gameWidth, gameHeight)
+        .setDepth(-1000); // Set to very low depth to ensure it's behind everything
+    } else {
+      // Add a colored rectangle for the entire game container
+      let bgRect = this.add.rectangle(
+        0, 
+        0, 
+        gameWidth, 
+        gameHeight, 
+        bgColor
+      ).setOrigin(0, 0).setDepth(-1000); // Set to very low depth to ensure it's behind everything
+    }
+    
+    // Calculate grid dimensions for the cell content
+    const totalGridWidth = (numCols * cellWidth) + ((numCols - 1) * CELL_PADDING);
+    const totalGridHeight = (numRows * cellHeight) + ((numRows - 1) * CELL_PADDING);
+    
+    // Continue with the cells (either asteroid or landscape)
+    const zoneMode = stage.zone.mode || "landscape";
+    
+    if (zoneMode === "landscape") {
+      // LANDSCAPE MODE: one background for all cells
+      // Make sure we've loaded the landscape image
+      const landscapeImage = stage.zone.images[0];
+      const landscapeKey = `landscape_${stage.zone.index}`;
+      
+      if (!this.textures.exists(landscapeKey)) {
+        this.load.image(landscapeKey, `assets/landscapes/${landscapeImage}`);
+        this.load.once('complete', () => {
+          createLandscapeBackground.call(this, landscapeKey, gridX, gridY, numRows, numCols, cellWidth, cellHeight);
+        });
+        this.load.start();
+      } else {
+        createLandscapeBackground.call(this, landscapeKey, gridX, gridY, numRows, numCols, cellWidth, cellHeight);
+      }
+    } 
+    else if (zoneMode === "asteroid") {
+      // ASTEROID MODE: each cell gets its own asteroid
+      // Make sure we've loaded all the asteroid images
+      const asteroidImages = stage.zone.images;
+      const imageKeys = [];
+    
+      // Create a loader for all asteroid images
+      let loadingRequired = false;
+      for (let i = 0; i < asteroidImages.length; i++) {
+        const asteroidKey = `asteroid_${stage.zone.index}_${i}`;
+        imageKeys.push(asteroidKey);
+        
+        if (!this.textures.exists(asteroidKey)) {
+          this.load.image(asteroidKey, `assets/asteroids/${asteroidImages[i]}`);
+          loadingRequired = true;
+        }
+      }
+    
+      if (loadingRequired) {
+        this.load.once('complete', () => {
+          createAsteroidBackgrounds.call(this, imageKeys, gridX, gridY, numRows, numCols, cellWidth, cellHeight);
+        });
+        this.load.start();
+      } else {
+        createAsteroidBackgrounds.call(this, imageKeys, gridX, gridY, numRows, numCols, cellWidth, cellHeight);
+      }
     }
   }
 }
@@ -2147,14 +2501,16 @@ function drawRewardTank(container, totalSlots, outcomes) {
   const totalWidth = totalSlots * (TANK_SLOT_SIZE + TANK_SLOT_PADDING) - TANK_SLOT_PADDING;
   const tankBg = this.add.rectangle(0, 0, totalWidth + 4, TANK_SLOT_SIZE + 4, 0x333333);
   tankBg.setOrigin(0.5, 0.5);  // Center the background
+  tankBg.setDepth(1); // Ensure it's above any background but below other elements
   container.add(tankBg);
   
   // Add a title above the tank
-  const tankTitle = this.add.text(0, -15, "Mining Progress:", { 
+  const tankTitle = this.add.text(0, -15, "Mining Reward Tank", { 
     font: '14px Arial', 
     fill: '#ffffff' 
   });
   tankTitle.setOrigin(0.5, 0.5);  // Center the title
+  tankTitle.setDepth(2); // Ensure it's above the background
   container.add(tankTitle);
 
   for (let i = 0; i < totalSlots; i++) {
@@ -2168,6 +2524,7 @@ function drawRewardTank(container, totalSlots, outcomes) {
     let slotX = (i * (TANK_SLOT_SIZE + TANK_SLOT_PADDING)) - (totalWidth / 2) + (TANK_SLOT_SIZE / 2);
     let slotRect = this.add.rectangle(slotX, 0, TANK_SLOT_SIZE, TANK_SLOT_SIZE, color);
     slotRect.setOrigin(0.5, 0.5);  // Center each slot
+    slotRect.setDepth(1);  // Same depth as the background
     container.add(slotRect);
   }
 }
@@ -2179,6 +2536,11 @@ function drawMarkerDot(gridX, gridY, cellWidth, cellHeight, row, col, outcome) {
   let offsetY = Phaser.Math.Between(-cellHeight/4, cellHeight/4);
   let color = (outcome === 1) ? 0x00ff00 : 0xff0000;
 
+  // First draw a slightly larger black circle for the border
+  let border = this.add.circle(x + offsetX, y + offsetY, MARKER_DOT_RADIUS + 1, 0x000000);
+  border.setDepth(99998);
+  
+  // Then draw the colored dot on top
   let dot = this.add.circle(x + offsetX, y + offsetY, MARKER_DOT_RADIUS, color);
   dot.setDepth(99999);
 }
