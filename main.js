@@ -104,6 +104,9 @@ function loadStage() {
   const stage = timelineData.timeline[currentSessionIndex][currentStageIndex];
   console.log(`Loading session ${currentSessionIndex}, stage ${currentStageIndex}, type: ${stage.stage_type}`);
 
+  // Store the current stage for reference in other functions if needed
+  window.currentStage = stage;
+
   // Possibly add an icon for summary
   maybeAddSummaryIcon(stage);
 
@@ -115,6 +118,9 @@ function loadStage() {
       gameContainer.style.border = `10px solid ${zoneColor}`;
     }
   }
+
+  // Rebuild the DOM-based summary bar
+  redrawSummaryBarDOM();
 
   // Switch to correct stage
   switch(stage.stage_type) {
@@ -149,9 +155,6 @@ function loadStage() {
       console.warn("Unknown stage_type:", stage.stage_type);
       nextStage.call(this);
   }
-
-  // Rebuild the DOM-based summary bar
-  redrawSummaryBarDOM();
 }
 
 /*******************************************************
@@ -168,7 +171,7 @@ function maybeAddSummaryIcon(stage) {
   if (!['practice','play','watch','indicate','blind','choice','online-choice'].includes(t)) return;
 
   // For choice games, just create a placeholder in the summaryIcons array
-  // The actual image will be set when user makes their selection
+  // The actual image will be updated when user selects
   if (t === 'choice') {
     // Create a placeholder that will be updated when user selects
     summaryIcons.push({
@@ -179,24 +182,50 @@ function maybeAddSummaryIcon(stage) {
     return;
   }
   
-  // For online-choice games, similar placeholder approach 
+  // For online-choice games, we need an icon for each sub-stage 
   if (t === 'online-choice') {
-    // Only add on first play of each session
-    if (window.onlineChoiceState && window.onlineChoiceState.summaryIconAdded) {
-      return;
-    }
-    
-    // Mark that we've added the placeholder
+    // Check which sub-stage we're in
     if (window.onlineChoiceState) {
-      window.onlineChoiceState.summaryIconAdded = true;
+      const subStage = window.onlineChoiceState.currentSubStage;
+      const round = window.onlineChoiceState.currentRound;
+      
+      // Only add icons for play and watch sub-stages
+      if (subStage === 'play' || subStage === 'watch') {
+        // First check if we already have an icon for this specific round and sub-stage
+        // to avoid duplicates
+        const iconId = `online-choice-${round}-${subStage}`;
+        
+        // Check if we already have this icon
+        const exists = summaryIcons.some(icon => icon.id === iconId);
+        if (exists) {
+          console.log(`Skipping duplicate summary icon: ${iconId}`);
+          return;
+        }
+        
+        console.log(`Adding new summary icon: ${iconId}`);
+        
+        // For 'play' sub-stage, use user icon
+        // For 'watch' sub-stage, use the selected demonstrator icon
+        let imageKey = (subStage === 'play') ? 'user' : null;
+        
+        // For watch, we'll set the demonstrator image when selected
+        if (subStage === 'watch' && window.onlineChoiceState.chosenDemonstrator) {
+          const demoKey = window.onlineChoiceState.chosenDemonstrator;
+          const demoIndex = stage.demonstrators[demoKey].index || 0;
+          imageKey = `demonstrator_0${demoIndex}`;
+        }
+        
+        // Create icon with appropriate label - just show Zone X
+        summaryIcons.push({
+          id: iconId, // Add a unique identifier
+          imageKey: imageKey,
+          zone: stage.zone && stage.zone.index ? stage.zone.index : 0,
+          color: stage.zone && stage.zone.color ? stage.zone.color : '#888888',
+          // Simplified label showing just the zone
+          label: `Zone ${stage.zone.index}`
+        });
+      }
     }
-    
-    // Create placeholder that will be updated when user selects
-    summaryIcons.push({
-      imageKey: null, // Will be updated when user selects
-      zone: stage.zone && stage.zone.index ? stage.zone.index : 0,
-      color: stage.zone && stage.zone.color ? stage.zone.color : '#888888'
-    });
     return;
   }
   
@@ -265,11 +294,15 @@ function redrawSummaryBarDOM() {
     img.style.display = "block";
     img.style.margin = "0 auto"; // Center horizontally
 
-    // The zone label
+    // The zone label - use custom label if provided
     const label = document.createElement("div");
-    // Handle special case for Choice zone
-    if (iconData.zone === 'Choice') {
-      label.textContent = "Choice Zone";
+    // Check if we have a custom label (for online-choice sub-stages)
+    if (iconData.label) {
+      label.textContent = iconData.label;
+    } 
+    // Handle special case for Choice zone - simplify to just "Choice"
+    else if (iconData.zone === 'Choice') {
+      label.textContent = "Choice";
     } else {
       label.textContent = "Zone " + iconData.zone;
     }
@@ -1280,10 +1313,6 @@ function addChoiceSelectionToSummary(imageKey, zoneColor) {
  * ONLINE-CHOICE stage - manages play-choice-watch cycles
  */
 function setupOnlineChoice(stage) {
-  console.log("Loading ONLINE-CHOICE stage");
-  console.log("Full stage data:", JSON.stringify(stage, null, 2));
-  
-  // Validate that we have all required data
   if (!stage.zone || !stage.zone.bandit) {
     console.error("Missing zone or bandit data for online-choice stage");
     return;
@@ -1323,6 +1352,10 @@ function setupOnlineChoice(stage) {
     });
     
     console.log("Initialized online choice state:", window.onlineChoiceState);
+    
+    // Force add a summary icon for the first play sub-stage
+    // This ensures we have an icon for the very first play game
+    maybeAddSummaryIcon(stage);
   }
   
   const state = window.onlineChoiceState;
@@ -1352,12 +1385,45 @@ function setupOnlineChoice(stage) {
  * Play sub-stage for online-choice
  */
 function setupOnlineChoicePlay(stage) {
+  const currentScene = this;
+  
+  // Initialize onlineChoiceState if not already done
+  if (!window.onlineChoiceState) {
+    window.onlineChoiceState = {
+      currentRound: 1,
+      totalRounds: stage.rounds,
+      currentSubStage: "play", // "play", "choice", "watch", or "final-play"
+      chosenDemonstrator: null,
+      demoTrajectoryIndices: {}, // Will store indices for each demonstrator
+      demonstratorHistory: [],
+      // Create a map of demonstrator keys to letters (A, B, C, etc.)
+      demoLetters: {},
+      // Flag to track if summary icon has been added
+      summaryIconAdded: false
+    };
+    
+    // Assign letters to demonstrators (A, B, C, etc.)
+    const demoKeys = Object.keys(stage.demonstrators);
+    demoKeys.forEach((key, index) => {
+      window.onlineChoiceState.demoLetters[key] = String.fromCharCode(65 + index); // A, B, C, etc.
+      window.onlineChoiceState.demoTrajectoryIndices[key] = 0; // Initialize trajectory indices
+    });
+    
+    console.log("Initialized online choice state:", window.onlineChoiceState);
+  } else {
+    // Update the state for this sub-stage
+    window.onlineChoiceState.currentSubStage = 'play';
+  }
+  
   const state = window.onlineChoiceState;
   const bandit = stage.zone.bandit;
   const num_arm_pulls = stage.num_arm_pulls_per_block;
   
   let numRows = bandit.length;
   let numCols = bandit[0].length;
+  
+  // NOTE: We don't need to call maybeAddSummaryIcon here since loadStage already does it
+  // The unique ID approach will prevent duplicates
   
   // Check if this is the final play after all rounds
   const isFinalPlay = state.currentRound === state.totalRounds && 
@@ -1413,9 +1479,6 @@ function setupOnlineChoicePlay(stage) {
   highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
 
   let pullsRemaining = num_arm_pulls;
-  
-  // Store a reference to the scene
-  const currentScene = this;
   
   // Add clickable areas for each cell
   for (let r = 0; r < numRows; r++) {
@@ -1567,25 +1630,17 @@ function setupOnlineChoicePlay(stage) {
  * Choice sub-stage for online-choice
  */
 function setupOnlineChoiceChoice(stage) {
+  const currentScene = this;
+  
+  // Update the state for this sub-stage
+  if (window.onlineChoiceState) {
+    window.onlineChoiceState.currentSubStage = 'choice';
+  }
+  
   const state = window.onlineChoiceState;
   const zoneColor = stage.zone && stage.zone.color ? stage.zone.color : "#888888";
   
   console.log("Loading ONLINE-CHOICE CHOICE sub-stage");
-  
-  // Store a reference to the scene
-  const currentScene = this;
-  
-  // Create title text
-  const titleText = this.add.text(
-    this.sys.game.config.width / 2,
-    100,
-    "Choose a partner to watch:",
-    { 
-      font: '28px Arial', 
-      fill: '#ffffff',
-      align: 'center'
-    }
-  ).setOrigin(0.5);
   
   // Show round information
   const roundText = this.add.text(
@@ -1857,17 +1912,16 @@ function addOnlineChoiceSelectionToSummary(imageKey, zone) {
  * Watch sub-stage for online-choice
  */
 function setupOnlineChoiceWatch(stage) {
+  const currentScene = this;
+  
+  // Update the state for this sub-stage
+  if (window.onlineChoiceState) {
+    window.onlineChoiceState.currentSubStage = 'watch';
+  }
+  
   const state = window.onlineChoiceState;
   const bandit = stage.zone.bandit;
   const numPulls = stage.num_demonstrator_arm_pulls_per_block;
-  
-  let numRows = bandit.length;
-  let numCols = bandit[0].length;
-  
-  console.log(`Loading ONLINE-CHOICE WATCH with grid: ${numRows}x${numCols}`);
-  
-  // Store a reference to the scene
-  const currentScene = this;
   
   // Get the selected demonstrator
   const selectedDemoKey = state.chosenDemonstrator;
@@ -1878,6 +1932,15 @@ function setupOnlineChoiceWatch(stage) {
     console.error("Selected demonstrator not found:", selectedDemoKey);
     return;
   }
+  
+  // Define numRows and numCols before using them
+  let numRows = bandit.length;
+  let numCols = bandit[0].length;
+  
+  console.log(`Loading ONLINE-CHOICE WATCH with grid: ${numRows}x${numCols}`);
+  
+  // NOTE: We don't need to call maybeAddSummaryIcon here since loadStage already does it
+  // The unique ID approach will prevent duplicates
   
   // Show which demonstrator is being shown (using Partner letter)
   const demoTypeText = this.add.text(
@@ -1982,21 +2045,8 @@ function setupOnlineChoiceWatch(stage) {
         ).setOrigin(0.5).setInteractive();
         
         nextButton.on('pointerdown', () => {
-          // Always proceed to final play even with 1 round
-          // This is the end of a round, always go to play
-          state.currentSubStage = "play";
-          
-          // Check if we're at the last round
-          if (state.currentRound < state.totalRounds) {
-            // Not the last round, increment round counter
-            state.currentRound++;
-          } else {
-            // Last round, but we still do a final play
-            // The next play will end the game when finished
-            state.isFinalPlay = true;
-          }
-          
-          loadStage.call(currentScene);
+          // Call our new function to handle completing the watch stage
+          finishOnlineChoiceWatch.call(currentScene);
         });
         return;
       }
@@ -3386,3 +3436,32 @@ function createChoiceZoneIcon(scene, zoneColor) {
         container.add(zoneText);
     }
   }
+
+function finishOnlineChoiceWatch() {
+  const currentScene = this;
+  
+  // Update round number before proceeding to next round
+  if (window.onlineChoiceState) {
+    const state = window.onlineChoiceState;
+    
+    // Before incrementing round, set the next substage to play
+    state.currentSubStage = "play";
+    
+    // Check if we've completed all rounds
+    if (state.currentRound >= state.totalRounds) {
+      console.log("All online-choice rounds completed, moving to next stage");
+      window.onlineChoiceState = null; // Clear state for next time
+      // Move to next stage in timeline
+      nextStage.call(currentScene);
+    } else {
+      // Not at the last round yet, increment round number
+      state.currentRound++;
+      console.log(`Moving to round ${state.currentRound}`);
+      // Go back to play sub-stage
+      loadStage.call(currentScene);
+    }
+  } else {
+    // If state is somehow missing, just move to next stage
+    nextStage.call(currentScene);
+  }
+}
