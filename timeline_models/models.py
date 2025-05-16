@@ -1,3 +1,4 @@
+import random
 from itertools import product
 from typing import List, Dict, Any, Optional
 
@@ -11,50 +12,46 @@ def generate_timeline(
       repeat_block = ["watch", "play", "watch", "play"]
       choice = "choice"
 
-    rounds: number of times to run the watch/play block (must be >= 1)
+    rounds: number of times to run the watch/play block (>= 1)
     num_play_arm_pulls: number to assign to each "play" game
     num_watch_arm_pulls: number to assign to each "watch" game
 
     Returns:
       [
-        [   # session 0
-            [ {…}, {…}, … ],   # stage_index = 0: repeated watch/play entries
-            [ {…} ]             # stage_index = 1: single choice entry
-        ],
-        [   # session 1
-            … 
+        [   # one session
+            [ {...}, {...}, … ],   # stage_index = 0 (watch/play)
+            [ {...} ]              # stage_index = 1 (choice)
         ],
         …
       ]
 
-    Each dict in the timeline has keys:
+    Each dict has:
       - game
-      - demonstrator (or demonstrator_1, demonstrator_2 for choice)
+      - demonstrator (or demonstrator_1, demonstrator_2)
       - game_index
       - num_arm_pulls
-      - transfer
-      - session_index
-      - stage_index
+      - transfer (None for stage 0, True/False for stage 1)
+      - stage_index (0 or 1)
+      - session_index (assigned after shuffle)
+      - zone: {"zone_index": …} (assigned after shuffle)
     """
     if rounds < 1:
-        raise ValueError("rounds must be an integer >= 1")
+        raise ValueError("rounds must be >= 1")
 
     repeat_block = ["watch", "play", "watch", "play"]
     choice_name = "choice"
-
     num_watch = repeat_block.count("watch")
     patterns = list(product(["expert", "novice"], repeat=num_watch))
     transfer_options = [True, False]
 
-    timeline: List[List[List[Dict[str, Any]]]] = []
-    session_index = 0
-
+    # 1) Build all sessions (without session_index or zone)
+    sessions: List[List[List[Dict[str, Any]]]] = []
     for pat in patterns:
         for transfer_flag in transfer_options:
             games: List[Dict[str, Any]] = []
             game_idx = 0
 
-            # build the repeated watch/play stages (stage_index = 0)
+            # stage 0: repeated watch/play
             for _ in range(rounds):
                 watch_cursor = 0
                 for g in repeat_block:
@@ -72,27 +69,47 @@ def generate_timeline(
                         "game_index": game_idx,
                         "num_arm_pulls": num_arm_pulls,
                         "transfer": None,
-                        "session_index": session_index,
                         "stage_index": 0
                     })
                     game_idx += 1
 
-            # build the choice stage (stage_index = 1)
-            choice_entry: Dict[str, Any] = {
+            # stage 1: choice
+            choice_entry = {
                 "game": choice_name,
                 "demonstrator_1": pat[0],
                 "demonstrator_2": pat[1],
                 "game_index": game_idx,
                 "num_arm_pulls": None,
                 "transfer": transfer_flag,
-                "session_index": session_index,
                 "stage_index": 1
             }
 
-            timeline.append([games, [choice_entry]])
-            session_index += 1
+            sessions.append([games, [choice_entry]])
 
-    return timeline
+    # 2) Shuffle sessions
+    random.shuffle(sessions)
+
+    # 3) Assign session_index and zone_index according to rules
+    zone_index = 0
+    for session_index, (games, choice_list) in enumerate(sessions):
+        # stage 0 entries get current zone_index
+        for entry in games:
+            entry["session_index"] = session_index
+            entry["zone"] = {"zone_index": zone_index}
+
+        # stage 1: if transfer==True, bump zone before assigning
+        if choice_list[0]["transfer"]:
+            zone_index += 1
+
+        for entry in choice_list:
+            entry["session_index"] = session_index
+            entry["zone"] = {"zone_index": zone_index}
+
+        # after finishing this session, always bump zone for next session
+        zone_index += 1
+
+    return sessions
+
 
 if __name__ == "__main__":
     import json
