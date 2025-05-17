@@ -1,0 +1,131 @@
+{
+  "return_url": "https://www.google.com",
+  "timeline": 
+    [
+        [
+            {
+                "stage_type": "prolific_id_form",
+                "message": "Please enter your Prolific ID below:"
+            },
+            {
+                "stage_type": "introduction",
+                "message": "Welcome to the mining expedition! Here's the backstory..."
+            },
+            {
+                "stage_type": "practice",
+                "num_arm_pulls": 24,
+                "overlay-message": "This is a practice stage. You can pull the arm as many times as you want.",
+                "zone": {
+                    "index": 0,
+                    "background": "zone_00.png",
+                    "color": "green",
+                    "mode": "asteroid",
+                    "bandit": [[0.45, 0.55, 0.65, 0.75, 0.85, 0.95, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95]], 
+                    "images": ["asteroid_10.png", "asteroid_07.png", "asteroid_04.png", "asteroid_01.png", "asteroid_08.png", "asteroid_05.png", "asteroid_02.png", "asteroid_09.png", "asteroid_06.png", "asteroid_03.png", "asteroid_12.png", "asteroid_09.png"]
+                }
+            }
+        ],
+        [
+            {
+                "stage_type": "play",
+                "overlay-message": "You will now play the game. Pull the arm to collect asteroids. The more asteroids you collect, the more points you will earn.",
+                "num_arm_pulls": 24,
+                "demonstrator": null,
+                "zone": {
+                    "index": 1,
+                    "background": "zone_01.png",
+                    "color": "red",
+                    "mode": "asteroid",
+                    "bandit": [[0.21, 0.87, 0.34, 0.48, 0.95, 0.67, 0.23, 0.44, 0.56, 0.29, 0.72, 0.85]], 
+                    "images": ["asteroid_01.png", "asteroid_02.png", "asteroid_03.png", "asteroid_04.png", "asteroid_05.png", "asteroid_06.png", "asteroid_07.png", "asteroid_08.png", "asteroid_09.png", "asteroid_10.png", "asteroid_11.png", "asteroid_12.png"]
+                }
+            },
+            {
+                "stage_type": "watch",
+                "overlay-message": "You will now watch a demonstration of the game. The demonstrator will pull the arm and collect asteroids. You can watch as many times as you want.",
+                "num_arm_pulls": null,
+                "demonstrator": {
+                    "index": 0,
+                    "trajectory": [0, 5, 8, 1, 3, 5, 8],
+                    "image": "demonstrator_00.png"
+                },
+                "zone": {
+                    "index": 1,
+                    "color": "red", 
+                    "background": "black",
+                    "mode": "asteroid",
+                    "bandit": [[0.21, 0.87, 0.34, 0.48, 0.95, 0.67, 0.23, 0.44, 0.56, 0.29, 0.72, 0.85]], 
+                    "images": ["asteroid_01.png", "asteroid_02.png", "asteroid_03.png", "asteroid_04.png", "asteroid_05.png", "asteroid_06.png", "asteroid_07.png", "asteroid_08.png", "asteroid_09.png", "asteroid_10.png", "asteroid_11.png", "asteroid_12.png"]
+                }
+            },
+            {   
+                "stage_type": "indicate",
+                "overlay-message": "You will now watch a demonstration of the game. The demonstrator will however only indicate which arms it thinks are the best to pull.",
+                "num_arm_pulls": null,
+                "demonstrator": {
+                    "index": 1,
+                    "trajectory": [5, 5, 5, 5],
+                    "image": "demonstrator_00.png"
+                },
+                "zone": {
+                    "index": 2,
+                    "color": "blue",
+                    "background": "zone_02.png",
+                    "mode": "asteroid",
+                    "bandit": [[0.37, 0.65, 0.32, 0.14, 0.26, 0.71, 0.83, 0.49, 0.78, 0.56, 0.23, 0.44]], 
+                    "images": ["asteroid_11.png", "asteroid_12.png", "asteroid_13.png", "asteroid_14.png", "asteroid_15.png", "asteroid_16.png", "asteroid_17.png", "asteroid_18.png", "asteroid_19.png", "asteroid_20.png", "asteroid_21.png", "asteroid_22.png"]
+                }
+            },
+            {
+                "stage_type": "blind",
+                "overlay-message": "This is a blind game. You will play the game however you will not be able to see any reward outcomes from your choices.",
+                "num_arm_pulls": 24,
+                "demonstrator": null,
+                "zone": {
+                    "index": 0,
+                    "color": "green",
+                    "background": "zone_00.png",
+                    "mode": "asteroid",
+                    "bandit": [[0.21, 0.87, 0.34, 0.48, 0.95, 0.67, 0.23, 0.44, 0.56, 0.29, 0.72, 0.85]], 
+                    "images": ["asteroid_01.png", "asteroid_02.png", "asteroid_03.png", "asteroid_04.png", "asteroid_05.png", "asteroid_06.png", "asteroid_07.png", "asteroid_08.png", "asteroid_09.png", "asteroid_10.png", "asteroid_11.png", "asteroid_12.png"]
+                }
+            },
+            {
+                "stage_type": "choice",
+                "background": "zone_04.png", 
+                "overlay-message": "You will now be presented with choices of which partner you prefer to choose if you were to play again.",
+                "demonstrators": {
+                                "indices": [1,2],
+                                "images": ["demonstrator_01.png", "demonstrator_02.png"]
+                            }
+            },
+            {
+                "stage_type": "online-choice",
+                "overlay-message": "You will get to choose a partner to watch after every few steps of playing.",
+                "rounds": 2,
+                "num_arm_pulls_per_block": 6,
+                "num_demonstrator_arm_pulls_per_block": 6,
+                "demonstrators": {
+                    "expert": {
+                        "index": 0,
+                        "trajectory": [0, 5, 8, 1, 3, 5, 8, 1, 3, 5, 8, 1, 3, 4, 5, 2, 4, 5, 8, 1, 3, 5, 8, 1],
+                        "image": "demonstrator_00.png"
+                    },
+                    "novice": {
+                        "index": 1,
+                        "trajectory": [0, 5, 8, 1, 3, 5, 8, 1, 3, 4, 5, 2, 4, 5, 8, 1, 3, 5, 8, 1, 3, 4, 5, 2],
+                        "image": "demonstrator_01.png"
+                    }
+                },
+                "zone": {
+                    "index": 0,
+                    "background": "zone_00.png",
+                    "color": "green",
+                    "mode": "asteroid",
+                    "bandit": [[0.21, 0.87, 0.34, 0.48, 0.95, 0.67, 0.23, 0.44, 0.56, 0.29, 0.72, 0.85]], 
+                    "images": ["asteroid_01.png", "asteroid_02.png", "asteroid_03.png", "asteroid_04.png", "asteroid_05.png", "asteroid_06.png", "asteroid_07.png", "asteroid_08.png", "asteroid_09.png", "asteroid_10.png", "asteroid_11.png", "asteroid_12.png"]
+                }
+            }
+        ]
+    ]
+}

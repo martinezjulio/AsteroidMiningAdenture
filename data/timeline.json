@@ -1,131 +1,2251 @@
-{
-  "return_url": "https://www.google.com",
-  "timeline": 
+[
+    [
+        {
+            "stage_type": "prolific_id_form",
+            "message": "Please enter your Prolific ID below:"
+        },
+        {
+            "stage_type": "introduction",
+            "message": "Welcome to the mining expedition! Here's the backstory..."
+        },
+        {
+            "game": "practice",
+            "demonstrator": null,
+            "game_index": 0,
+            "num_arm_pulls": 6,
+            "transfer": null,
+            "stage_index": 0,
+            "round_index": 0,
+            "session_index": 0,
+            "zone": {
+                "zone_index": 0,
+                "zone_background": "zone_00.png",
+                "zone_color": "#f27979",
+                "zone_mode": "asteroid",
+                "zone_images": [
+                    "asteroid_68.png",
+                    "asteroid_63.png",
+                    "asteroid_62.png",
+                    "asteroid_28.png",
+                    "asteroid_29.png",
+                    "asteroid_21.png",
+                    "asteroid_66.png",
+                    "asteroid_12.png",
+                    "asteroid_51.png",
+                    "asteroid_13.png",
+                    "asteroid_75.png",
+                    "asteroid_37.png"
+                ],
+                "zone_bandit": [
+                    [
+                        0.55,
+                        0.3,
+                        0.1,
+                        0.45,
+                        0.6,
+                        0.0,
+                        0.5,
+                        0.35,
+                        0.75,
+                        0.4,
+                        0.8,
+                        0.2
+                    ]
+                ],
+                "bandit_id": "payoffs56"
+            }
+        }
+    ],
     [
         [
             {
-                "stage_type": "prolific_id_form",
-                "message": "Please enter your Prolific ID below:"
-            },
-            {
-                "stage_type": "introduction",
-                "message": "Welcome to the mining expedition! Here's the backstory..."
-            },
-            {
-                "stage_type": "practice",
-                "num_arm_pulls": 24,
-                "overlay-message": "This is a practice stage. You can pull the arm as many times as you want.",
+                "game": "watch",
+                "demonstrator": {
+                    "demonstrator_type": "expert",
+                    "demonstrator_index": 0,
+                    "demonstrator_id": 19,
+                    "demonstrator_image": "demonstrator_19.png",
+                    "demonstrator_trajectory": [
+                        4,
+                        10,
+                        4,
+                        4
+                    ]
+                },
+                "game_index": 0,
+                "num_arm_pulls": 4,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 1,
                 "zone": {
-                    "index": 0,
-                    "background": "zone_00.png",
-                    "color": "green",
-                    "mode": "asteroid",
-                    "bandit": [[0.45, 0.55, 0.65, 0.75, 0.85, 0.95, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95]], 
-                    "images": ["asteroid_10.png", "asteroid_07.png", "asteroid_04.png", "asteroid_01.png", "asteroid_08.png", "asteroid_05.png", "asteroid_02.png", "asteroid_09.png", "asteroid_06.png", "asteroid_03.png", "asteroid_12.png", "asteroid_09.png"]
+                    "zone_index": 1,
+                    "zone_background": "zone_01.png",
+                    "zone_color": "#f2b179",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_75.png",
+                        "asteroid_74.png",
+                        "asteroid_66.png",
+                        "asteroid_51.png",
+                        "asteroid_26.png",
+                        "asteroid_07.png",
+                        "asteroid_57.png",
+                        "asteroid_65.png",
+                        "asteroid_49.png",
+                        "asteroid_50.png",
+                        "asteroid_52.png",
+                        "asteroid_64.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.2,
+                            0.3,
+                            0.1,
+                            0.75,
+                            0.8,
+                            0.4,
+                            0.5,
+                            0.45,
+                            0.0,
+                            0.35,
+                            0.6,
+                            0.55
+                        ]
+                    ],
+                    "bandit_id": "payoffs67"
+                }
+            },
+            {
+                "game": "play",
+                "demonstrator": null,
+                "game_index": 1,
+                "num_arm_pulls": 6,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 1,
+                "zone": {
+                    "zone_index": 1,
+                    "zone_background": "zone_01.png",
+                    "zone_color": "#f2b179",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_75.png",
+                        "asteroid_74.png",
+                        "asteroid_66.png",
+                        "asteroid_51.png",
+                        "asteroid_26.png",
+                        "asteroid_07.png",
+                        "asteroid_57.png",
+                        "asteroid_65.png",
+                        "asteroid_49.png",
+                        "asteroid_50.png",
+                        "asteroid_52.png",
+                        "asteroid_64.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.2,
+                            0.3,
+                            0.1,
+                            0.75,
+                            0.8,
+                            0.4,
+                            0.5,
+                            0.45,
+                            0.0,
+                            0.35,
+                            0.6,
+                            0.55
+                        ]
+                    ],
+                    "bandit_id": "payoffs67"
+                }
+            },
+            {
+                "game": "watch",
+                "demonstrator": {
+                    "demonstrator_type": "novice",
+                    "demonstrator_index": 1,
+                    "demonstrator_id": 12,
+                    "demonstrator_image": "demonstrator_12.png",
+                    "demonstrator_trajectory": [
+                        0,
+                        5,
+                        0,
+                        5
+                    ]
+                },
+                "game_index": 2,
+                "num_arm_pulls": 4,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 1,
+                "zone": {
+                    "zone_index": 1,
+                    "zone_background": "zone_01.png",
+                    "zone_color": "#f2b179",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_75.png",
+                        "asteroid_74.png",
+                        "asteroid_66.png",
+                        "asteroid_51.png",
+                        "asteroid_26.png",
+                        "asteroid_07.png",
+                        "asteroid_57.png",
+                        "asteroid_65.png",
+                        "asteroid_49.png",
+                        "asteroid_50.png",
+                        "asteroid_52.png",
+                        "asteroid_64.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.2,
+                            0.3,
+                            0.1,
+                            0.75,
+                            0.8,
+                            0.4,
+                            0.5,
+                            0.45,
+                            0.0,
+                            0.35,
+                            0.6,
+                            0.55
+                        ]
+                    ],
+                    "bandit_id": "payoffs67"
+                }
+            },
+            {
+                "game": "play",
+                "demonstrator": null,
+                "game_index": 3,
+                "num_arm_pulls": 6,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 1,
+                "zone": {
+                    "zone_index": 1,
+                    "zone_background": "zone_01.png",
+                    "zone_color": "#f2b179",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_75.png",
+                        "asteroid_74.png",
+                        "asteroid_66.png",
+                        "asteroid_51.png",
+                        "asteroid_26.png",
+                        "asteroid_07.png",
+                        "asteroid_57.png",
+                        "asteroid_65.png",
+                        "asteroid_49.png",
+                        "asteroid_50.png",
+                        "asteroid_52.png",
+                        "asteroid_64.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.2,
+                            0.3,
+                            0.1,
+                            0.75,
+                            0.8,
+                            0.4,
+                            0.5,
+                            0.45,
+                            0.0,
+                            0.35,
+                            0.6,
+                            0.55
+                        ]
+                    ],
+                    "bandit_id": "payoffs67"
                 }
             }
         ],
         [
             {
-                "stage_type": "play",
-                "overlay-message": "You will now play the game. Pull the arm to collect asteroids. The more asteroids you collect, the more points you will earn.",
-                "num_arm_pulls": 24,
-                "demonstrator": null,
-                "zone": {
-                    "index": 1,
-                    "background": "zone_01.png",
-                    "color": "red",
-                    "mode": "asteroid",
-                    "bandit": [[0.21, 0.87, 0.34, 0.48, 0.95, 0.67, 0.23, 0.44, 0.56, 0.29, 0.72, 0.85]], 
-                    "images": ["asteroid_01.png", "asteroid_02.png", "asteroid_03.png", "asteroid_04.png", "asteroid_05.png", "asteroid_06.png", "asteroid_07.png", "asteroid_08.png", "asteroid_09.png", "asteroid_10.png", "asteroid_11.png", "asteroid_12.png"]
-                }
-            },
-            {
-                "stage_type": "watch",
-                "overlay-message": "You will now watch a demonstration of the game. The demonstrator will pull the arm and collect asteroids. You can watch as many times as you want.",
+                "game": "choice",
+                "game_index": 4,
                 "num_arm_pulls": null,
-                "demonstrator": {
-                    "index": 0,
-                    "trajectory": [0, 5, 8, 1, 3, 5, 8],
-                    "image": "demonstrator_00.png"
-                },
+                "transfer": true,
+                "stage_index": 1,
+                "round_index": null,
+                "session_index": 1,
                 "zone": {
-                    "index": 1,
-                    "color": "red", 
-                    "background": "black",
-                    "mode": "asteroid",
-                    "bandit": [[0.21, 0.87, 0.34, 0.48, 0.95, 0.67, 0.23, 0.44, 0.56, 0.29, 0.72, 0.85]], 
-                    "images": ["asteroid_01.png", "asteroid_02.png", "asteroid_03.png", "asteroid_04.png", "asteroid_05.png", "asteroid_06.png", "asteroid_07.png", "asteroid_08.png", "asteroid_09.png", "asteroid_10.png", "asteroid_11.png", "asteroid_12.png"]
+                    "zone_index": 2,
+                    "zone_background": "zone_02.png",
+                    "zone_color": "#f2e879",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_54.png",
+                        "asteroid_20.png",
+                        "asteroid_31.png",
+                        "asteroid_72.png",
+                        "asteroid_22.png",
+                        "asteroid_78.png",
+                        "asteroid_24.png",
+                        "asteroid_47.png",
+                        "asteroid_67.png",
+                        "asteroid_77.png",
+                        "asteroid_41.png",
+                        "asteroid_64.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.6,
+                            0.35,
+                            0.55,
+                            0.75,
+                            0.8,
+                            0.5,
+                            0.4,
+                            0.2,
+                            0.3,
+                            0.0,
+                            0.45,
+                            0.1
+                        ]
+                    ],
+                    "bandit_id": "payoffs46"
+                },
+                "demonstrator1": {
+                    "demonstrator_type": "expert",
+                    "demonstrator_index": 0,
+                    "demonstrator_id": 19,
+                    "demonstrator_image": "demonstrator_19.png"
+                },
+                "demonstrator2": {
+                    "demonstrator_type": "novice",
+                    "demonstrator_index": 1,
+                    "demonstrator_id": 12,
+                    "demonstrator_image": "demonstrator_12.png"
                 }
-            },
-            {   
-                "stage_type": "indicate",
-                "overlay-message": "You will now watch a demonstration of the game. The demonstrator will however only indicate which arms it thinks are the best to pull.",
-                "num_arm_pulls": null,
+            }
+        ]
+    ],
+    [
+        [
+            {
+                "game": "watch",
                 "demonstrator": {
-                    "index": 1,
-                    "trajectory": [5, 5, 5, 5],
-                    "image": "demonstrator_00.png"
+                    "demonstrator_type": "expert",
+                    "demonstrator_index": 0,
+                    "demonstrator_id": 7,
+                    "demonstrator_image": "demonstrator_07.png",
+                    "demonstrator_trajectory": [
+                        1,
+                        1,
+                        1,
+                        1
+                    ]
                 },
+                "game_index": 0,
+                "num_arm_pulls": 4,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 2,
                 "zone": {
-                    "index": 2,
-                    "color": "blue",
-                    "background": "zone_02.png",
-                    "mode": "asteroid",
-                    "bandit": [[0.37, 0.65, 0.32, 0.14, 0.26, 0.71, 0.83, 0.49, 0.78, 0.56, 0.23, 0.44]], 
-                    "images": ["asteroid_11.png", "asteroid_12.png", "asteroid_13.png", "asteroid_14.png", "asteroid_15.png", "asteroid_16.png", "asteroid_17.png", "asteroid_18.png", "asteroid_19.png", "asteroid_20.png", "asteroid_21.png", "asteroid_22.png"]
+                    "zone_index": 3,
+                    "zone_background": "zone_03.png",
+                    "zone_color": "#c3f279",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_55.png",
+                        "asteroid_18.png",
+                        "asteroid_26.png",
+                        "asteroid_79.png",
+                        "asteroid_74.png",
+                        "asteroid_61.png",
+                        "asteroid_60.png",
+                        "asteroid_46.png",
+                        "asteroid_48.png",
+                        "asteroid_00.png",
+                        "asteroid_40.png",
+                        "asteroid_66.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.4,
+                            0.8,
+                            0.75,
+                            0.2,
+                            0.6,
+                            0.45,
+                            0.55,
+                            0.5,
+                            0.1,
+                            0.0,
+                            0.3,
+                            0.35
+                        ]
+                    ],
+                    "bandit_id": "payoffs87"
                 }
             },
             {
-                "stage_type": "blind",
-                "overlay-message": "This is a blind game. You will play the game however you will not be able to see any reward outcomes from your choices.",
-                "num_arm_pulls": 24,
+                "game": "play",
                 "demonstrator": null,
+                "game_index": 1,
+                "num_arm_pulls": 6,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 2,
                 "zone": {
-                    "index": 0,
-                    "color": "green",
-                    "background": "zone_00.png",
-                    "mode": "asteroid",
-                    "bandit": [[0.21, 0.87, 0.34, 0.48, 0.95, 0.67, 0.23, 0.44, 0.56, 0.29, 0.72, 0.85]], 
-                    "images": ["asteroid_01.png", "asteroid_02.png", "asteroid_03.png", "asteroid_04.png", "asteroid_05.png", "asteroid_06.png", "asteroid_07.png", "asteroid_08.png", "asteroid_09.png", "asteroid_10.png", "asteroid_11.png", "asteroid_12.png"]
+                    "zone_index": 3,
+                    "zone_background": "zone_03.png",
+                    "zone_color": "#c3f279",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_55.png",
+                        "asteroid_18.png",
+                        "asteroid_26.png",
+                        "asteroid_79.png",
+                        "asteroid_74.png",
+                        "asteroid_61.png",
+                        "asteroid_60.png",
+                        "asteroid_46.png",
+                        "asteroid_48.png",
+                        "asteroid_00.png",
+                        "asteroid_40.png",
+                        "asteroid_66.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.4,
+                            0.8,
+                            0.75,
+                            0.2,
+                            0.6,
+                            0.45,
+                            0.55,
+                            0.5,
+                            0.1,
+                            0.0,
+                            0.3,
+                            0.35
+                        ]
+                    ],
+                    "bandit_id": "payoffs87"
                 }
             },
             {
-                "stage_type": "choice",
-                "background": "zone_04.png", 
-                "overlay-message": "You will now be presented with choices of which partner you prefer to choose if you were to play again.",
-                "demonstrators": {
-                                "indices": [1,2],
-                                "images": ["demonstrator_01.png", "demonstrator_02.png"]
-                            }
+                "game": "watch",
+                "demonstrator": {
+                    "demonstrator_type": "expert",
+                    "demonstrator_index": 1,
+                    "demonstrator_id": 13,
+                    "demonstrator_image": "demonstrator_13.png",
+                    "demonstrator_trajectory": [
+                        2,
+                        1,
+                        1,
+                        1
+                    ]
+                },
+                "game_index": 2,
+                "num_arm_pulls": 4,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 2,
+                "zone": {
+                    "zone_index": 3,
+                    "zone_background": "zone_03.png",
+                    "zone_color": "#c3f279",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_55.png",
+                        "asteroid_18.png",
+                        "asteroid_26.png",
+                        "asteroid_79.png",
+                        "asteroid_74.png",
+                        "asteroid_61.png",
+                        "asteroid_60.png",
+                        "asteroid_46.png",
+                        "asteroid_48.png",
+                        "asteroid_00.png",
+                        "asteroid_40.png",
+                        "asteroid_66.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.4,
+                            0.8,
+                            0.75,
+                            0.2,
+                            0.6,
+                            0.45,
+                            0.55,
+                            0.5,
+                            0.1,
+                            0.0,
+                            0.3,
+                            0.35
+                        ]
+                    ],
+                    "bandit_id": "payoffs87"
+                }
             },
             {
-                "stage_type": "online-choice",
-                "overlay-message": "You will get to choose a partner to watch after every few steps of playing.",
-                "rounds": 2,
-                "num_arm_pulls_per_block": 6,
-                "num_demonstrator_arm_pulls_per_block": 6,
-                "demonstrators": {
-                    "expert": {
-                        "index": 0,
-                        "trajectory": [0, 5, 8, 1, 3, 5, 8, 1, 3, 5, 8, 1, 3, 4, 5, 2, 4, 5, 8, 1, 3, 5, 8, 1],
-                        "image": "demonstrator_00.png"
-                    },
-                    "novice": {
-                        "index": 1,
-                        "trajectory": [0, 5, 8, 1, 3, 5, 8, 1, 3, 4, 5, 2, 4, 5, 8, 1, 3, 5, 8, 1, 3, 4, 5, 2],
-                        "image": "demonstrator_01.png"
-                    }
-                },
+                "game": "play",
+                "demonstrator": null,
+                "game_index": 3,
+                "num_arm_pulls": 6,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 2,
                 "zone": {
-                    "index": 0,
-                    "background": "zone_00.png",
-                    "color": "green",
-                    "mode": "asteroid",
-                    "bandit": [[0.21, 0.87, 0.34, 0.48, 0.95, 0.67, 0.23, 0.44, 0.56, 0.29, 0.72, 0.85]], 
-                    "images": ["asteroid_01.png", "asteroid_02.png", "asteroid_03.png", "asteroid_04.png", "asteroid_05.png", "asteroid_06.png", "asteroid_07.png", "asteroid_08.png", "asteroid_09.png", "asteroid_10.png", "asteroid_11.png", "asteroid_12.png"]
+                    "zone_index": 3,
+                    "zone_background": "zone_03.png",
+                    "zone_color": "#c3f279",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_55.png",
+                        "asteroid_18.png",
+                        "asteroid_26.png",
+                        "asteroid_79.png",
+                        "asteroid_74.png",
+                        "asteroid_61.png",
+                        "asteroid_60.png",
+                        "asteroid_46.png",
+                        "asteroid_48.png",
+                        "asteroid_00.png",
+                        "asteroid_40.png",
+                        "asteroid_66.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.4,
+                            0.8,
+                            0.75,
+                            0.2,
+                            0.6,
+                            0.45,
+                            0.55,
+                            0.5,
+                            0.1,
+                            0.0,
+                            0.3,
+                            0.35
+                        ]
+                    ],
+                    "bandit_id": "payoffs87"
+                }
+            }
+        ],
+        [
+            {
+                "game": "choice",
+                "game_index": 4,
+                "num_arm_pulls": null,
+                "transfer": true,
+                "stage_index": 1,
+                "round_index": null,
+                "session_index": 2,
+                "zone": {
+                    "zone_index": 4,
+                    "zone_background": "zone_04.png",
+                    "zone_color": "#8bf279",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_22.png",
+                        "asteroid_55.png",
+                        "asteroid_33.png",
+                        "asteroid_06.png",
+                        "asteroid_65.png",
+                        "asteroid_60.png",
+                        "asteroid_46.png",
+                        "asteroid_38.png",
+                        "asteroid_02.png",
+                        "asteroid_14.png",
+                        "asteroid_74.png",
+                        "asteroid_09.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.75,
+                            0.1,
+                            0.8,
+                            0.2,
+                            0.3,
+                            0.6,
+                            0.0,
+                            0.4,
+                            0.55,
+                            0.5,
+                            0.45,
+                            0.35
+                        ]
+                    ],
+                    "bandit_id": "payoffs32"
+                },
+                "demonstrator1": {
+                    "demonstrator_type": "expert",
+                    "demonstrator_index": 0,
+                    "demonstrator_id": 7,
+                    "demonstrator_image": "demonstrator_07.png"
+                },
+                "demonstrator2": {
+                    "demonstrator_type": "expert",
+                    "demonstrator_index": 1,
+                    "demonstrator_id": 13,
+                    "demonstrator_image": "demonstrator_13.png"
+                }
+            }
+        ]
+    ],
+    [
+        [
+            {
+                "game": "watch",
+                "demonstrator": {
+                    "demonstrator_type": "expert",
+                    "demonstrator_index": 0,
+                    "demonstrator_id": 4,
+                    "demonstrator_image": "demonstrator_04.png",
+                    "demonstrator_trajectory": [
+                        9,
+                        3,
+                        3,
+                        5
+                    ]
+                },
+                "game_index": 0,
+                "num_arm_pulls": 4,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 3,
+                "zone": {
+                    "zone_index": 5,
+                    "zone_background": "zone_05.png",
+                    "zone_color": "#79f29e",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_02.png",
+                        "asteroid_48.png",
+                        "asteroid_26.png",
+                        "asteroid_04.png",
+                        "asteroid_56.png",
+                        "asteroid_23.png",
+                        "asteroid_09.png",
+                        "asteroid_61.png",
+                        "asteroid_34.png",
+                        "asteroid_25.png",
+                        "asteroid_20.png",
+                        "asteroid_33.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.3,
+                            0.0,
+                            0.5,
+                            0.8,
+                            0.55,
+                            0.1,
+                            0.45,
+                            0.4,
+                            0.35,
+                            0.2,
+                            0.75,
+                            0.6
+                        ]
+                    ],
+                    "bandit_id": "payoffs25"
+                }
+            },
+            {
+                "game": "play",
+                "demonstrator": null,
+                "game_index": 1,
+                "num_arm_pulls": 6,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 3,
+                "zone": {
+                    "zone_index": 5,
+                    "zone_background": "zone_05.png",
+                    "zone_color": "#79f29e",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_02.png",
+                        "asteroid_48.png",
+                        "asteroid_26.png",
+                        "asteroid_04.png",
+                        "asteroid_56.png",
+                        "asteroid_23.png",
+                        "asteroid_09.png",
+                        "asteroid_61.png",
+                        "asteroid_34.png",
+                        "asteroid_25.png",
+                        "asteroid_20.png",
+                        "asteroid_33.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.3,
+                            0.0,
+                            0.5,
+                            0.8,
+                            0.55,
+                            0.1,
+                            0.45,
+                            0.4,
+                            0.35,
+                            0.2,
+                            0.75,
+                            0.6
+                        ]
+                    ],
+                    "bandit_id": "payoffs25"
+                }
+            },
+            {
+                "game": "watch",
+                "demonstrator": {
+                    "demonstrator_type": "expert",
+                    "demonstrator_index": 1,
+                    "demonstrator_id": 0,
+                    "demonstrator_image": "demonstrator_00.png",
+                    "demonstrator_trajectory": [
+                        10,
+                        7,
+                        3,
+                        3
+                    ]
+                },
+                "game_index": 2,
+                "num_arm_pulls": 4,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 3,
+                "zone": {
+                    "zone_index": 5,
+                    "zone_background": "zone_05.png",
+                    "zone_color": "#79f29e",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_02.png",
+                        "asteroid_48.png",
+                        "asteroid_26.png",
+                        "asteroid_04.png",
+                        "asteroid_56.png",
+                        "asteroid_23.png",
+                        "asteroid_09.png",
+                        "asteroid_61.png",
+                        "asteroid_34.png",
+                        "asteroid_25.png",
+                        "asteroid_20.png",
+                        "asteroid_33.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.3,
+                            0.0,
+                            0.5,
+                            0.8,
+                            0.55,
+                            0.1,
+                            0.45,
+                            0.4,
+                            0.35,
+                            0.2,
+                            0.75,
+                            0.6
+                        ]
+                    ],
+                    "bandit_id": "payoffs25"
+                }
+            },
+            {
+                "game": "play",
+                "demonstrator": null,
+                "game_index": 3,
+                "num_arm_pulls": 6,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 3,
+                "zone": {
+                    "zone_index": 5,
+                    "zone_background": "zone_05.png",
+                    "zone_color": "#79f29e",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_02.png",
+                        "asteroid_48.png",
+                        "asteroid_26.png",
+                        "asteroid_04.png",
+                        "asteroid_56.png",
+                        "asteroid_23.png",
+                        "asteroid_09.png",
+                        "asteroid_61.png",
+                        "asteroid_34.png",
+                        "asteroid_25.png",
+                        "asteroid_20.png",
+                        "asteroid_33.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.3,
+                            0.0,
+                            0.5,
+                            0.8,
+                            0.55,
+                            0.1,
+                            0.45,
+                            0.4,
+                            0.35,
+                            0.2,
+                            0.75,
+                            0.6
+                        ]
+                    ],
+                    "bandit_id": "payoffs25"
+                }
+            }
+        ],
+        [
+            {
+                "game": "choice",
+                "game_index": 4,
+                "num_arm_pulls": null,
+                "transfer": false,
+                "stage_index": 1,
+                "round_index": null,
+                "session_index": 3,
+                "zone": {
+                    "zone_index": 5,
+                    "zone_background": "zone_05.png",
+                    "zone_color": "#79f29e",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_02.png",
+                        "asteroid_48.png",
+                        "asteroid_26.png",
+                        "asteroid_04.png",
+                        "asteroid_56.png",
+                        "asteroid_23.png",
+                        "asteroid_09.png",
+                        "asteroid_61.png",
+                        "asteroid_34.png",
+                        "asteroid_25.png",
+                        "asteroid_20.png",
+                        "asteroid_33.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.3,
+                            0.0,
+                            0.5,
+                            0.8,
+                            0.55,
+                            0.1,
+                            0.45,
+                            0.4,
+                            0.35,
+                            0.2,
+                            0.75,
+                            0.6
+                        ]
+                    ],
+                    "bandit_id": "payoffs25"
+                },
+                "demonstrator1": {
+                    "demonstrator_type": "expert",
+                    "demonstrator_index": 0,
+                    "demonstrator_id": 4,
+                    "demonstrator_image": "demonstrator_04.png"
+                },
+                "demonstrator2": {
+                    "demonstrator_type": "expert",
+                    "demonstrator_index": 1,
+                    "demonstrator_id": 0,
+                    "demonstrator_image": "demonstrator_00.png"
+                }
+            }
+        ]
+    ],
+    [
+        [
+            {
+                "game": "watch",
+                "demonstrator": {
+                    "demonstrator_type": "novice",
+                    "demonstrator_index": 0,
+                    "demonstrator_id": 16,
+                    "demonstrator_image": "demonstrator_16.png",
+                    "demonstrator_trajectory": [
+                        0,
+                        11,
+                        10,
+                        10
+                    ]
+                },
+                "game_index": 0,
+                "num_arm_pulls": 4,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 4,
+                "zone": {
+                    "zone_index": 6,
+                    "zone_background": "zone_06.png",
+                    "zone_color": "#79f2d6",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_20.png",
+                        "asteroid_55.png",
+                        "asteroid_49.png",
+                        "asteroid_50.png",
+                        "asteroid_27.png",
+                        "asteroid_72.png",
+                        "asteroid_14.png",
+                        "asteroid_23.png",
+                        "asteroid_36.png",
+                        "asteroid_67.png",
+                        "asteroid_34.png",
+                        "asteroid_54.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.2,
+                            0.6,
+                            0.8,
+                            0.45,
+                            0.5,
+                            0.75,
+                            0.0,
+                            0.4,
+                            0.3,
+                            0.55,
+                            0.35,
+                            0.1
+                        ]
+                    ],
+                    "bandit_id": "payoffs50"
+                }
+            },
+            {
+                "game": "play",
+                "demonstrator": null,
+                "game_index": 1,
+                "num_arm_pulls": 6,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 4,
+                "zone": {
+                    "zone_index": 6,
+                    "zone_background": "zone_06.png",
+                    "zone_color": "#79f2d6",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_20.png",
+                        "asteroid_55.png",
+                        "asteroid_49.png",
+                        "asteroid_50.png",
+                        "asteroid_27.png",
+                        "asteroid_72.png",
+                        "asteroid_14.png",
+                        "asteroid_23.png",
+                        "asteroid_36.png",
+                        "asteroid_67.png",
+                        "asteroid_34.png",
+                        "asteroid_54.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.2,
+                            0.6,
+                            0.8,
+                            0.45,
+                            0.5,
+                            0.75,
+                            0.0,
+                            0.4,
+                            0.3,
+                            0.55,
+                            0.35,
+                            0.1
+                        ]
+                    ],
+                    "bandit_id": "payoffs50"
+                }
+            },
+            {
+                "game": "watch",
+                "demonstrator": {
+                    "demonstrator_type": "expert",
+                    "demonstrator_index": 1,
+                    "demonstrator_id": 8,
+                    "demonstrator_image": "demonstrator_08.png",
+                    "demonstrator_trajectory": [
+                        1,
+                        2,
+                        2,
+                        2
+                    ]
+                },
+                "game_index": 2,
+                "num_arm_pulls": 4,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 4,
+                "zone": {
+                    "zone_index": 6,
+                    "zone_background": "zone_06.png",
+                    "zone_color": "#79f2d6",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_20.png",
+                        "asteroid_55.png",
+                        "asteroid_49.png",
+                        "asteroid_50.png",
+                        "asteroid_27.png",
+                        "asteroid_72.png",
+                        "asteroid_14.png",
+                        "asteroid_23.png",
+                        "asteroid_36.png",
+                        "asteroid_67.png",
+                        "asteroid_34.png",
+                        "asteroid_54.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.2,
+                            0.6,
+                            0.8,
+                            0.45,
+                            0.5,
+                            0.75,
+                            0.0,
+                            0.4,
+                            0.3,
+                            0.55,
+                            0.35,
+                            0.1
+                        ]
+                    ],
+                    "bandit_id": "payoffs50"
+                }
+            },
+            {
+                "game": "play",
+                "demonstrator": null,
+                "game_index": 3,
+                "num_arm_pulls": 6,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 4,
+                "zone": {
+                    "zone_index": 6,
+                    "zone_background": "zone_06.png",
+                    "zone_color": "#79f2d6",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_20.png",
+                        "asteroid_55.png",
+                        "asteroid_49.png",
+                        "asteroid_50.png",
+                        "asteroid_27.png",
+                        "asteroid_72.png",
+                        "asteroid_14.png",
+                        "asteroid_23.png",
+                        "asteroid_36.png",
+                        "asteroid_67.png",
+                        "asteroid_34.png",
+                        "asteroid_54.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.2,
+                            0.6,
+                            0.8,
+                            0.45,
+                            0.5,
+                            0.75,
+                            0.0,
+                            0.4,
+                            0.3,
+                            0.55,
+                            0.35,
+                            0.1
+                        ]
+                    ],
+                    "bandit_id": "payoffs50"
+                }
+            }
+        ],
+        [
+            {
+                "game": "choice",
+                "game_index": 4,
+                "num_arm_pulls": null,
+                "transfer": false,
+                "stage_index": 1,
+                "round_index": null,
+                "session_index": 4,
+                "zone": {
+                    "zone_index": 6,
+                    "zone_background": "zone_06.png",
+                    "zone_color": "#79f2d6",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_20.png",
+                        "asteroid_55.png",
+                        "asteroid_49.png",
+                        "asteroid_50.png",
+                        "asteroid_27.png",
+                        "asteroid_72.png",
+                        "asteroid_14.png",
+                        "asteroid_23.png",
+                        "asteroid_36.png",
+                        "asteroid_67.png",
+                        "asteroid_34.png",
+                        "asteroid_54.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.2,
+                            0.6,
+                            0.8,
+                            0.45,
+                            0.5,
+                            0.75,
+                            0.0,
+                            0.4,
+                            0.3,
+                            0.55,
+                            0.35,
+                            0.1
+                        ]
+                    ],
+                    "bandit_id": "payoffs50"
+                },
+                "demonstrator1": {
+                    "demonstrator_type": "novice",
+                    "demonstrator_index": 0,
+                    "demonstrator_id": 16,
+                    "demonstrator_image": "demonstrator_16.png"
+                },
+                "demonstrator2": {
+                    "demonstrator_type": "expert",
+                    "demonstrator_index": 1,
+                    "demonstrator_id": 8,
+                    "demonstrator_image": "demonstrator_08.png"
+                }
+            }
+        ]
+    ],
+    [
+        [
+            {
+                "game": "watch",
+                "demonstrator": {
+                    "demonstrator_type": "expert",
+                    "demonstrator_index": 0,
+                    "demonstrator_id": 2,
+                    "demonstrator_image": "demonstrator_02.png",
+                    "demonstrator_trajectory": [
+                        4,
+                        6,
+                        2,
+                        4
+                    ]
+                },
+                "game_index": 0,
+                "num_arm_pulls": 4,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 5,
+                "zone": {
+                    "zone_index": 7,
+                    "zone_background": "zone_07.png",
+                    "zone_color": "#79d6f2",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_48.png",
+                        "asteroid_56.png",
+                        "asteroid_14.png",
+                        "asteroid_74.png",
+                        "asteroid_30.png",
+                        "asteroid_27.png",
+                        "asteroid_25.png",
+                        "asteroid_79.png",
+                        "asteroid_21.png",
+                        "asteroid_41.png",
+                        "asteroid_62.png",
+                        "asteroid_60.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.5,
+                            0.55,
+                            0.2,
+                            0.3,
+                            0.8,
+                            0.1,
+                            0.4,
+                            0.35,
+                            0.75,
+                            0.6,
+                            0.0,
+                            0.45
+                        ]
+                    ],
+                    "bandit_id": "payoffs81"
+                }
+            },
+            {
+                "game": "play",
+                "demonstrator": null,
+                "game_index": 1,
+                "num_arm_pulls": 6,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 5,
+                "zone": {
+                    "zone_index": 7,
+                    "zone_background": "zone_07.png",
+                    "zone_color": "#79d6f2",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_48.png",
+                        "asteroid_56.png",
+                        "asteroid_14.png",
+                        "asteroid_74.png",
+                        "asteroid_30.png",
+                        "asteroid_27.png",
+                        "asteroid_25.png",
+                        "asteroid_79.png",
+                        "asteroid_21.png",
+                        "asteroid_41.png",
+                        "asteroid_62.png",
+                        "asteroid_60.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.5,
+                            0.55,
+                            0.2,
+                            0.3,
+                            0.8,
+                            0.1,
+                            0.4,
+                            0.35,
+                            0.75,
+                            0.6,
+                            0.0,
+                            0.45
+                        ]
+                    ],
+                    "bandit_id": "payoffs81"
+                }
+            },
+            {
+                "game": "watch",
+                "demonstrator": {
+                    "demonstrator_type": "novice",
+                    "demonstrator_index": 1,
+                    "demonstrator_id": 6,
+                    "demonstrator_image": "demonstrator_06.png",
+                    "demonstrator_trajectory": [
+                        7,
+                        5,
+                        6,
+                        6
+                    ]
+                },
+                "game_index": 2,
+                "num_arm_pulls": 4,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 5,
+                "zone": {
+                    "zone_index": 7,
+                    "zone_background": "zone_07.png",
+                    "zone_color": "#79d6f2",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_48.png",
+                        "asteroid_56.png",
+                        "asteroid_14.png",
+                        "asteroid_74.png",
+                        "asteroid_30.png",
+                        "asteroid_27.png",
+                        "asteroid_25.png",
+                        "asteroid_79.png",
+                        "asteroid_21.png",
+                        "asteroid_41.png",
+                        "asteroid_62.png",
+                        "asteroid_60.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.5,
+                            0.55,
+                            0.2,
+                            0.3,
+                            0.8,
+                            0.1,
+                            0.4,
+                            0.35,
+                            0.75,
+                            0.6,
+                            0.0,
+                            0.45
+                        ]
+                    ],
+                    "bandit_id": "payoffs81"
+                }
+            },
+            {
+                "game": "play",
+                "demonstrator": null,
+                "game_index": 3,
+                "num_arm_pulls": 6,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 5,
+                "zone": {
+                    "zone_index": 7,
+                    "zone_background": "zone_07.png",
+                    "zone_color": "#79d6f2",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_48.png",
+                        "asteroid_56.png",
+                        "asteroid_14.png",
+                        "asteroid_74.png",
+                        "asteroid_30.png",
+                        "asteroid_27.png",
+                        "asteroid_25.png",
+                        "asteroid_79.png",
+                        "asteroid_21.png",
+                        "asteroid_41.png",
+                        "asteroid_62.png",
+                        "asteroid_60.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.5,
+                            0.55,
+                            0.2,
+                            0.3,
+                            0.8,
+                            0.1,
+                            0.4,
+                            0.35,
+                            0.75,
+                            0.6,
+                            0.0,
+                            0.45
+                        ]
+                    ],
+                    "bandit_id": "payoffs81"
+                }
+            }
+        ],
+        [
+            {
+                "game": "choice",
+                "game_index": 4,
+                "num_arm_pulls": null,
+                "transfer": false,
+                "stage_index": 1,
+                "round_index": null,
+                "session_index": 5,
+                "zone": {
+                    "zone_index": 7,
+                    "zone_background": "zone_07.png",
+                    "zone_color": "#79d6f2",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_48.png",
+                        "asteroid_56.png",
+                        "asteroid_14.png",
+                        "asteroid_74.png",
+                        "asteroid_30.png",
+                        "asteroid_27.png",
+                        "asteroid_25.png",
+                        "asteroid_79.png",
+                        "asteroid_21.png",
+                        "asteroid_41.png",
+                        "asteroid_62.png",
+                        "asteroid_60.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.5,
+                            0.55,
+                            0.2,
+                            0.3,
+                            0.8,
+                            0.1,
+                            0.4,
+                            0.35,
+                            0.75,
+                            0.6,
+                            0.0,
+                            0.45
+                        ]
+                    ],
+                    "bandit_id": "payoffs81"
+                },
+                "demonstrator1": {
+                    "demonstrator_type": "expert",
+                    "demonstrator_index": 0,
+                    "demonstrator_id": 2,
+                    "demonstrator_image": "demonstrator_02.png"
+                },
+                "demonstrator2": {
+                    "demonstrator_type": "novice",
+                    "demonstrator_index": 1,
+                    "demonstrator_id": 6,
+                    "demonstrator_image": "demonstrator_06.png"
+                }
+            }
+        ]
+    ],
+    [
+        [
+            {
+                "game": "watch",
+                "demonstrator": {
+                    "demonstrator_type": "novice",
+                    "demonstrator_index": 0,
+                    "demonstrator_id": 9,
+                    "demonstrator_image": "demonstrator_09.png",
+                    "demonstrator_trajectory": [
+                        4,
+                        2,
+                        10,
+                        10
+                    ]
+                },
+                "game_index": 0,
+                "num_arm_pulls": 4,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 6,
+                "zone": {
+                    "zone_index": 8,
+                    "zone_background": "zone_08.png",
+                    "zone_color": "#799ef2",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_06.png",
+                        "asteroid_26.png",
+                        "asteroid_35.png",
+                        "asteroid_03.png",
+                        "asteroid_62.png",
+                        "asteroid_65.png",
+                        "asteroid_68.png",
+                        "asteroid_23.png",
+                        "asteroid_52.png",
+                        "asteroid_40.png",
+                        "asteroid_02.png",
+                        "asteroid_08.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.5,
+                            0.2,
+                            0.0,
+                            0.55,
+                            0.35,
+                            0.4,
+                            0.6,
+                            0.75,
+                            0.8,
+                            0.1,
+                            0.3,
+                            0.45
+                        ]
+                    ],
+                    "bandit_id": "payoffs86"
+                }
+            },
+            {
+                "game": "play",
+                "demonstrator": null,
+                "game_index": 1,
+                "num_arm_pulls": 6,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 6,
+                "zone": {
+                    "zone_index": 8,
+                    "zone_background": "zone_08.png",
+                    "zone_color": "#799ef2",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_06.png",
+                        "asteroid_26.png",
+                        "asteroid_35.png",
+                        "asteroid_03.png",
+                        "asteroid_62.png",
+                        "asteroid_65.png",
+                        "asteroid_68.png",
+                        "asteroid_23.png",
+                        "asteroid_52.png",
+                        "asteroid_40.png",
+                        "asteroid_02.png",
+                        "asteroid_08.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.5,
+                            0.2,
+                            0.0,
+                            0.55,
+                            0.35,
+                            0.4,
+                            0.6,
+                            0.75,
+                            0.8,
+                            0.1,
+                            0.3,
+                            0.45
+                        ]
+                    ],
+                    "bandit_id": "payoffs86"
+                }
+            },
+            {
+                "game": "watch",
+                "demonstrator": {
+                    "demonstrator_type": "expert",
+                    "demonstrator_index": 1,
+                    "demonstrator_id": 15,
+                    "demonstrator_image": "demonstrator_15.png",
+                    "demonstrator_trajectory": [
+                        8,
+                        3,
+                        8,
+                        6
+                    ]
+                },
+                "game_index": 2,
+                "num_arm_pulls": 4,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 6,
+                "zone": {
+                    "zone_index": 8,
+                    "zone_background": "zone_08.png",
+                    "zone_color": "#799ef2",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_06.png",
+                        "asteroid_26.png",
+                        "asteroid_35.png",
+                        "asteroid_03.png",
+                        "asteroid_62.png",
+                        "asteroid_65.png",
+                        "asteroid_68.png",
+                        "asteroid_23.png",
+                        "asteroid_52.png",
+                        "asteroid_40.png",
+                        "asteroid_02.png",
+                        "asteroid_08.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.5,
+                            0.2,
+                            0.0,
+                            0.55,
+                            0.35,
+                            0.4,
+                            0.6,
+                            0.75,
+                            0.8,
+                            0.1,
+                            0.3,
+                            0.45
+                        ]
+                    ],
+                    "bandit_id": "payoffs86"
+                }
+            },
+            {
+                "game": "play",
+                "demonstrator": null,
+                "game_index": 3,
+                "num_arm_pulls": 6,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 6,
+                "zone": {
+                    "zone_index": 8,
+                    "zone_background": "zone_08.png",
+                    "zone_color": "#799ef2",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_06.png",
+                        "asteroid_26.png",
+                        "asteroid_35.png",
+                        "asteroid_03.png",
+                        "asteroid_62.png",
+                        "asteroid_65.png",
+                        "asteroid_68.png",
+                        "asteroid_23.png",
+                        "asteroid_52.png",
+                        "asteroid_40.png",
+                        "asteroid_02.png",
+                        "asteroid_08.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.5,
+                            0.2,
+                            0.0,
+                            0.55,
+                            0.35,
+                            0.4,
+                            0.6,
+                            0.75,
+                            0.8,
+                            0.1,
+                            0.3,
+                            0.45
+                        ]
+                    ],
+                    "bandit_id": "payoffs86"
+                }
+            }
+        ],
+        [
+            {
+                "game": "choice",
+                "game_index": 4,
+                "num_arm_pulls": null,
+                "transfer": true,
+                "stage_index": 1,
+                "round_index": null,
+                "session_index": 6,
+                "zone": {
+                    "zone_index": 9,
+                    "zone_background": "zone_09.png",
+                    "zone_color": "#8b79f2",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_76.png",
+                        "asteroid_36.png",
+                        "asteroid_31.png",
+                        "asteroid_54.png",
+                        "asteroid_16.png",
+                        "asteroid_26.png",
+                        "asteroid_09.png",
+                        "asteroid_55.png",
+                        "asteroid_63.png",
+                        "asteroid_37.png",
+                        "asteroid_01.png",
+                        "asteroid_44.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.2,
+                            0.6,
+                            0.45,
+                            0.4,
+                            0.5,
+                            0.3,
+                            0.1,
+                            0.0,
+                            0.8,
+                            0.75,
+                            0.55,
+                            0.35
+                        ]
+                    ],
+                    "bandit_id": "payoffs7"
+                },
+                "demonstrator1": {
+                    "demonstrator_type": "novice",
+                    "demonstrator_index": 0,
+                    "demonstrator_id": 9,
+                    "demonstrator_image": "demonstrator_09.png"
+                },
+                "demonstrator2": {
+                    "demonstrator_type": "expert",
+                    "demonstrator_index": 1,
+                    "demonstrator_id": 15,
+                    "demonstrator_image": "demonstrator_15.png"
+                }
+            }
+        ]
+    ],
+    [
+        [
+            {
+                "game": "watch",
+                "demonstrator": {
+                    "demonstrator_type": "novice",
+                    "demonstrator_index": 0,
+                    "demonstrator_id": 11,
+                    "demonstrator_image": "demonstrator_11.png",
+                    "demonstrator_trajectory": [
+                        4,
+                        8,
+                        8,
+                        5
+                    ]
+                },
+                "game_index": 0,
+                "num_arm_pulls": 4,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 7,
+                "zone": {
+                    "zone_index": 10,
+                    "zone_background": "zone_10.png",
+                    "zone_color": "#c379f2",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_06.png",
+                        "asteroid_50.png",
+                        "asteroid_39.png",
+                        "asteroid_17.png",
+                        "asteroid_00.png",
+                        "asteroid_56.png",
+                        "asteroid_59.png",
+                        "asteroid_67.png",
+                        "asteroid_42.png",
+                        "asteroid_11.png",
+                        "asteroid_18.png",
+                        "asteroid_05.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.75,
+                            0.1,
+                            0.0,
+                            0.6,
+                            0.4,
+                            0.2,
+                            0.8,
+                            0.3,
+                            0.35,
+                            0.45,
+                            0.55,
+                            0.5
+                        ]
+                    ],
+                    "bandit_id": "payoffs36"
+                }
+            },
+            {
+                "game": "play",
+                "demonstrator": null,
+                "game_index": 1,
+                "num_arm_pulls": 6,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 7,
+                "zone": {
+                    "zone_index": 10,
+                    "zone_background": "zone_10.png",
+                    "zone_color": "#c379f2",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_06.png",
+                        "asteroid_50.png",
+                        "asteroid_39.png",
+                        "asteroid_17.png",
+                        "asteroid_00.png",
+                        "asteroid_56.png",
+                        "asteroid_59.png",
+                        "asteroid_67.png",
+                        "asteroid_42.png",
+                        "asteroid_11.png",
+                        "asteroid_18.png",
+                        "asteroid_05.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.75,
+                            0.1,
+                            0.0,
+                            0.6,
+                            0.4,
+                            0.2,
+                            0.8,
+                            0.3,
+                            0.35,
+                            0.45,
+                            0.55,
+                            0.5
+                        ]
+                    ],
+                    "bandit_id": "payoffs36"
+                }
+            },
+            {
+                "game": "watch",
+                "demonstrator": {
+                    "demonstrator_type": "novice",
+                    "demonstrator_index": 1,
+                    "demonstrator_id": 3,
+                    "demonstrator_image": "demonstrator_03.png",
+                    "demonstrator_trajectory": [
+                        5,
+                        1,
+                        7,
+                        8
+                    ]
+                },
+                "game_index": 2,
+                "num_arm_pulls": 4,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 7,
+                "zone": {
+                    "zone_index": 10,
+                    "zone_background": "zone_10.png",
+                    "zone_color": "#c379f2",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_06.png",
+                        "asteroid_50.png",
+                        "asteroid_39.png",
+                        "asteroid_17.png",
+                        "asteroid_00.png",
+                        "asteroid_56.png",
+                        "asteroid_59.png",
+                        "asteroid_67.png",
+                        "asteroid_42.png",
+                        "asteroid_11.png",
+                        "asteroid_18.png",
+                        "asteroid_05.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.75,
+                            0.1,
+                            0.0,
+                            0.6,
+                            0.4,
+                            0.2,
+                            0.8,
+                            0.3,
+                            0.35,
+                            0.45,
+                            0.55,
+                            0.5
+                        ]
+                    ],
+                    "bandit_id": "payoffs36"
+                }
+            },
+            {
+                "game": "play",
+                "demonstrator": null,
+                "game_index": 3,
+                "num_arm_pulls": 6,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 7,
+                "zone": {
+                    "zone_index": 10,
+                    "zone_background": "zone_10.png",
+                    "zone_color": "#c379f2",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_06.png",
+                        "asteroid_50.png",
+                        "asteroid_39.png",
+                        "asteroid_17.png",
+                        "asteroid_00.png",
+                        "asteroid_56.png",
+                        "asteroid_59.png",
+                        "asteroid_67.png",
+                        "asteroid_42.png",
+                        "asteroid_11.png",
+                        "asteroid_18.png",
+                        "asteroid_05.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.75,
+                            0.1,
+                            0.0,
+                            0.6,
+                            0.4,
+                            0.2,
+                            0.8,
+                            0.3,
+                            0.35,
+                            0.45,
+                            0.55,
+                            0.5
+                        ]
+                    ],
+                    "bandit_id": "payoffs36"
+                }
+            }
+        ],
+        [
+            {
+                "game": "choice",
+                "game_index": 4,
+                "num_arm_pulls": null,
+                "transfer": true,
+                "stage_index": 1,
+                "round_index": null,
+                "session_index": 7,
+                "zone": {
+                    "zone_index": 11,
+                    "zone_background": "zone_11.png",
+                    "zone_color": "#f279e8",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_61.png",
+                        "asteroid_74.png",
+                        "asteroid_23.png",
+                        "asteroid_35.png",
+                        "asteroid_62.png",
+                        "asteroid_33.png",
+                        "asteroid_29.png",
+                        "asteroid_48.png",
+                        "asteroid_73.png",
+                        "asteroid_51.png",
+                        "asteroid_32.png",
+                        "asteroid_01.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.4,
+                            0.55,
+                            0.75,
+                            0.0,
+                            0.45,
+                            0.1,
+                            0.6,
+                            0.2,
+                            0.5,
+                            0.35,
+                            0.3,
+                            0.8
+                        ]
+                    ],
+                    "bandit_id": "payoffs54"
+                },
+                "demonstrator1": {
+                    "demonstrator_type": "novice",
+                    "demonstrator_index": 0,
+                    "demonstrator_id": 11,
+                    "demonstrator_image": "demonstrator_11.png"
+                },
+                "demonstrator2": {
+                    "demonstrator_type": "novice",
+                    "demonstrator_index": 1,
+                    "demonstrator_id": 3,
+                    "demonstrator_image": "demonstrator_03.png"
+                }
+            }
+        ]
+    ],
+    [
+        [
+            {
+                "game": "watch",
+                "demonstrator": {
+                    "demonstrator_type": "novice",
+                    "demonstrator_index": 0,
+                    "demonstrator_id": 14,
+                    "demonstrator_image": "demonstrator_14.png",
+                    "demonstrator_trajectory": [
+                        10,
+                        7,
+                        5,
+                        7
+                    ]
+                },
+                "game_index": 0,
+                "num_arm_pulls": 4,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 8,
+                "zone": {
+                    "zone_index": 12,
+                    "zone_background": "zone_12.png",
+                    "zone_color": "#f279b1",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_28.png",
+                        "asteroid_58.png",
+                        "asteroid_46.png",
+                        "asteroid_50.png",
+                        "asteroid_13.png",
+                        "asteroid_59.png",
+                        "asteroid_33.png",
+                        "asteroid_18.png",
+                        "asteroid_36.png",
+                        "asteroid_48.png",
+                        "asteroid_10.png",
+                        "asteroid_42.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.0,
+                            0.6,
+                            0.75,
+                            0.55,
+                            0.45,
+                            0.35,
+                            0.5,
+                            0.4,
+                            0.1,
+                            0.8,
+                            0.3,
+                            0.2
+                        ]
+                    ],
+                    "bandit_id": "payoffs37"
+                }
+            },
+            {
+                "game": "play",
+                "demonstrator": null,
+                "game_index": 1,
+                "num_arm_pulls": 6,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 8,
+                "zone": {
+                    "zone_index": 12,
+                    "zone_background": "zone_12.png",
+                    "zone_color": "#f279b1",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_28.png",
+                        "asteroid_58.png",
+                        "asteroid_46.png",
+                        "asteroid_50.png",
+                        "asteroid_13.png",
+                        "asteroid_59.png",
+                        "asteroid_33.png",
+                        "asteroid_18.png",
+                        "asteroid_36.png",
+                        "asteroid_48.png",
+                        "asteroid_10.png",
+                        "asteroid_42.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.0,
+                            0.6,
+                            0.75,
+                            0.55,
+                            0.45,
+                            0.35,
+                            0.5,
+                            0.4,
+                            0.1,
+                            0.8,
+                            0.3,
+                            0.2
+                        ]
+                    ],
+                    "bandit_id": "payoffs37"
+                }
+            },
+            {
+                "game": "watch",
+                "demonstrator": {
+                    "demonstrator_type": "novice",
+                    "demonstrator_index": 1,
+                    "demonstrator_id": 18,
+                    "demonstrator_image": "demonstrator_18.png",
+                    "demonstrator_trajectory": [
+                        11,
+                        7,
+                        7,
+                        8
+                    ]
+                },
+                "game_index": 2,
+                "num_arm_pulls": 4,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 8,
+                "zone": {
+                    "zone_index": 12,
+                    "zone_background": "zone_12.png",
+                    "zone_color": "#f279b1",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_28.png",
+                        "asteroid_58.png",
+                        "asteroid_46.png",
+                        "asteroid_50.png",
+                        "asteroid_13.png",
+                        "asteroid_59.png",
+                        "asteroid_33.png",
+                        "asteroid_18.png",
+                        "asteroid_36.png",
+                        "asteroid_48.png",
+                        "asteroid_10.png",
+                        "asteroid_42.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.0,
+                            0.6,
+                            0.75,
+                            0.55,
+                            0.45,
+                            0.35,
+                            0.5,
+                            0.4,
+                            0.1,
+                            0.8,
+                            0.3,
+                            0.2
+                        ]
+                    ],
+                    "bandit_id": "payoffs37"
+                }
+            },
+            {
+                "game": "play",
+                "demonstrator": null,
+                "game_index": 3,
+                "num_arm_pulls": 6,
+                "transfer": null,
+                "stage_index": 0,
+                "round_index": 0,
+                "session_index": 8,
+                "zone": {
+                    "zone_index": 12,
+                    "zone_background": "zone_12.png",
+                    "zone_color": "#f279b1",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_28.png",
+                        "asteroid_58.png",
+                        "asteroid_46.png",
+                        "asteroid_50.png",
+                        "asteroid_13.png",
+                        "asteroid_59.png",
+                        "asteroid_33.png",
+                        "asteroid_18.png",
+                        "asteroid_36.png",
+                        "asteroid_48.png",
+                        "asteroid_10.png",
+                        "asteroid_42.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.0,
+                            0.6,
+                            0.75,
+                            0.55,
+                            0.45,
+                            0.35,
+                            0.5,
+                            0.4,
+                            0.1,
+                            0.8,
+                            0.3,
+                            0.2
+                        ]
+                    ],
+                    "bandit_id": "payoffs37"
+                }
+            }
+        ],
+        [
+            {
+                "game": "choice",
+                "game_index": 4,
+                "num_arm_pulls": null,
+                "transfer": false,
+                "stage_index": 1,
+                "round_index": null,
+                "session_index": 8,
+                "zone": {
+                    "zone_index": 12,
+                    "zone_background": "zone_12.png",
+                    "zone_color": "#f279b1",
+                    "zone_mode": "asteroid",
+                    "zone_images": [
+                        "asteroid_28.png",
+                        "asteroid_58.png",
+                        "asteroid_46.png",
+                        "asteroid_50.png",
+                        "asteroid_13.png",
+                        "asteroid_59.png",
+                        "asteroid_33.png",
+                        "asteroid_18.png",
+                        "asteroid_36.png",
+                        "asteroid_48.png",
+                        "asteroid_10.png",
+                        "asteroid_42.png"
+                    ],
+                    "zone_bandit": [
+                        [
+                            0.0,
+                            0.6,
+                            0.75,
+                            0.55,
+                            0.45,
+                            0.35,
+                            0.5,
+                            0.4,
+                            0.1,
+                            0.8,
+                            0.3,
+                            0.2
+                        ]
+                    ],
+                    "bandit_id": "payoffs37"
+                },
+                "demonstrator1": {
+                    "demonstrator_type": "novice",
+                    "demonstrator_index": 0,
+                    "demonstrator_id": 14,
+                    "demonstrator_image": "demonstrator_14.png"
+                },
+                "demonstrator2": {
+                    "demonstrator_type": "novice",
+                    "demonstrator_index": 1,
+                    "demonstrator_id": 18,
+                    "demonstrator_image": "demonstrator_18.png"
                 }
             }
         ]
     ]
-}
+]
