@@ -21,7 +21,7 @@ def generate_timeline(
     repeat_block = ["watch", "play", "watch", "play"]
     choice_name = "choice"
     num_watch_slots = repeat_block.count("watch")
-    patterns = list(product(["expert","novice"], repeat=num_watch_slots))
+    patterns = list(product(["expert", "novice"], repeat=num_watch_slots))
     transfer_options = [True, False]
 
     raw_sessions: List[List[List[Dict[str, Any]]]] = []
@@ -98,7 +98,7 @@ def generate_timeline(
         r, g, b = colorsys.hsv_to_rgb(h, 0.5, 0.95)
         colors.append(f'#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}')
     used_sets = set()
-    zone_images: Dict[int,List[str]] = {}
+    zone_images: Dict[int, List[str]] = {}
     for idx in unique_zones:
         while True:
             picks = random.sample(range(80), 12)
@@ -108,7 +108,7 @@ def generate_timeline(
         zone_images[idx] = [f"asteroid_{p:02d}.png" for p in picks]
 
     # 6) build full zone metadata
-    zone_meta: Dict[int,Dict[str,Any]] = {}
+    zone_meta: Dict[int, Dict[str, Any]] = {}
     for i, z in enumerate(unique_zones):
         pk = zone_to_payoff[z]
         zone_meta[z] = {
@@ -117,36 +117,49 @@ def generate_timeline(
             "zone_color": colors[i],
             "zone_mode": "asteroid",
             "zone_images": zone_images[z],
-            "zone_bandit": [ bandits_data[pk]["payoffs"] ],
+            "zone_bandit": [bandits_data[pk]["payoffs"]],
             "bandit_id": pk
         }
 
     # 7) assign demonstrator_ids per session
     available_ids = list(range(20))
     random.shuffle(available_ids)
-    session_to_ids: Dict[int,List[int]] = {}
-    for sess_i in range(1, len(raw_sessions)+1):
-        session_to_ids[sess_i] = [ available_ids.pop(), available_ids.pop() ]
+    session_to_ids: Dict[int, List[int]] = {}
+    for sess_i in range(1, len(raw_sessions) + 1):
+        session_to_ids[sess_i] = [available_ids.pop(), available_ids.pop()]
 
-    # 8) inject zone_meta, build watch demonstrators, and now also choice demonstrator objects
+    # 8) inject zone_meta & demonstrator dicts & overlay-messages
     for games, [choice] in raw_sessions:
         sess_i = games[0]["session_index"]
         dem_ids = session_to_ids[sess_i]
-        payoff_key = zone_to_payoff[ games[0]["zone"]["zone_index"] ]
+        payoff_key = zone_to_payoff[games[0]["zone"]["zone_index"]]
 
-        # stage0 entries
-        for e in games:
+        # stage0 entries with corrected overlay logic
+        prev_zone = None
+        for i, e in enumerate(games):
             z = e["zone"]["zone_index"]
             e["zone"] = zone_meta[z]
+
+            parts: List[str] = []
+            if i == 0:
+                parts.append("This is a new session!")
+                parts.append("You will now enter a new zone.")
+            else:
+                if z != prev_zone:
+                    parts.append("You will now enter a new zone.")
+                else:
+                    parts.append("You will continue in the same zone.")
+
             if e["game"] == "watch":
                 typ = e["demonstrator"]
                 pos = e["game_index"] % len(repeat_block)
                 dem_idx = 0 if pos < 2 else 1
                 did = dem_ids[dem_idx]
-                full = bandits_data[payoff_key]["policy"]["thompson"][typ]\
-                       [f"{payoff_key}_{typ}_policy{did}"]
+                full = bandits_data[payoff_key]["policy"]["thompson"][typ][
+                    f"{payoff_key}_{typ}_policy{did}"
+                ]
                 start = e["round_index"] * num_watch_arm_pulls
-                traj = full[start:start+num_watch_arm_pulls]
+                traj = full[start : start + num_watch_arm_pulls]
                 e["demonstrator"] = {
                     "demonstrator_type": typ,
                     "demonstrator_index": dem_idx,
@@ -154,9 +167,23 @@ def generate_timeline(
                     "demonstrator_image": f"demonstrator_{did:02d}.png",
                     "demonstrator_trajectory": traj
                 }
+                parts.append(
+                    "In this game you will watch a starship partner play the game. "
+                    "Pay close attention to your partner's choices."
+                )
+            elif e["game"] == "play":
+                parts.append(
+                    "In this game you will get to play and mine for rewards. "
+                    "Try to get as much reward as possible by discovering the best asteroid to mine from."
+                )
 
-        # choice entry: replace demonstrator_1/2 with nested objects
-        for i_key, key in enumerate(("demonstrator_1","demonstrator_2")):
+            e["overlay-message"] = " ".join(parts)
+            prev_zone = z
+
+        # choice entry: nested demonstrators without trajectories
+        cz = choice["zone"]["zone_index"]
+        choice["zone"] = zone_meta[cz]
+        for i_key, key in enumerate(("demonstrator_1", "demonstrator_2")):
             typ = choice[key]
             did = dem_ids[i_key]
             choice[f"demonstrator{i_key+1}"] = {
@@ -167,23 +194,38 @@ def generate_timeline(
             }
             del choice[key]
 
-        # inject full zone for choice
-        cz = choice["zone"]["zone_index"]
-        choice["zone"] = zone_meta[cz]
+        # choice overlay-message
+        parts = ["You will now be presented with choices of which partner you prefer to choose."]
+        last_zone = games[-1]["zone"]["zone_index"]
+        if cz == last_zone:
+            parts.append(
+                "Choose the partner you would find most helpful to watch if you had to play again in the same zone."
+            )
+        else:
+            parts.append(
+                "Choose the partner you would find most helpful to watch if you had to play again in a new zone you've never been to before."
+            )
+        choice["overlay-message"] = " ".join(parts)
 
-    # 9) build fixed practice session at index 0
+    # 9) fixed practice session
     practice_zone = zone_meta[0]
     practice_session = [
-        {"stage_type":"prolific_id_form","message":"Please enter your Prolific ID below:"},
-        {"stage_type":"introduction","message":"Welcome to the mining expedition! Here's the backstory..."},
+        {"stage_type": "prolific_id_form", "message": "Please enter your Prolific ID below:"},
+        {"stage_type": "introduction", "message": "Welcome to the mining expedition! Here's the backstory..."},
         {
-            "game":"practice","demonstrator":None,"game_index":0,
-            "num_arm_pulls":num_play_arm_pulls,"transfer":None,
-            "stage_index":0,"round_index":0,"session_index":0,
+            "game": "practice",
+            "demonstrator": None,
+            "game_index": 0,
+            "num_arm_pulls": num_play_arm_pulls,
+            "transfer": None,
+            "stage_index": 0,
+            "round_index": 0,
+            "session_index": 0,
             "zone": practice_zone
         }
     ]
 
+    # 10) return full timeline
     return [practice_session] + raw_sessions
 
 

@@ -79,30 +79,80 @@ function loadStage() {
   if (!timelineData) return;
   
   // Check if we've reached the end of all sessions
-  if (currentSessionIndex >= timelineData.timeline.length) {
+  if (currentSessionIndex >= timelineData.length) {
     showEndOfGameMessage.call(this);
     return;
   }
   
-  // Check if we've reached the end of current session
-  const currentSession = timelineData.timeline[currentSessionIndex];
-  if (currentStageIndex >= currentSession.length) {
-    // This should be handled by nextStage now, but just in case
+  const currentSession = timelineData[currentSessionIndex];
+  
+  console.log("Current session index:", currentSessionIndex, "Stage index:", currentStageIndex);
+  console.log("Current session first element:", JSON.stringify(currentSession[0], null, 2).substring(0, 150) + "...");
+  
+  // Check if the current session has nested arrays
+  let currentStageContainer;
+  let effectiveStageIndex;
+  
+  if (Array.isArray(currentSession[0])) {
+    // Nested array session - find which container has our stage
+    let totalStagesSoFar = 0;
+    let foundContainer = false;
+    
+    for (let i = 0; i < currentSession.length; i++) {
+      if (currentStageIndex < totalStagesSoFar + currentSession[i].length) {
+        // Found our container
+        currentStageContainer = currentSession[i];
+        effectiveStageIndex = currentStageIndex - totalStagesSoFar;
+        foundContainer = true;
+        console.log(`Found stage in container ${i}, effective index: ${effectiveStageIndex}`);
+        break;
+      }
+      totalStagesSoFar += currentSession[i].length;
+    }
+    
+    if (!foundContainer) {
+      console.error("Could not find container for stage index:", currentStageIndex);
+      // We've reached the end of this session, move to the next
+      currentSessionIndex++;
+      currentStageIndex = 0;
+      loadStage.call(this);
+      return;
+    }
+  } else {
+    // Simple array session
+    currentStageContainer = currentSession;
+    effectiveStageIndex = currentStageIndex;
+  }
+  
+  // Check if we've reached the end of current stage container
+  if (effectiveStageIndex >= currentStageContainer.length) {
+    console.error("Stage index out of bounds:", effectiveStageIndex, "container length:", currentStageContainer.length);
+    
+    // Move to the next session
     currentSessionIndex++;
     currentStageIndex = 0;
     
     // Check again if we're done with all sessions
-    if (currentSessionIndex >= timelineData.timeline.length) {
+    if (currentSessionIndex >= timelineData.length) {
       showEndOfGameMessage.call(this);
       return;
     }
+    
+    // Recursively call loadStage to load the next stage
+    loadStage.call(this);
+    return;
   }
 
   this.children.removeAll();
   document.getElementById('prolific-form-overlay').style.visibility = 'hidden';
 
-  const stage = timelineData.timeline[currentSessionIndex][currentStageIndex];
-  console.log(`Loading session ${currentSessionIndex}, stage ${currentStageIndex}, type: ${stage.stage_type}`);
+  const stage = currentStageContainer[effectiveStageIndex];
+  console.log(`Loading session ${currentSessionIndex}, stage ${currentStageIndex}, type: ${stage.stage_type || stage.game}`);
+  
+  // Log the zone information to help with debugging
+  if (stage.zone) {
+    console.log(`Zone data: index=${stage.zone.zone_index}, mode=${stage.zone.zone_mode}, bandit=${!!stage.zone.zone_bandit}`);
+  }
 
   // Store the current stage for reference in other functions if needed
   window.currentStage = stage;
@@ -122,8 +172,11 @@ function loadStage() {
   // Rebuild the DOM-based summary bar
   redrawSummaryBarDOM();
 
-  // Switch to correct stage
-  switch(stage.stage_type) {
+  // Determine stage type - check both stage_type and game properties
+  const stageType = stage.stage_type || stage.game;
+
+  // Switch to correct stage based on the determined stage type
+  switch(stageType) {
     case 'prolific_id_form':
       setupProlificIdForm.call(this, stage);
       break;
@@ -152,7 +205,7 @@ function loadStage() {
       setupIndicate.call(this, stage);
       break;
     default:
-      console.warn("Unknown stage_type:", stage.stage_type);
+      console.warn("Unknown stage type:", stageType);
       nextStage.call(this);
   }
 }
@@ -166,13 +219,15 @@ function loadStage() {
  * add a new summary icon.
  */
 function maybeAddSummaryIcon(stage) {
-  if (!stage.zone && stage.stage_type !== 'choice' && stage.stage_type !== 'online-choice') return;  
-  const t = stage.stage_type;
-  if (!['practice','play','watch','indicate','blind','choice','online-choice'].includes(t)) return;
+  // Use either stage_type or game property to determine stage type
+  const stageType = stage.stage_type || stage.game;
+  
+  if (!stage.zone && stageType !== 'choice' && stageType !== 'online-choice') return;  
+  if (!['practice','play','watch','indicate','blind','choice','online-choice'].includes(stageType)) return;
 
   // For choice games, just create a placeholder in the summaryIcons array
   // The actual image will be updated when user selects
-  if (t === 'choice') {
+  if (stageType === 'choice') {
     // Create a placeholder that will be updated when user selects
     summaryIcons.push({
       imageKey: null, // Will be updated when user selects
@@ -183,7 +238,7 @@ function maybeAddSummaryIcon(stage) {
   }
   
   // For online-choice games, we need an icon for each sub-stage 
-  if (t === 'online-choice') {
+  if (stageType === 'online-choice') {
     // Check which sub-stage we're in
     if (window.onlineChoiceState) {
       const subStage = window.onlineChoiceState.currentSubStage;
@@ -211,7 +266,7 @@ function maybeAddSummaryIcon(stage) {
         // For watch, we'll set the demonstrator image when selected
         if (subStage === 'watch' && window.onlineChoiceState.chosenDemonstrator) {
           const demoKey = window.onlineChoiceState.chosenDemonstrator;
-          const demoIndex = stage.demonstrators[demoKey].index || 0;
+          const demoIndex = stage.demonstrators[demoKey].demonstrator_index || 0;
           imageKey = `demonstrator_0${demoIndex}`;
         }
         
@@ -219,10 +274,10 @@ function maybeAddSummaryIcon(stage) {
         summaryIcons.push({
           id: iconId, // Add a unique identifier
           imageKey: imageKey,
-          zone: stage.zone && stage.zone.index ? stage.zone.index : 0,
+          zone: stage.zone && stage.zone.zone_index ? stage.zone.zone_index : 0,
           color: stage.zone && stage.zone.color ? stage.zone.color : '#888888',
           // Simplified label showing just the zone
-          label: `Zone ${stage.zone.index}`
+          label: `Zone ${stage.zone.zone_index}`
         });
       }
     }
@@ -231,10 +286,10 @@ function maybeAddSummaryIcon(stage) {
   
   // For all other game types, use the normal icon logic
   let imageKey = 'user';
-  if (t === 'watch' || t === 'indicate') {
-    if (stage.demonstrator && stage.demonstrator.image) {
+  if (stageType === 'watch' || stageType === 'indicate') {
+    if (stage.demonstrator && stage.demonstrator.demonstrator_image) {
       // Extract just the filename without path and extension
-      imageKey = stage.demonstrator.image.replace('.png', '');
+      imageKey = stage.demonstrator.demonstrator_image.replace('.png', '');
     } else {
       imageKey = 'demonstrator_01'; // fallback
     }
@@ -243,7 +298,7 @@ function maybeAddSummaryIcon(stage) {
   // Add the icon with proper imageKey
   summaryIcons.push({
     imageKey: imageKey,
-    zone: stage.zone.index,
+    zone: stage.zone.zone_index,
     color: stage.zone.color || '#ffffff'
   });
 }
@@ -355,12 +410,18 @@ function setupIntroduction(stage) {
  * Common logic for practice/play
  */
 function setupPlayOrPractice(stage, isPractice) {
-  if (!stage.zone || !stage.zone.bandit) {
-    console.error("Missing zone or bandit data");
+  if (!stage.zone) {
+    console.error("Missing zone data");
     return;
   }
   
-  const bandit = stage.zone.bandit;
+  // Check for bandit data at zone.zone_bandit
+  const bandit = stage.zone.zone_bandit;
+  if (!bandit) {
+    console.error("Missing bandit data in zone");
+    return;
+  }
+  
   const num_arm_pulls = stage.num_arm_pulls;
   
   let numRows = bandit.length;
@@ -383,7 +444,7 @@ function setupPlayOrPractice(stage, isPractice) {
   const gridBottomY = gridOriginY + totalGridHeight;
 
   // Add zone labels
-  addZoneLabels(this, stage.zone.index);
+  addZoneLabels(this, stage.zone.zone_index);
 
   // zone background
   createZoneBackgroundMask.call(this, stage, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
@@ -422,8 +483,8 @@ function setupPlayOrPractice(stage, isPractice) {
         .setInteractive();
         
       cellRect.on('pointerdown', () => {
-        if (pullsRemaining <= 0) return;
-        
+    if (pullsRemaining <= 0) return;
+
         // If the user is already at this position, pull the arm
         if (r === cursorR && c === cursorC) {
           pullArm.call(this, r, c); // Use call to bind 'this' correctly
@@ -444,42 +505,42 @@ function setupPlayOrPractice(stage, isPractice) {
   // Function to handle pulling the arm
   function pullArm(row, col) {
     const scene = this; // Capture the scene context
-    pullsRemaining--;
+      pullsRemaining--;
     
     // Don't try to update remainingText - it doesn't exist in this context!
     
     let payoff = bandit[row][col];
-    let outcome = (Math.random() < payoff) ? 1 : 0;
-    
-    // Create a simple flash effect (just one flash)
+      let outcome = (Math.random() < payoff) ? 1 : 0;
+      
+      // Create a simple flash effect (just one flash)
     let g = scene.add.graphics();
-    g.fillStyle(HIGHLIGHT_COLOR, 1);
-    g.fillRect(
+      g.fillStyle(HIGHLIGHT_COLOR, 1);
+      g.fillRect(
       gridOriginX + col*(cellWidth + CELL_PADDING),
       gridOriginY + row*(cellHeight + CELL_PADDING),
-      cellWidth, cellHeight
-    );
-    
-    // Fade out only to get a single flash
+        cellWidth, cellHeight
+      );
+      
+      // Fade out only to get a single flash
     scene.tweens.add({
-      targets: g,
-      alpha: 0,
+        targets: g,
+        alpha: 0,
       duration: 200, // Reduced from 400 to 200
-      onComplete: () => {
-        g.destroy();
-        
-        // Record outcome and update tank
-        pullOutcomes.push(outcome);
+        onComplete: () => {
+          g.destroy();
+          
+          // Record outcome and update tank
+          pullOutcomes.push(outcome);
         drawMarkerDot.call(scene, gridOriginX, gridOriginY, cellWidth, cellHeight, row, col, outcome);
         drawRewardTank.call(scene, rewardTankContainer, num_arm_pulls, pullOutcomes);
 
-        if (pullsRemaining <= 0) {
+      if (pullsRemaining <= 0) {
           makeNextButton.call(scene, "Next", () => {
             nextStage.call(scene);
-          });
-        }
+        });
       }
-    });
+        }
+      });
   }
 
   this.input.keyboard.on('keydown', (evt) => {
@@ -507,13 +568,20 @@ function setupPlayOrPractice(stage, isPractice) {
  * WATCH Stage
  */
 function setupWatch(stage) {
-  if (!stage.zone || !stage.zone.bandit || !stage.demonstrator) {
-    console.error("Missing zone, bandit, or demonstrator data");
+  if (!stage.zone) {
+    console.error("Missing zone data");
     return;
   }
   
-  const bandit = stage.zone.bandit;
-  const trajectory = stage.demonstrator.trajectory;
+  // Check for bandit data at zone.zone_bandit
+  const bandit = stage.zone.zone_bandit;
+  if (!bandit || !stage.demonstrator) {
+    console.error("Missing bandit or demonstrator data");
+    return;
+  }
+  
+  // In the new JSON format, the trajectory is directly in demonstrator.demonstrator_trajectory
+  const trajectory = stage.demonstrator.demonstrator_trajectory;
   const numRows = bandit.length;
   const numCols = bandit[0].length;
   
@@ -534,7 +602,7 @@ function setupWatch(stage) {
   const gridBottomY = gridOriginY + totalGridHeight;
 
   // Add zone labels
-  addZoneLabels(this, stage.zone.index);
+  addZoneLabels(this, stage.zone.zone_index);
   
   // zone background
   createZoneBackgroundMask.call(this, stage, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
@@ -557,9 +625,13 @@ function setupWatch(stage) {
   let currentC = currentLinearIndex % numCols;
   
   // Load demonstrator image if not already loaded
-  const demoImageKey = `demonstrator_${stage.demonstrator.index}`;
+  // The new format includes demonstrator_index and demonstrator_image
+  const demoIndex = stage.demonstrator.demonstrator_index;
+  const demoImage = stage.demonstrator.demonstrator_image;
+  
+  const demoImageKey = `demonstrator_${demoIndex}`;
   if (!this.textures.exists(demoImageKey)) {
-    this.load.image(demoImageKey, `assets/demonstrators/${stage.demonstrator.image}`);
+    this.load.image(demoImageKey, `assets/demonstrators/${demoImage}`);
     this.load.once('complete', () => {
       startDemonstration.call(this);
     });
@@ -661,13 +733,20 @@ function setupWatch(stage) {
  * INDICATE Stage
  */
 function setupIndicate(stage) {
-  if (!stage.zone || !stage.zone.bandit || !stage.demonstrator) {
-    console.error("Missing zone, bandit, or demonstrator data");
+  if (!stage.zone) {
+    console.error("Missing zone data");
     return;
   }
   
-  const bandit = stage.zone.bandit;
-  const trajectory = stage.demonstrator.trajectory;
+  // Check for bandit data at zone.zone_bandit
+  const bandit = stage.zone.zone_bandit;
+  if (!bandit || !stage.demonstrator) {
+    console.error("Missing bandit or demonstrator data");
+    return;
+  }
+  
+  // In the new JSON format, the trajectory is directly in demonstrator.demonstrator_trajectory
+  const trajectory = stage.demonstrator.demonstrator_trajectory;
   const numRows = bandit.length;
   const numCols = bandit[0].length;
   
@@ -689,7 +768,7 @@ function setupIndicate(stage) {
   const gridBottomY = gridOriginY + totalGridHeight;
 
   // Add zone labels
-  addZoneLabels(this, stage.zone.index);
+  addZoneLabels(this, stage.zone.zone_index);
   
   // zone background
   createZoneBackgroundMask.call(this, stage, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
@@ -702,9 +781,13 @@ function setupIndicate(stage) {
   let currentC = currentLinearIndex % numCols;
   
   // Load demonstrator image if not already loaded
-  const demoImageKey = `demonstrator_${stage.demonstrator.index}`;
+  // The new format includes demonstrator_index and demonstrator_image
+  const demoIndex = stage.demonstrator.demonstrator_index;
+  const demoImage = stage.demonstrator.demonstrator_image;
+  
+  const demoImageKey = `demonstrator_${demoIndex}`;
   if (!this.textures.exists(demoImageKey)) {
-    this.load.image(demoImageKey, `assets/demonstrators/${stage.demonstrator.image}`);
+    this.load.image(demoImageKey, `assets/demonstrators/${demoImage}`);
     this.load.once('complete', () => {
       startDemonstration.call(this);
     });
@@ -789,12 +872,18 @@ function setupIndicate(stage) {
  * BLIND stage - like play but without showing outcomes
  */
 function setupBlind(stage) {
-  if (!stage.zone || !stage.zone.bandit) {
-    console.error("Missing zone or bandit data");
+  if (!stage.zone) {
+    console.error("Missing zone data");
     return;
   }
   
-  const bandit = stage.zone.bandit;
+  // Check for bandit data at zone.zone_bandit
+  const bandit = stage.zone.zone_bandit;
+  if (!bandit) {
+    console.error("Missing bandit data in zone");
+    return;
+  }
+  
   const num_arm_pulls = stage.num_arm_pulls;
   
   let numRows = bandit.length;
@@ -817,7 +906,7 @@ function setupBlind(stage) {
   const gridBottomY = gridOriginY + totalGridHeight;
 
   // Add zone labels
-  addZoneLabels(this, stage.zone.index);
+  addZoneLabels(this, stage.zone.zone_index);
   
   // zone background
   createZoneBackgroundMask.call(this, stage, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
@@ -861,7 +950,7 @@ function setupBlind(stage) {
         
       cellRect.on('pointerdown', () => {
         if (pullsRemaining <= 0) return;
-        
+
         // If the user is already at this position, pull the arm
         if (r === cursorR && c === cursorC) {
           pullArm.call(this, r, c); // Use call to bind 'this' correctly
@@ -883,13 +972,13 @@ function setupBlind(stage) {
   function pullArm(row, col) {
     const scene = this; // Capture the scene context
     pullsRemaining--;
-    
+      
     // Update the remainingText to show the new count
     remainingText.setText(`Remaining Shots: ${pullsRemaining}`);
-    
+      
     let payoff = bandit[row][col];
     let outcome = (Math.random() < payoff) ? 1 : 0;
-    
+      
     // Create a simple flash effect (just one flash)
     let g = scene.add.graphics();
     g.fillStyle(HIGHLIGHT_COLOR, 1);
@@ -898,7 +987,7 @@ function setupBlind(stage) {
       gridOriginY + row*(cellHeight + CELL_PADDING),
       cellWidth, cellHeight
     );
-    
+      
     // Fade out only to get a single flash
     scene.tweens.add({
       targets: g,
@@ -906,11 +995,11 @@ function setupBlind(stage) {
       duration: 200, // Reduced from 400 to 200
       onComplete: () => {
         g.destroy();
-        
+          
         // In blind mode, we don't show outcomes or update tanks
         // But we still track outcomes internally
         pullOutcomes.push(outcome);
-
+          
         if (pullsRemaining <= 0) {
           makeNextButton.call(scene, "Next", () => {
             nextStage.call(scene);
@@ -951,56 +1040,41 @@ function setupChoice(stage) {
   // Default color if none provided
   const zoneColor = stage.zone && stage.zone.color ? stage.zone.color : "#888888";
   
-  // Check demonstrator data - log details to help debug
-  console.log("Demonstrator data:", JSON.stringify(stage.demonstrator || {}));
+  // Check demonstrator data
+  // In the new format, we have demonstrator1 and demonstrator2 properties
+  let demonstrator1 = stage.demonstrator1 || {};
+  let demonstrator2 = stage.demonstrator2 || {};
+  
+  console.log("Demonstrator data:", JSON.stringify({ demonstrator1, demonstrator2 }, null, 2));
   
   // Create demonstrator data if missing or invalid
-  if (!stage.demonstrator || Object.keys(stage.demonstrator).length === 0) {
-    console.warn("Missing or empty demonstrator data for choice stage. Creating default data.");
-    stage.demonstrator = {
-      "index_0": 1,
-      "index_1": 2,
-      "image_0": "demonstrator_00.png",
-      "image_1": "demonstrator_01.png"
+  if ((!demonstrator1 || Object.keys(demonstrator1).length === 0) && 
+      (!demonstrator2 || Object.keys(demonstrator2).length === 0)) {
+    console.warn("Missing demonstrator data for choice stage. Creating default data.");
+    demonstrator1 = {
+      "demonstrator_type": "novice",
+      "demonstrator_index": 0,
+      "demonstrator_id": 1,
+      "demonstrator_image": "demonstrator_00.png"
+    };
+    demonstrator2 = {
+      "demonstrator_type": "expert",
+      "demonstrator_index": 1,
+      "demonstrator_id": 2,
+      "demonstrator_image": "demonstrator_01.png"
     };
   }
   
-  const demonstrator = stage.demonstrator;
+  // Prepare demonstrator images and indices
+  const demonstratorImages = [
+    demonstrator1.demonstrator_image || "demonstrator_00.png",
+    demonstrator2.demonstrator_image || "demonstrator_01.png"
+  ];
   
-  // Get demonstrator images and indices
-  const demonstratorImages = [];
-  const demonstratorIndices = [];
-  
-  // Find all demonstrator images by checking keys
-  for (let i = 0; i < 10; i++) { // Assuming max 10 demonstrators
-    const imageKey = `image_${i}`;
-    const indexKey = `index_${i}`;
-    
-    if (demonstrator[imageKey]) {
-      demonstratorImages.push(demonstrator[imageKey]);
-      demonstratorIndices.push(demonstrator[indexKey] || i + 1);
-    }
-  }
-  
-  // If no demonstrator images were found using the image_X pattern, check for alternative structures
-  if (demonstratorImages.length === 0) {
-    console.warn("No demonstrator images found using image_X pattern. Checking for image property.");
-    
-    // Try accessing image directly if it exists
-    if (demonstrator.image) {
-      demonstratorImages.push(demonstrator.image);
-      demonstratorIndices.push(demonstrator.index || 1);
-    }
-    
-    // If still no images, add defaults
-    if (demonstratorImages.length === 0) {
-      console.warn("Still no demonstrator images found. Using defaults.");
-      demonstratorImages.push("demonstrator_00.png"); // Updated to use zero-indexed naming
-      demonstratorImages.push("demonstrator_01.png"); // Updated to use zero-indexed naming
-      demonstratorIndices.push(1);
-      demonstratorIndices.push(2);
-    }
-  }
+  const demonstratorIndices = [
+    demonstrator1.demonstrator_index || 0,
+    demonstrator2.demonstrator_index || 1
+  ];
   
   console.log(`Found ${demonstratorImages.length} demonstrator images:`, demonstratorImages);
   
@@ -1318,8 +1392,8 @@ function setupOnlineChoice(stage) {
     return;
   }
   
-  if (!stage.demonstrators || Object.keys(stage.demonstrators).length < 2) {
-    console.error("Missing or insufficient demonstrator data for online-choice stage");
+  if (!stage.demonstrators) {
+    console.error("Missing demonstrator data for online-choice stage");
     return;
   }
   
@@ -1445,7 +1519,7 @@ function setupOnlineChoicePlay(stage) {
   const gridBottomY = gridOriginY + totalGridHeight;
 
   // Add zone labels
-  addZoneLabels(this, stage.zone.index);
+  addZoneLabels(this, stage.zone.zone_index);
   
   // Show round information with final play indicator if applicable
   const roundText = this.add.text(
@@ -1705,7 +1779,8 @@ function setupOnlineChoiceChoice(stage) {
     const imageKey = `online_choice_${demoKey}`;
     
     // Get the image path from the demonstrator configuration
-    const imagePath = demo.image;
+    // In the new format, image is in demonstrator_image
+    const imagePath = demo.demonstrator_image;
     console.log(`Loading online-choice demonstrator image for ${demoKey}: ${imagePath}`);
     
     // Load from the demonstrators folder with the actual image path
@@ -1881,7 +1956,7 @@ function addOnlineChoiceSelectionToSummary(imageKey, zone) {
   // Look for an online-choice icon in the summaryIcons array
   let choiceIconIndex = -1;
   for (let i = 0; i < summaryIcons.length; i++) {
-    if (summaryIcons[i].zone === zone.index) {
+    if (summaryIcons[i].zone === zone.zone_index) {
       choiceIconIndex = i;
       break;
     }
@@ -1897,8 +1972,9 @@ function addOnlineChoiceSelectionToSummary(imageKey, zone) {
     const demo = window.onlineChoiceState.chosenDemonstrator;
     
     // Use demonstrator format for summary icon
-    const demoIndex = zone.demonstrators && zone.demonstrators[demo] ? 
-      zone.demonstrators[demo].index : 0;
+    // In the new format, index is in demonstrator_index 
+    const demoIndex = (zone.demonstrators && zone.demonstrators[demo]) ? 
+      zone.demonstrators[demo].demonstrator_index : 0;
       
     // Convert to the proper format expected by redrawSummaryBarDOM
     summaryIcons[choiceIconIndex].imageKey = `demonstrator_0${demoIndex}`;
@@ -1963,7 +2039,8 @@ function setupOnlineChoiceWatch(stage) {
   state.demoTrajectoryIndices[selectedDemoKey] = trajectoryStartIndex + numPulls;
   
   // Get the relevant portion of the trajectory
-  const trajectory = selectedDemo.trajectory.slice(trajectoryStartIndex, trajectoryStartIndex + numPulls);
+  // In the new format, trajectory is in demonstrator_trajectory
+  const trajectory = selectedDemo.demonstrator_trajectory.slice(trajectoryStartIndex, trajectoryStartIndex + numPulls);
   console.log(`Using trajectory slice [${trajectoryStartIndex}:${trajectoryStartIndex + numPulls}]:`, trajectory);
   
   // If trajectory is too short, log warning but continue with what we have
@@ -1985,7 +2062,7 @@ function setupOnlineChoiceWatch(stage) {
   const gridBottomY = gridOriginY + totalGridHeight;
 
   // Add zone labels
-  addZoneLabels(this, stage.zone.index);
+  addZoneLabels(this, stage.zone.zone_index);
   
   // zone background
   createZoneBackgroundMask.call(this, stage, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
@@ -2009,7 +2086,7 @@ function setupOnlineChoiceWatch(stage) {
   const demoImageKey = `online_watch_${selectedDemoKey}`;
   
   // Get the image path directly from the selected demonstrator config
-  const demoImagePath = selectedDemo.image;
+  const demoImagePath = selectedDemo.demonstrator_image;
   console.log(`Loading online-choice watch demonstrator image: ${demoImagePath}`);
   
   if (!this.textures.exists(demoImageKey)) {
@@ -2177,7 +2254,11 @@ function setupOnlineChoiceFinalPlay(stage) {
     ).setOrigin(0.5);
     
     // Create label with demonstrator type (expert/novice)
-    const labelText = demoKey.charAt(0).toUpperCase() + demoKey.slice(1); // Capitalize
+    // In the new format, type is in demonstrator_type
+    const labelText = demo.demonstrator_type ? 
+      demo.demonstrator_type.charAt(0).toUpperCase() + demo.demonstrator_type.slice(1) : // Capitalize
+      demoKey.charAt(0).toUpperCase() + demoKey.slice(1); // Fallback to key
+    
     const label = this.add.text(
       x,
       gridY - 30,
@@ -2192,7 +2273,7 @@ function setupOnlineChoiceFinalPlay(stage) {
     
     // Load demonstrator image
     const imageKey = `online_choice_${demoKey}`;
-    this.load.image(imageKey, `assets/demonstrators/${demo.image}`);
+    this.load.image(imageKey, `assets/demonstrators/${demo.demonstrator_image}`);
     
     cells.push({
       key: demoKey,
@@ -2349,50 +2430,145 @@ function setupOnlineChoiceFinalPlay(stage) {
  * Utility
  ************************************************/
 function nextStage() {
-  // Check if this is the last game in the current session BEFORE incrementing
-  const isLastGameInSession = (currentStageIndex + 1) >= timelineData.timeline[currentSessionIndex].length;
+  // Use the structure discovery from loadStage to handle nested arrays
+  const currentSession = timelineData[currentSessionIndex];
   
-  // Increment the stage index
-  currentStageIndex++;
+  console.log(`Current session: ${currentSessionIndex}, stage: ${currentStageIndex}`);
   
-  // Check if we need to move to the next session or if we're at the end
-  if (currentSessionIndex >= timelineData.timeline.length) {
+  // Check if we're at the end of all sessions
+  if (currentSessionIndex >= timelineData.length) {
     showEndOfGameMessage.call(this);
     return;
   }
   
-  // If we've reached the end of the current session
-  if (currentStageIndex >= timelineData.timeline[currentSessionIndex].length) {
-    currentSessionIndex++;
-    currentStageIndex = 0;
+  // Check if the current session has nested arrays
+  let isNestedArraySession = Array.isArray(currentSession[0]);
+  let isLastStageInSession = false;
+  
+  if (isNestedArraySession) {
+    // For nested array sessions, we need to find which container we're in
+    let totalStagesSoFar = 0;
+    let currentContainerIndex = -1;
+    let stageIndexInContainer = -1;
     
-    if (currentSessionIndex >= timelineData.timeline.length) {
-      showEndOfGameMessage.call(this);
-      return;
+    // Find which container we're in
+    for (let i = 0; i < currentSession.length; i++) {
+      const container = currentSession[i];
+      if (totalStagesSoFar + container.length > currentStageIndex) {
+        // Found our container
+        currentContainerIndex = i;
+        stageIndexInContainer = currentStageIndex - totalStagesSoFar;
+        break;
+      }
+      totalStagesSoFar += container.length;
+    }
+    
+    console.log(`In nested session, container: ${currentContainerIndex}, stage in container: ${stageIndexInContainer}`);
+    
+    // Check if this is the last stage in the current container
+    const isLastInContainer = (stageIndexInContainer === currentSession[currentContainerIndex].length - 1);
+    
+    // Check if this is also the last container in the session
+    const isLastContainer = (currentContainerIndex === currentSession.length - 1);
+    
+    // If it's the last stage in the last container, we're done with this session
+    isLastStageInSession = isLastInContainer && isLastContainer;
+    
+    // Increment stage index
+    currentStageIndex++;
+    
+    // Check if we need to move to the next session
+    if (isLastStageInSession) {
+      console.log("End of nested session reached, moving to next session");
+      currentSessionIndex++;
+      currentStageIndex = 0;
+      
+      // Clear summary icons when starting a new session
+      summaryIcons = [];
+      redrawSummaryBarDOM();
+      console.log("Cleared summary bar for new session");
+    }
+  } else {
+    // For simple array sessions, the logic is more straightforward
+    isLastStageInSession = (currentStageIndex === currentSession.length - 1);
+    
+    // Increment stage index
+    currentStageIndex++;
+    
+    // Check if we need to move to the next session
+    if (currentStageIndex >= currentSession.length) {
+      console.log("End of simple session reached, moving to next session");
+      currentSessionIndex++;
+      currentStageIndex = 0;
+      
+      // Clear summary icons when starting a new session
+      summaryIcons = [];
+      redrawSummaryBarDOM();
+      console.log("Cleared summary bar for new session");
     }
   }
   
-  // Clear the summary icons immediately if the previous game was the last in its session
-  if (isLastGameInSession) {
-    summaryIcons = [];
-    redrawSummaryBarDOM(); // Redraw the empty summary bar
-    console.log("Session ended - cleared summary bar");
+  // Check if we're at the end of all sessions
+  if (currentSessionIndex >= timelineData.length) {
+    showEndOfGameMessage.call(this);
+    return;
   }
   
   // Get the next stage
-  const nextStage = timelineData.timeline[currentSessionIndex][currentStageIndex];
+  const nextStageObj = getCurrentStageObject();
+  
+  if (!nextStageObj) {
+    console.error("Could not find next stage object!");
+    return;
+  }
+  
+  // Get the stage type from both possible properties
+  const nextStageType = nextStageObj.stage_type || nextStageObj.game;
+  console.log(`Next stage type: ${nextStageType}, session: ${currentSessionIndex}, stage: ${currentStageIndex}`);
   
   // Check if it's a gameplay stage that needs a transition overlay
   const gameplayStages = ['practice', 'play', 'watch', 'indicate', 'blind', 'choice', 'online-choice'];
-  if (gameplayStages.includes(nextStage.stage_type)) {
+  
+  if (gameplayStages.includes(nextStageType)) {
     // Show the transition overlay
-    showTransitionOverlay(this, nextStage, () => {
+    showTransitionOverlay(this, nextStageObj, () => {
       // This callback runs when the user clicks the button
       loadStage.call(this);
     });
   } else {
     // For non-gameplay stages, just load directly
-  loadStage.call(this);
+    loadStage.call(this);
+  }
+}
+
+// Helper function to get the current stage object based on indices
+function getCurrentStageObject() {
+  if (!timelineData || currentSessionIndex >= timelineData.length) {
+    return null;
+  }
+  
+  const currentSession = timelineData[currentSessionIndex];
+  
+  // Check if the session has nested arrays
+  if (Array.isArray(currentSession[0])) {
+    let totalStagesSoFar = 0;
+    
+    for (let i = 0; i < currentSession.length; i++) {
+      if (currentStageIndex < totalStagesSoFar + currentSession[i].length) {
+        // This container has our stage
+        const effectiveIndex = currentStageIndex - totalStagesSoFar;
+        return currentSession[i][effectiveIndex];
+      }
+      totalStagesSoFar += currentSession[i].length;
+    }
+    
+    return null; // Stage not found
+  } else {
+    // Simple array session
+    if (currentStageIndex < currentSession.length) {
+      return currentSession[currentStageIndex];
+    }
+    return null;
   }
 }
 
@@ -2475,17 +2651,19 @@ function createZoneBackgroundMask(stage, gridX, gridY, numRows, numCols, cellWid
   let hasBackgroundImage = false;
   let backgroundImageKey = null;
   
-  if (stage.zone.background) {
+  if (stage.zone.background || stage.zone.zone_background) {
+    const background = stage.zone.background || stage.zone.zone_background;
+    
     // If background ends with .png, it's an image file
-    if (stage.zone.background.endsWith('.png')) {
+    if (background.endsWith('.png')) {
       hasBackgroundImage = true;
-      backgroundImageKey = `zone_bg_${stage.zone.index}`;
+      backgroundImageKey = `zone_bg_${stage.zone.zone_index}`;
       
       // Check if image is already loaded
       if (!this.textures.exists(backgroundImageKey)) {
         // Load the background image from zone_backgrounds folder
-        console.log(`Loading zone background image: ${stage.zone.background}`);
-        this.load.image(backgroundImageKey, `assets/zone_backgrounds/${stage.zone.background}`);
+        console.log(`Loading zone background image: ${background}`);
+        this.load.image(backgroundImageKey, `assets/zone_backgrounds/${background}`);
         this.load.once('complete', () => {
           applyBackground.call(this);
         });
@@ -2508,11 +2686,11 @@ function createZoneBackgroundMask(stage, gridX, gridY, numRows, numCols, cellWid
       };
       
       // If it's a hex code, convert it
-      if (stage.zone.background.startsWith('#')) {
-        bgColor = parseInt(stage.zone.background.replace('#', '0x'));
+      if (background.startsWith('#')) {
+        bgColor = parseInt(background.replace('#', '0x'));
       } else {
         // Otherwise look it up in our color map
-        bgColor = colorMap[stage.zone.background.toLowerCase()] || 0x000000;
+        bgColor = colorMap[background.toLowerCase()] || 0x000000;
       }
     }
   }
@@ -2550,16 +2728,21 @@ function createZoneBackgroundMask(stage, gridX, gridY, numRows, numCols, cellWid
     const totalGridHeight = (numRows * cellHeight) + ((numRows - 1) * CELL_PADDING);
     
     // Continue with the cells (either asteroid or landscape)
-    const zoneMode = stage.zone.mode || "landscape";
-    
+    const zoneMode = stage.zone.mode || stage.zone.zone_mode || "landscape";
+
     if (zoneMode === "landscape") {
       // LANDSCAPE MODE: one background for all cells
       // Make sure we've loaded the landscape image
-      const landscapeImage = stage.zone.images[0];
-      const landscapeKey = `landscape_${stage.zone.index}`;
+      const landscapeImage = stage.zone.images || stage.zone.zone_images;
+      if (!landscapeImage || landscapeImage.length === 0) {
+        console.error("Missing landscape images");
+        return;
+      }
+      
+      const landscapeKey = `landscape_${stage.zone.zone_index}`;
       
       if (!this.textures.exists(landscapeKey)) {
-        this.load.image(landscapeKey, `assets/landscapes/${landscapeImage}`);
+        this.load.image(landscapeKey, `assets/landscapes/${landscapeImage[0]}`);
         this.load.once('complete', () => {
           createLandscapeBackground.call(this, landscapeKey, gridX, gridY, numRows, numCols, cellWidth, cellHeight);
         });
@@ -2571,13 +2754,18 @@ function createZoneBackgroundMask(stage, gridX, gridY, numRows, numCols, cellWid
     else if (zoneMode === "asteroid") {
       // ASTEROID MODE: each cell gets its own asteroid
       // Make sure we've loaded all the asteroid images
-      const asteroidImages = stage.zone.images;
+      const asteroidImages = stage.zone.images || stage.zone.zone_images;
+      if (!asteroidImages || asteroidImages.length === 0) {
+        console.error("Missing asteroid images");
+        return;
+      }
+      
       const imageKeys = [];
-    
+
       // Create a loader for all asteroid images
       let loadingRequired = false;
       for (let i = 0; i < asteroidImages.length; i++) {
-        const asteroidKey = `asteroid_${stage.zone.index}_${i}`;
+        const asteroidKey = `asteroid_${stage.zone.zone_index}_${i}`;
         imageKeys.push(asteroidKey);
         
         if (!this.textures.exists(asteroidKey)) {
@@ -2860,7 +3048,7 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   overlay.setOrigin(0, 0);
   
   // Get stage type and set button text accordingly
-  const stageType = nextStage.stage_type;
+  const stageType = nextStage.stage_type || nextStage.game;
   let buttonText;
   
   switch(stageType) {
@@ -2909,7 +3097,7 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   const zone = nextStage.zone;
   if (zone) {
     const zoneColor = zone.color || '#ffffff';
-    const zoneIndex = zone.index;
+    const zoneIndex = zone.zone_index;
     
     // For choice game, use a special zone display
     if (stageType === 'choice') {
@@ -3273,10 +3461,10 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
         playerImageKey = 'user';
         addPlayerImageToContainer(playerImageKey);
     } else if (stageType === 'watch' || stageType === 'indicate') {
-        if (nextStage.demonstrator && nextStage.demonstrator.image) {
-            playerImageKey = `demonstrator_${nextStage.demonstrator.index}`;
+        if (nextStage.demonstrator && nextStage.demonstrator.demonstrator_image) {
+            playerImageKey = `demonstrator_${nextStage.demonstrator.demonstrator_index}`;
             if (!scene.textures.exists(playerImageKey)) {
-                scene.load.image(playerImageKey, `assets/demonstrators/${nextStage.demonstrator.image}`);
+                scene.load.image(playerImageKey, `assets/demonstrators/${nextStage.demonstrator.demonstrator_image}`);
                 scene.load.once('complete', () => {
                     addPlayerImageToContainer(playerImageKey);
                 });
