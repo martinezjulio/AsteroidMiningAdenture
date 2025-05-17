@@ -1,3 +1,4 @@
+import json
 import random
 import colorsys
 from itertools import product
@@ -6,164 +7,202 @@ from typing import List, Dict, Any, Optional
 def generate_timeline(
     rounds: int,
     num_play_arm_pulls: int,
-    num_watch_arm_pulls: int
+    num_watch_arm_pulls: int,
+    bandits_json_path: str = "bandits_data.json"
 ) -> List[List[List[Dict[str, Any]]]]:
     """
-    Generate all possible timelines for the fixed game sequence:
-      repeat_block = ["watch", "play", "watch", "play"]
-      choice = "choice"
-
-    rounds: number of times to run the watch/play block (>= 1)
-    num_play_arm_pulls: number to assign to each "play" game
-    num_watch_arm_pulls: number to assign to each "watch" game
+    rounds: how many times to repeat ["watch","play","watch","play"]  (>=1)
+    num_play_arm_pulls: arms pulled in each "play"
+    num_watch_arm_pulls: arms pulled in each "watch"
+    bandits_json_path: path to your bandits_data.json
 
     Returns:
-      [
-        [   # one session
-            [ {...}, {...}, … ],   # stage_index = 0 (watch/play)
-            [ {...} ]              # stage_index = 1 (choice)
-        ],
-        …
-      ]
-
-    Each dict has:
-      - game
-      - demonstrator (or demonstrator_1, demonstrator_2)
-      - game_index
-      - num_arm_pulls
-      - transfer (None for stage 0, True/False for stage 1)
-      - stage_index (0 or 1)
-      - session_index (assigned after shuffle)
-      - zone: {
-          zone_index,
-          background,
-          color,
-          mode,
-          images
+      sessions: List of sessions.  Each session is [ stage0_list, [choice_entry] ].
+      Each entry in stage0 or choice has keys:
+        - game, game_index, num_arm_pulls, transfer, stage_index,
+          session_index, round_index
+        - zone: {
+            zone_index,
+            background,
+            color,
+            mode,
+            images,
+            bandit   # [[p0,p1,…,p11]]
+          }
+      + for each "watch" entry, replaces "demonstrator":str with a dict:
+        {
+          type, demonstrator_index, demonstrator_id, image, trajectory
         }
     """
+    # 0) load your bandit payoffs
+    with open(bandits_json_path, "r") as f:
+        bandits_data = json.load(f)
+    payoff_keys = sorted(k for k in bandits_data.keys() if k.startswith("payoffs"))
     if rounds < 1:
         raise ValueError("rounds must be >= 1")
 
-    # 1) Build all raw sessions (no session_index, no final zone metadata)
+    # 1) build raw sessions (no session_index, no zones yet)
     repeat_block = ["watch", "play", "watch", "play"]
     choice_name = "choice"
-    num_watch = repeat_block.count("watch")
-    patterns = list(product(["expert", "novice"], repeat=num_watch))
+    num_watch_slots = repeat_block.count("watch")
+    patterns = list(product(["expert","novice"], repeat=num_watch_slots))
     transfer_options = [True, False]
 
-    sessions: List[List[List[Dict[str, Any]]]] = []
+    raw_sessions: List[List[List[Dict[str,Any]]]] = []
     for pat in patterns:
-        for transfer_flag in transfer_options:
-            games: List[Dict[str, Any]] = []
-            game_idx = 0
-            # stage 0: watch/play
-            for _ in range(rounds):
+        for xfer in transfer_options:
+            games = []
+            idx = 0
+            # stage0: watch/play
+            for round_idx in range(rounds):
                 watch_cursor = 0
                 for g in repeat_block:
-                    if g == "watch":
-                        demonstrator = pat[watch_cursor]
-                        num_arm_pulls = num_watch_arm_pulls
+                    if g=="watch":
+                        dem_type = pat[watch_cursor]
+                        pulls = num_watch_arm_pulls
+                        watch_idx = watch_cursor
                         watch_cursor += 1
-                    else:  # "play"
-                        demonstrator = None
-                        num_arm_pulls = num_play_arm_pulls
+                    else:
+                        dem_type = None
+                        pulls = num_play_arm_pulls
+                        watch_idx = None
 
                     games.append({
                         "game": g,
-                        "demonstrator": demonstrator,
-                        "game_index": game_idx,
-                        "num_arm_pulls": num_arm_pulls,
+                        "demonstrator": dem_type,
+                        "game_index": idx,
+                        "num_arm_pulls": pulls,
                         "transfer": None,
-                        "stage_index": 0
+                        "stage_index": 0,
+                        "round_index": round_idx,
+                        # session_index, zone, demonstrator dict filled later
                     })
-                    game_idx += 1
+                    idx += 1
 
-            # stage 1: choice
-            choice_entry = {
+            # choice stage
+            choice = {
                 "game": choice_name,
                 "demonstrator_1": pat[0],
                 "demonstrator_2": pat[1],
-                "game_index": game_idx,
+                "game_index": idx,
                 "num_arm_pulls": None,
-                "transfer": transfer_flag,
-                "stage_index": 1
+                "transfer": xfer,
+                "stage_index": 1,
+                "round_index": None
             }
+            raw_sessions.append([games, [choice]])
 
-            sessions.append([games, [choice_entry]])
+    # 2) shuffle
+    random.shuffle(raw_sessions)
 
-    # 2) Shuffle sessions
-    random.shuffle(sessions)
-
-    # 3) Assign session_index and preliminary zone_index
+    # 3) assign session_index & preliminary zone_index
     zone_idx = 0
-    for sess_idx, (games, choice_list) in enumerate(sessions):
-        # stage 0: assign session and zone_index
-        for entry in games:
-            entry["session_index"] = sess_idx
-            entry["zone"] = {"zone_index": zone_idx}
-        # stage 1: increment zone if transfer True, then assign
-        if choice_list[0]["transfer"]:
+    for sess_i, (games, [choice]) in enumerate(raw_sessions):
+        # stage0
+        for e in games:
+            e["session_index"] = sess_i
+            e["zone"] = {"zone_index": zone_idx}
+        # choice
+        if choice["transfer"]:
             zone_idx += 1
-        for entry in choice_list:
-            entry["session_index"] = sess_idx
-            entry["zone"] = {"zone_index": zone_idx}
-        # after full session, bump for next
+        choice["session_index"] = sess_i
+        choice["zone"] = {"zone_index": zone_idx}
         zone_idx += 1
 
-    # 4) Collect all unique zone_indices
-    unique_zones = sorted({
-        entry["zone"]["zone_index"]
-        for sess in sessions
-        for stage in sess
-        for entry in stage
-    })
-    num_zones = len(unique_zones)
+    # 4) collect and map zones → unique payoff key
+    all_zones = sorted({e["zone"]["zone_index"]
+                        for sess in raw_sessions
+                        for stage in sess
+                        for e in stage})
+    if len(all_zones) > len(payoff_keys):
+        raise RuntimeError("Not enough payoffX keys for all zones!")
+    sel_payoffs = random.sample(payoff_keys, k=len(all_zones))
+    zone_to_payoff = dict(zip(all_zones, sel_payoffs))
 
-    # 5) Generate a distinct color for each zone (as hex)
-    colors: List[str] = []
-    for i in range(num_zones):
-        hue = i / num_zones
-        r, g, b = colorsys.hsv_to_rgb(hue, 0.5, 0.95)
-        colors.append('#{:02x}{:02x}{:02x}'.format(int(r*255), int(g*255), int(b*255)))
-
-    # 6) Sample 12 unique asteroid images per zone, ensuring no two zones have identical lists
+    # 5) generate distinct colors & asteroid images as before
+    # … (same code as before) …
+    num_z = len(all_zones)
+    colors = []
+    for i in range(num_z):
+        h = i/num_z
+        r,g,b = colorsys.hsv_to_rgb(h,0.5,0.95)
+        colors.append(f'#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}')
     used_sets = set()
-    zone_images: Dict[int, List[str]] = {}
-    for idx in unique_zones:
+    zone_imgs: Dict[int,List[str]] = {}
+    for idx in all_zones:
         while True:
-            picks = random.sample(range(80), 12)
-            tpl = tuple(picks)
-            if tpl not in used_sets:
-                used_sets.add(tpl)
+            picks = random.sample(range(80),12)
+            t = tuple(picks)
+            if t not in used_sets:
+                used_sets.add(t)
                 break
-        zone_images[idx] = [f"asteroid_{i:02d}.png" for i in picks]
+        zone_imgs[idx] = [f"asteroid_{p:02d}.png" for p in picks]
 
-    # 7) Build full zone metadata and inject into each entry
-    zone_meta: Dict[int, Dict[str, Any]] = {}
-    for i, idx in enumerate(unique_zones):
+    zone_meta: Dict[int,Dict[str,Any]] = {}
+    for i, idx in enumerate(all_zones):
+        pk = zone_to_payoff[idx]
         zone_meta[idx] = {
             "zone_index": idx,
             "background": f"zone_{idx:02d}.png",
             "color": colors[i],
             "mode": "asteroid",
-            "images": zone_images[idx]
+            "images": zone_imgs[idx],
+            "bandit": [ bandits_data[pk]["payoffs"] ]
         }
 
-    for sess in sessions:
-        for stage in sess:
-            for entry in stage:
-                zi = entry["zone"]["zone_index"]
-                entry["zone"] = zone_meta[zi]
+    # 6) assign demonstrator_ids uniquely across sessions
+    available_ids = set(range(20))
+    session_to_ids: Dict[int, List[int]] = {}
+    for sess_i in range(len(raw_sessions)):
+        if len(available_ids) < 2:
+            raise RuntimeError("ran out of demonstrator IDs!")
+        d1, d2 = random.sample(available_ids, 2)
+        available_ids.remove(d1)
+        available_ids.remove(d2)
+        session_to_ids[sess_i] = [d1, d2]
 
-    return sessions
+    # 7) now inject zone_meta and build the demonstrator dicts
+    for games, [choice] in raw_sessions:
+        sess_i = games[0]["session_index"]
+        payoff_key = zone_to_payoff[ games[0]["zone"]["zone_index"] ]
+        d_ids = session_to_ids[sess_i]
 
+        # for each watch event, replace demonstrator str → dict
+        for e in games:
+            zi = e["zone"]["zone_index"]
+            e["zone"] = zone_meta[zi]
 
-# Example usage
-if __name__ == "__main__":
-    import json
-    tl = generate_timeline(rounds=1, num_play_arm_pulls=24, num_watch_arm_pulls=48)
-    print(json.dumps(tl, indent=4))
+            if e["game"] == "watch":
+                typ = e["demonstrator"]
+                idx_in_block = (e["round_index"]*num_watch_slots
+                                + (0 if (e["round_index"]*len(repeat_block)+e["game_index"] % len(repeat_block)) < 2 else 1))
+                # actually simpler: track watch_cursor above.  But we stored watch_idx:
+                # we'll reuse the original watch order instead:
+                # Since we didn't store watch_idx above, let's recompute:
+                # count how many watches before this one in the current block:
+                block_pos = e["game_index"] % len(repeat_block)
+                dem_idx = 0 if block_pos in (0,1,2,3) and block_pos<2 else 1
+
+                # pick the correct id for this slot:
+                demon_id = session_to_ids[sess_i][dem_idx]
+                full_traj = bandits_data[payoff_key]["policy"]["thompson"][typ]\
+                            [f"{payoff_key}_{typ}_policy{demon_id}"]
+                start = e["round_index"]*num_watch_arm_pulls
+                traj = full_traj[start:start+num_watch_arm_pulls]
+
+                e["demonstrator"] = {
+                    "type": typ,
+                    "demonstrator_index": dem_idx,
+                    "demonstrator_id": demon_id,
+                    "image": f"demonstrator_{demon_id:02d}.png",
+                    "trajectory": traj
+                }
+
+        # finally inject zone_meta into the choice entry as well:
+        ci = choice["zone"]["zone_index"]
+        choice["zone"] = zone_meta[ci]
+
+    return raw_sessions
 
 
 if __name__ == "__main__":
