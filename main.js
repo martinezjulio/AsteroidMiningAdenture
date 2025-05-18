@@ -162,10 +162,12 @@ function loadStage() {
 
   // If stage has a zone, apply its color to the game container border
   if (stage.zone) {
-    const zoneColor = stage.zone.color || "#ffffff";
+    // Use zone_color property for colored border to match exactly what's in timeline.json
+    const zoneColor = stage.zone.zone_color || stage.zone.color || "#ffffff";
     const gameContainer = document.getElementById('game-container');
     if (gameContainer) {
       gameContainer.style.border = `10px solid ${zoneColor}`;
+      console.log(`Applied zone border color: ${zoneColor}`);
     }
   }
 
@@ -284,7 +286,7 @@ function maybeAddSummaryIcon(stage) {
     return;
   }
   
-  // For all other game types, use the normal icon logic
+    // For all other game types, use the normal icon logic
   let imageKey = 'user';
   if (stageType === 'watch' || stageType === 'indicate') {
     if (stage.demonstrator && stage.demonstrator.demonstrator_image) {
@@ -295,11 +297,15 @@ function maybeAddSummaryIcon(stage) {
     }
   }
 
-  // Add the icon with proper imageKey
+  // Add the icon with proper imageKey - prioritize zone_color from JSON directly
+  const zoneColorValue = stage.zone.zone_color || stage.zone.color || '#ffffff';
+  console.log(`Adding summary icon with zone_color: ${zoneColorValue}`);
+  
   summaryIcons.push({
     imageKey: imageKey,
     zone: stage.zone.zone_index,
-    color: stage.zone.color || '#ffffff'
+    zone_color: zoneColorValue,
+    color: zoneColorValue // Keep color for backward compatibility
   });
 }
 
@@ -330,8 +336,9 @@ function redrawSummaryBarDOM() {
     cellDiv.style.flexDirection = "column";
     cellDiv.style.alignItems = "center"; // Center children horizontally
 
-    // Give it a border of the zone color
-    cellDiv.style.border = `3px solid ${iconData.color}`;
+    // Give it a border of the zone color - use zone_color property directly when available
+    const borderColor = iconData.zone_color || iconData.color || "#ffffff";
+    cellDiv.style.border = `3px solid ${borderColor}`;
     cellDiv.style.padding = "5px"; // some spacing from border
 
     // The image
@@ -351,7 +358,7 @@ function redrawSummaryBarDOM() {
 
     // The zone label - use custom label if provided
     const label = document.createElement("div");
-    // Check if we have a custom label (for online-choice sub-stages)
+        // Check if we have a custom label (for online-choice sub-stages)
     if (iconData.label) {
       label.textContent = iconData.label;
     } 
@@ -624,21 +631,25 @@ function setupWatch(stage) {
   let currentR = Math.floor(currentLinearIndex / numCols);
   let currentC = currentLinearIndex % numCols;
   
-  // Load demonstrator image if not already loaded
-  // The new format includes demonstrator_index and demonstrator_image
+  // Create a unique key for this specific demonstrator to prevent texture caching issues
+  // Include session and stage index to ensure uniqueness
   const demoIndex = stage.demonstrator.demonstrator_index;
   const demoImage = stage.demonstrator.demonstrator_image;
+  const sessionIndex = stage.session_index || 0;
+  const stageIndex = stage.stage_index || 0;
+  const gameIndex = stage.game_index || 0;
   
-  const demoImageKey = `demonstrator_${demoIndex}`;
-  if (!this.textures.exists(demoImageKey)) {
-    this.load.image(demoImageKey, `assets/demonstrators/${demoImage}`);
-    this.load.once('complete', () => {
-      startDemonstration.call(this);
-    });
-    this.load.start();
-  } else {
+  // Create a session-specific key to avoid reusing demonstrator images across sessions
+  const demoImageKey = `demo_s${sessionIndex}_g${gameIndex}_${demoIndex}`;
+  
+  console.log(`Loading demonstrator for session ${sessionIndex}, game ${gameIndex}: ${demoImage}`);
+  
+  // Always load the image to ensure we get the correct one
+  this.load.image(demoImageKey, `assets/demonstrators/${demoImage}`);
+  this.load.once('complete', () => {
     startDemonstration.call(this);
-  }
+  });
+  this.load.start();
   
   function startDemonstration() {
     let startPos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC);
@@ -780,21 +791,25 @@ function setupIndicate(stage) {
   let currentR = Math.floor(currentLinearIndex / numCols);
   let currentC = currentLinearIndex % numCols;
   
-  // Load demonstrator image if not already loaded
-  // The new format includes demonstrator_index and demonstrator_image
+  // Create a unique key for this specific demonstrator to prevent texture caching issues
+  // Include session and stage index to ensure uniqueness
   const demoIndex = stage.demonstrator.demonstrator_index;
   const demoImage = stage.demonstrator.demonstrator_image;
+  const sessionIndex = stage.session_index || 0;
+  const stageIndex = stage.stage_index || 0;
+  const gameIndex = stage.game_index || 0;
   
-  const demoImageKey = `demonstrator_${demoIndex}`;
-  if (!this.textures.exists(demoImageKey)) {
-    this.load.image(demoImageKey, `assets/demonstrators/${demoImage}`);
-    this.load.once('complete', () => {
-      startDemonstration.call(this);
-    });
-    this.load.start();
-  } else {
+  // Create a session-specific key to avoid reusing demonstrator images across sessions
+  const demoImageKey = `demo_s${sessionIndex}_g${gameIndex}_${demoIndex}`;
+  
+  console.log(`Loading demonstrator for indicate session ${sessionIndex}, game ${gameIndex}: ${demoImage}`);
+  
+  // Always load the image to ensure we get the correct one
+  this.load.image(demoImageKey, `assets/demonstrators/${demoImage}`);
+  this.load.once('complete', () => {
     startDemonstration.call(this);
-  }
+  });
+  this.load.start();
   
   function startDemonstration() {
     let startPos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC);
@@ -1152,6 +1167,9 @@ function setupChoice(stage) {
   // Demonstrator cells array
   const cells = [];
   
+  // Get session index for unique image keys
+  const sessionIndex = stage.session_index || 0;
+  
   // Create cells for each demonstrator
   for (let i = 0; i < numDemonstrators; i++) {
     const x = gridX + i * (cellWidth + cellPadding) + cellWidth/2;
@@ -1178,11 +1196,11 @@ function setupChoice(stage) {
       }
     ).setOrigin(0.5);
     
-    // Load demonstrator image - use a unique key for the texture
-    const imageKey = `choice_demonstrator_${i}`;
+    // Load demonstrator image - use a unique key for the texture that includes session index
+    const imageKey = `choice_s${sessionIndex}_demonstrator_${i}`;
     
     // Make sure the image path is correct
-    console.log(`Loading demonstrator image ${i}: ${demonstratorImages[i]}`);
+    console.log(`Loading demonstrator image ${i} for session ${sessionIndex}: ${demonstratorImages[i]}`);
     this.load.image(imageKey, `assets/demonstrators/${demonstratorImages[i]}`);
     
     // Store cell info
@@ -1371,12 +1389,39 @@ function addChoiceSelectionToSummary(imageKey, zoneColor) {
   
   // If we found a choice icon, update it with the selected demonstrator
   if (choiceIconIndex >= 0) {
-    // For choice_demonstrator keys, we need to modify it to a valid path format
-    // Extract the demonstrator index from imageKey (format: choice_demonstrator_X)
-    const demoIndex = imageKey.split('_')[2];
+    // For choice_demonstrator keys, we need to properly extract the demonstrator image path
+    // First check if we have a session index in the imageKey: choice_s{session}_demonstrator_{demoIndex}
+    const parts = imageKey.split('_');
+    let sessionPart = '';
+    let demoIndex = '';
     
-    // Use a fixed path format that works with our asset structure
-    summaryIcons[choiceIconIndex].imageKey = `demonstrator_0${demoIndex}`;
+    if (parts.length >= 4 && parts[1].startsWith('s')) {
+      // New format with session: choice_s1_demonstrator_0
+      sessionPart = parts[1];
+      demoIndex = parts[3];
+    } else {
+      // Old format without session: choice_demonstrator_0
+      demoIndex = parts[2];
+    }
+    
+    // Get the selected demonstrator's full image path from the current stage
+    const stage = window.currentStage;
+    let demoImage = null;
+    
+    if (stage && stage.demonstrator1 && stage.demonstrator2) {
+      // Determine which demonstrator was selected based on the demoIndex
+      if (demoIndex === '0' && stage.demonstrator1.demonstrator_image) {
+        demoImage = stage.demonstrator1.demonstrator_image.replace('.png', '');
+      } else if (demoIndex === '1' && stage.demonstrator2.demonstrator_image) {
+        demoImage = stage.demonstrator2.demonstrator_image.replace('.png', '');
+      }
+    }
+    
+    // Log what we're using for debugging
+    console.log(`Choice selection: using demonstrator image ${demoImage} from index ${demoIndex}`);
+    
+    // Use the actual demonstrator image, or fall back to a default
+    summaryIcons[choiceIconIndex].imageKey = demoImage || `demonstrator_${demoIndex}`;
     
     // Redraw the summary bar to show the change
     redrawSummaryBarDOM();
@@ -3081,8 +3126,8 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   ).setOrigin(0.5);
   
   // Update the game container border color immediately to match the next stage's zone
-  if (nextStage.zone && nextStage.zone.color) {
-    const zoneColor = nextStage.zone.color;
+  if (nextStage.zone) {
+    const zoneColor = nextStage.zone.zone_color || nextStage.zone.color || "#ffffff";
     const gameContainer = document.getElementById('game-container');
     if (gameContainer) {
       gameContainer.style.border = `10px solid ${zoneColor}`;
@@ -3096,7 +3141,9 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   // Get zone info
   const zone = nextStage.zone;
   if (zone) {
-    const zoneColor = zone.color || '#ffffff';
+    // Always use zone_color from timeline.json rather than color property
+    const zoneColor = zone.zone_color || zone.color || '#ffffff';
+    console.log(`Transition overlay using zone_color: ${zoneColor}`);
     const zoneIndex = zone.zone_index;
     
     // For choice game, use a special zone display
@@ -3110,10 +3157,12 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
       createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneIndex);
     }
   } else if (stageType === 'choice') {
-    // Fallback for choice with no zone
+    // Fallback for choice with no zone - use a default color
+    console.log("Using fallback color for choice with no zone");
     createChoiceZoneIcon(scene, '#888888');
   } else if (stageType === 'online-choice') {
-    // Fallback for online-choice with no zone
+    // Fallback for online-choice with no zone - use a default color
+    console.log("Using fallback color for online-choice with no zone");
     createOnlineChoiceZoneIcon(scene, '#888888', 0);
   }
   
@@ -3233,7 +3282,7 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   
   // Special function to create the choice zone icon
   function createChoiceZoneIcon(scene, zoneColor) {
-    console.log("Creating choice zone icon");
+    console.log(`Creating choice zone icon with color: ${zoneColor}`);
     
     // Convert color string to hex number - handle both named colors and hex codes
     let colorHex;
@@ -3462,20 +3511,28 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
         addPlayerImageToContainer(playerImageKey);
     } else if (stageType === 'watch' || stageType === 'indicate') {
         if (nextStage.demonstrator && nextStage.demonstrator.demonstrator_image) {
-            playerImageKey = `demonstrator_${nextStage.demonstrator.demonstrator_index}`;
-            if (!scene.textures.exists(playerImageKey)) {
-                scene.load.image(playerImageKey, `assets/demonstrators/${nextStage.demonstrator.demonstrator_image}`);
-                scene.load.once('complete', () => {
-                    addPlayerImageToContainer(playerImageKey);
-                });
-                scene.load.start();
-            } else {
+            // Create a unique key for this demonstrator that includes session info
+            const demoIndex = nextStage.demonstrator.demonstrator_index || 0;
+            const sessionIndex = nextStage.session_index || 0;
+            const gameIndex = nextStage.game_index || 0;
+            playerImageKey = `overlay_demo_s${sessionIndex}_g${gameIndex}_${demoIndex}`;
+            
+            // Always load a fresh copy of the image to avoid caching issues
+            const demoImage = nextStage.demonstrator.demonstrator_image;
+            console.log(`Loading transition overlay demonstrator image: ${demoImage} for session ${sessionIndex}, game ${gameIndex}`);
+            
+            scene.load.image(playerImageKey, `assets/demonstrators/${demoImage}`);
+            scene.load.once('complete', () => {
                 addPlayerImageToContainer(playerImageKey);
-            }
+            });
+            scene.load.start();
         } else {
             playerImageKey = 'user';
             addPlayerImageToContainer(playerImageKey);
         }
+    } else {
+        playerImageKey = 'user';
+        addPlayerImageToContainer(playerImageKey);
     }
     
     // Add zone text below the image
@@ -3513,7 +3570,7 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
 
 // Special function to create the choice zone icon
 function createChoiceZoneIcon(scene, zoneColor) {
-    console.log("Creating choice zone icon");
+    console.log(`Creating choice zone icon with color: ${zoneColor}`);
     
     // Convert color string to hex number - handle both named colors and hex codes
     let colorHex;
