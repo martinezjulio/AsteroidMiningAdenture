@@ -477,9 +477,10 @@ function setupPlayOrPractice(stage, isPractice) {
   rewardTankContainer.setDepth(100); // Add high depth value to ensure visibility
   drawRewardTank.call(this, rewardTankContainer, num_arm_pulls, pullOutcomes);
 
-  // user sprite
-  let cursorR = 0, cursorC = 0;
-  let { x: initX, y: initY } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, 0, 0);
+  // user sprite - start at random position instead of always (0, 0)
+  let cursorR = Phaser.Math.Between(0, numRows - 1);
+  let cursorC = Phaser.Math.Between(0, numCols - 1);
+  let { x: initX, y: initY } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
   let userSprite = this.add.image(initX, initY, 'user')
     .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
     .setDepth(9999)
@@ -970,9 +971,10 @@ function setupBlind(stage) {
     { font: '20px Arial', fill: '#ffffff' }
   ).setOrigin(0.5);
 
-  // user sprite
-  let cursorR = 0, cursorC = 0;
-  let { x: initX, y: initY } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, 0, 0);
+  // user sprite - start at random position instead of always (0, 0)
+  let cursorR = Phaser.Math.Between(0, numRows - 1);
+  let cursorC = Phaser.Math.Between(0, numCols - 1);
+  let { x: initX, y: initY } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
   let userSprite = this.add.image(initX, initY, 'user')
     .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
     .setDepth(9999)
@@ -1630,9 +1632,10 @@ function setupOnlineChoicePlay(stage) {
   rewardTankContainer.setDepth(100); // Add high depth value to ensure visibility
   drawRewardTank.call(this, rewardTankContainer, num_arm_pulls, pullOutcomes);
 
-  // user sprite
-  let cursorR = 0, cursorC = 0;
-  let { x: initX, y: initY } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, 0, 0);
+  // user sprite - start at random position instead of always (0, 0)
+  let cursorR = Phaser.Math.Between(0, numRows - 1);
+  let cursorC = Phaser.Math.Between(0, numCols - 1);
+  let { x: initX, y: initY } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
   let userSprite = this.add.image(initX, initY, 'user')
     .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
     .setDepth(9999)
