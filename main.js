@@ -18,6 +18,10 @@ let prolificID = "";
 // We'll store summary icons (one per "game" stage).
 let summaryIcons = []; 
 
+// Track demonstrators seen in current session
+let seenDemonstratorsThisSession = new Set();
+let lastSessionIndex = -1; // Track when session changes to reset demonstrator history
+
 // Adjust these as you wish:
 const DEMO_SPRITE_SIZE = 40;       // user/demonstrator sprite size
 const HIGHLIGHT_COLOR = 0xffffff;  // Lighter highlight => 0xffffff
@@ -3089,6 +3093,13 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   // Clear existing scene elements
   scene.children.removeAll();
   
+  // Check if we've moved to a new session and reset demonstrator tracking
+  if (currentSessionIndex !== lastSessionIndex) {
+    seenDemonstratorsThisSession.clear();
+    lastSessionIndex = currentSessionIndex;
+    console.log(`Starting new session ${currentSessionIndex}, cleared demonstrator history`);
+  }
+  
   // Add a semi-transparent overlay background
   const overlay = scene.add.rectangle(
     0, 0, 
@@ -3114,9 +3125,47 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   }
   
   // Get the overlay message - check both at top level and in zone
-  const message = nextStage["overlay-message"] || 
-                 (nextStage.zone && nextStage.zone["overlay-message"]) || 
-                 `Get ready to ${buttonText.toLowerCase()}!`;
+  let message = nextStage["overlay-message"] || 
+               (nextStage.zone && nextStage.zone["overlay-message"]) || 
+               `Get ready to ${buttonText.toLowerCase()}!`;
+  
+  // For watch and indicate stages, customize the message based on demonstrator history
+  if (stageType === 'watch' || stageType === 'indicate') {
+    const demonstrator = nextStage.demonstrator;
+    if (demonstrator) {
+      // Create a unique identifier for the demonstrator
+      const demoId = demonstrator.demonstrator_id || demonstrator.demonstrator_image || demonstrator.image;
+      
+      // Check if we've seen this demonstrator before in this session
+      const hasSeenBefore = seenDemonstratorsThisSession.has(demoId);
+      
+      if (hasSeenBefore) {
+        // Demonstrator has been seen before in this session
+        message = message.replace(
+          /In this game you will watch a starship partner play the game/gi,
+          "You will watch one of the starship partners you have seen before play again"
+        );
+        message = message.replace(
+          /you will watch a starship partner play the game/gi,
+          "you will watch one of the starship partners you have seen before play again"
+        );
+      } else {
+        // First time seeing this demonstrator in this session
+        message = message.replace(
+          /In this game you will watch a starship partner play the game/gi,
+          "In this game you will watch a new starship partner play the game"
+        );
+        message = message.replace(
+          /you will watch a starship partner play the game/gi,
+          "you will watch a new starship partner play the game"
+        );
+        
+        // Add this demonstrator to the seen list
+        seenDemonstratorsThisSession.add(demoId);
+        console.log(`Added demonstrator ${demoId} to seen list for session ${currentSessionIndex}`);
+      }
+    }
+  }
   
   // Add the message text
   const messageText = scene.add.text(
@@ -3170,234 +3219,6 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
     // Fallback for online-choice with no zone - use a default color
     console.log("Using fallback color for online-choice with no zone");
     createOnlineChoiceZoneIcon(scene, '#888888', 0);
-  }
-  
-  // Special function for online-choice zone icon
-  function createOnlineChoiceZoneIcon(scene, zoneColor, zoneIndex) {
-    console.log("Creating online-choice zone icon");
-    
-    // Convert color string to hex number - handle both named colors and hex codes
-    let colorHex;
-    
-    // Color name to hex mapping
-    const colorMap = {
-        'red': 0xFF0000,
-        'green': 0x00FF00,
-        'blue': 0x0000FF,
-        'yellow': 0xFFFF00,
-        'purple': 0x800080,
-        'orange': 0xFFA500,
-        'black': 0x000000,
-        'white': 0xFFFFFF,
-        'gray': 0x808080,
-        'grey': 0x808080,
-        'cyan': 0x00FFFF,
-        'magenta': 0xFF00FF,
-        'brown': 0xA52A2A,
-        'pink': 0xFFC0CB
-    };
-    
-    // Check if it's a named color or hex code
-    if (zoneColor.startsWith('#')) {
-        // It's a hex code, convert it to a number
-        colorHex = parseInt(zoneColor.replace('#', '0x'));
-    } else {
-        // It's a named color, look it up in our map
-        colorHex = colorMap[zoneColor.toLowerCase()] || 0xFF0000; // Default to red if not found
-    }
-    
-    console.log(`Online-choice zone color: ${zoneColor}, hex: ${colorHex}`);
-    
-    // Create dimensions for the icon
-    const iconWidth = 140;
-    const iconHeight = 160;
-    const borderThickness = 10;
-    
-    // Create a container at the center of the screen
-    const container = scene.add.container(scene.sys.game.config.width / 2, 300);
-    
-    // Create a graphics object for drawing the border
-    const border = scene.add.graphics();
-    
-    // Set fill style to zone color
-    border.fillStyle(colorHex, 1);
-    
-    // Draw the outer rectangle (this is the border)
-    border.fillRect(
-        -iconWidth/2 - borderThickness, 
-        -iconHeight/2 - borderThickness, 
-        iconWidth + borderThickness*2, 
-        iconHeight + borderThickness*2
-    );
-    
-    // Set fill style to dark background
-    border.fillStyle(0x222222, 1);
-    
-    // Draw the inner rectangle (creates border effect)
-    border.fillRect(
-        -iconWidth/2, 
-        -iconHeight/2, 
-        iconWidth, 
-        iconHeight
-    );
-    
-    // Add the graphics to the container
-    container.add(border);
-    
-    // Make sure the user image is loaded
-    if (!scene.textures.exists('user')) {
-        scene.load.image('user', 'assets/user.png');
-        scene.load.once('complete', () => {
-            addUserImage();
-        });
-        scene.load.start();
-    } else {
-        addUserImage();
-    }
-    
-    function addUserImage() {
-        // Add the player image
-        const playerImage = scene.add.image(
-            0,
-            -20,
-            'user'
-        );
-        
-        // Debug the user image
-        console.log("Adding user image for online-choice:", playerImage);
-        
-        // Scale image to fit
-        const imageSize = 80;
-        const scale = Math.min(
-            imageSize / playerImage.width,
-            imageSize / playerImage.height
-        );
-        playerImage.setScale(scale);
-        container.add(playerImage);
-        
-        // Add zone text
-        const zoneText = scene.add.text(
-            0,
-            50,
-            `Zone ${zoneIndex}`,
-            { font: '20px Arial', fill: '#ffffff' }
-        ).setOrigin(0.5);
-        container.add(zoneText);
-    }
-  }
-  
-  // Special function to create the choice zone icon
-  function createChoiceZoneIcon(scene, zoneColor) {
-    console.log(`Creating choice zone icon with color: ${zoneColor}`);
-    
-    // Convert color string to hex number - handle both named colors and hex codes
-    let colorHex;
-    
-    // Color name to hex mapping
-    const colorMap = {
-        'red': 0xFF0000,
-        'green': 0x00FF00,
-        'blue': 0x0000FF,
-        'yellow': 0xFFFF00,
-        'purple': 0x800080,
-        'orange': 0xFFA500,
-        'black': 0x000000,
-        'white': 0xFFFFFF,
-        'gray': 0x808080,
-        'grey': 0x808080,
-        'cyan': 0x00FFFF,
-        'magenta': 0xFF00FF,
-        'brown': 0xA52A2A,
-        'pink': 0xFFC0CB
-    };
-    
-    // Check if it's a named color or hex code
-    if (zoneColor.startsWith('#')) {
-        // It's a hex code, convert it to a number
-        colorHex = parseInt(zoneColor.replace('#', '0x'));
-    } else {
-        // It's a named color, look it up in our map
-        colorHex = colorMap[zoneColor.toLowerCase()] || 0xFF0000; // Default to red if not found
-    }
-    
-    console.log(`Choice zone color: ${zoneColor}, hex: ${colorHex}`);
-    
-    // Create dimensions for the icon
-    const iconWidth = 140;
-    const iconHeight = 160;
-    const borderThickness = 10;
-    
-    // Create a container at the center of the screen
-    const container = scene.add.container(scene.sys.game.config.width / 2, 300);
-    
-    // Create a graphics object for drawing the border
-    const border = scene.add.graphics();
-    
-    // Set fill style to zone color
-    border.fillStyle(colorHex, 1);
-    
-    // Draw the outer rectangle (this is the border)
-    border.fillRect(
-        -iconWidth/2 - borderThickness, 
-        -iconHeight/2 - borderThickness, 
-        iconWidth + borderThickness*2, 
-        iconHeight + borderThickness*2
-    );
-    
-    // Set fill style to dark background
-    border.fillStyle(0x222222, 1);
-    
-    // Draw the inner rectangle (creates border effect)
-    border.fillRect(
-        -iconWidth/2, 
-        -iconHeight/2, 
-        iconWidth, 
-        iconHeight
-    );
-    
-    // Add the graphics to the container
-    container.add(border);
-    
-    // Make sure the user image is loaded
-    if (!scene.textures.exists('user')) {
-        scene.load.image('user', 'assets/user.png');
-        scene.load.once('complete', () => {
-            addUserImage();
-        });
-        scene.load.start();
-    } else {
-        addUserImage();
-    }
-    
-    function addUserImage() {
-        // Add the player image
-        const playerImage = scene.add.image(
-            0,
-            -20,
-            'user'
-        );
-        
-        // Debug the user image
-        console.log("Adding user image for choice:", playerImage);
-        
-        // Scale image to fit
-        const imageSize = 80;
-        const scale = Math.min(
-            imageSize / playerImage.width,
-            imageSize / playerImage.height
-        );
-        playerImage.setScale(scale);
-        container.add(playerImage);
-        
-        // Add custom zone text
-        const zoneText = scene.add.text(
-            0,
-            50,
-            "Choice Zone",
-            { font: '20px Arial', fill: '#ffffff' }
-        ).setOrigin(0.5);
-        container.add(zoneText);
-    }
   }
   
   // Create the button
@@ -3686,7 +3507,121 @@ function createChoiceZoneIcon(scene, zoneColor) {
         ).setOrigin(0.5);
         container.add(zoneText);
     }
-  }
+}
+
+// Special function for online-choice zone icon
+function createOnlineChoiceZoneIcon(scene, zoneColor, zoneIndex) {
+    console.log("Creating online-choice zone icon");
+    
+    // Convert color string to hex number - handle both named colors and hex codes
+    let colorHex;
+    
+    // Color name to hex mapping
+    const colorMap = {
+        'red': 0xFF0000,
+        'green': 0x00FF00,
+        'blue': 0x0000FF,
+        'yellow': 0xFFFF00,
+        'purple': 0x800080,
+        'orange': 0xFFA500,
+        'black': 0x000000,
+        'white': 0xFFFFFF,
+        'gray': 0x808080,
+        'grey': 0x808080,
+        'cyan': 0x00FFFF,
+        'magenta': 0xFF00FF,
+        'brown': 0xA52A2A,
+        'pink': 0xFFC0CB
+    };
+    
+    // Check if it's a named color or hex code
+    if (zoneColor.startsWith('#')) {
+        // It's a hex code, convert it to a number
+        colorHex = parseInt(zoneColor.replace('#', '0x'));
+    } else {
+        // It's a named color, look it up in our map
+        colorHex = colorMap[zoneColor.toLowerCase()] || 0xFF0000; // Default to red if not found
+    }
+    
+    console.log(`Online-choice zone color: ${zoneColor}, hex: ${colorHex}`);
+    
+    // Create dimensions for the icon
+    const iconWidth = 140;
+    const iconHeight = 160;
+    const borderThickness = 10;
+    
+    // Create a container at the center of the screen
+    const container = scene.add.container(scene.sys.game.config.width / 2, 300);
+    
+    // Create a graphics object for drawing the border
+    const border = scene.add.graphics();
+    
+    // Set fill style to zone color
+    border.fillStyle(colorHex, 1);
+    
+    // Draw the outer rectangle (this is the border)
+    border.fillRect(
+        -iconWidth/2 - borderThickness, 
+        -iconHeight/2 - borderThickness, 
+        iconWidth + borderThickness*2, 
+        iconHeight + borderThickness*2
+    );
+    
+    // Set fill style to dark background
+    border.fillStyle(0x222222, 1);
+    
+    // Draw the inner rectangle (creates border effect)
+    border.fillRect(
+        -iconWidth/2, 
+        -iconHeight/2, 
+        iconWidth, 
+        iconHeight
+    );
+    
+    // Add the graphics to the container
+    container.add(border);
+    
+    // Make sure the user image is loaded
+    if (!scene.textures.exists('user')) {
+        scene.load.image('user', 'assets/user.png');
+        scene.load.once('complete', () => {
+            addUserImage();
+        });
+        scene.load.start();
+    } else {
+        addUserImage();
+    }
+    
+    function addUserImage() {
+        // Add the player image
+        const playerImage = scene.add.image(
+            0,
+            -20,
+            'user'
+        );
+        
+        // Debug the user image
+        console.log("Adding user image for online-choice:", playerImage);
+        
+        // Scale image to fit
+        const imageSize = 80;
+        const scale = Math.min(
+            imageSize / playerImage.width,
+            imageSize / playerImage.height
+        );
+        playerImage.setScale(scale);
+        container.add(playerImage);
+        
+        // Add zone text
+        const zoneText = scene.add.text(
+            0,
+            50,
+            `Zone ${zoneIndex}`,
+            { font: '20px Arial', fill: '#ffffff' }
+        ).setOrigin(0.5);
+        container.add(zoneText);
+    }
+}
 
 function finishOnlineChoiceWatch() {
   const currentScene = this;
