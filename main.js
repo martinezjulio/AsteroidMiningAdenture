@@ -28,6 +28,7 @@ const TANK_SLOT_PADDING = 2;       // Padding between tank slots
 const TANK_MARGIN_TOP = 100;       // Space between grid bottom and tank
 const CELL_PADDING = 5;            // Spacing between cells (in pixels)
 const BASE_CELL_SIZE = (400 / 12) * 1.5; // ~50% larger than before
+const WATCH_START_DELAY = 500;     // Delay before starting watch demonstrations (ms)
 
 // Phaser config
 const config = {
@@ -362,9 +363,17 @@ function redrawSummaryBarDOM() {
     if (iconData.label) {
       label.textContent = iconData.label;
     } 
-    // Handle special case for Choice zone - simplify to just "Choice"
+    // Handle special case for Choice zone - show choice letter if available
     else if (iconData.zone === 'Choice') {
-      label.textContent = "Choice";
+      if (iconData.choiceLetter) {
+        label.textContent = `Choice ${iconData.choiceLetter}`;
+      } else {
+        label.textContent = "Choice";
+      }
+    } 
+    // Handle numeric zones (like online-choice) with choice letters
+    else if (iconData.choiceLetter) {
+      label.textContent = `Zone ${iconData.zone} (Choice ${iconData.choiceLetter})`;
     } else {
       label.textContent = "Zone " + iconData.zone;
     }
@@ -672,7 +681,10 @@ function setupWatch(stage) {
   let currentStep = 0;
   let totalSteps = trajectory.length;
 
-  moveAlongTrajectoryStep.call(this);
+  // Add a delay before starting the trajectory to allow all assets to load
+  this.time.delayedCall(WATCH_START_DELAY, () => {
+    moveAlongTrajectoryStep.call(this);
+  });
 
   function moveAlongTrajectoryStep() {
     if (currentStep >= totalSteps) {
@@ -832,7 +844,10 @@ function setupIndicate(stage) {
   let currentStep = 0;
   let totalSteps = trajectory.length;
 
-  moveAlongTrajectoryStep.call(this);
+  // Add a delay before starting the trajectory to allow all assets to load
+  this.time.delayedCall(WATCH_START_DELAY, () => {
+    moveAlongTrajectoryStep.call(this);
+  });
 
   function moveAlongTrajectoryStep() {
     if (currentStep >= totalSteps) {
@@ -1313,8 +1328,8 @@ function setupChoice(stage) {
       highlightRect.setStrokeStyle(4, parseInt(zoneColor.replace('#', '0x')) || 0x888888);
       highlightRect.setAlpha(0.6);
       
-      // Add the selected demonstrator to summary bar
-      addChoiceSelectionToSummary(cells[index].imageKey, stage.zone ? stage.zone.color : "#888888");
+      // Add the selected demonstrator to summary bar - now pass the choice letter
+      addChoiceSelectionToSummary(cells[index].imageKey, stage.zone ? stage.zone.color : "#888888", selectedDemonstrator);
       
       // Add next button - properly bind currentScene
       makeNextButton.call(currentScene, "Next", () => {
@@ -1399,7 +1414,7 @@ function updateControlsDisplay(type = "default") {
 /**
  * Add the selected demonstrator to the summary bar after choice
  */
-function addChoiceSelectionToSummary(imageKey, zoneColor) {
+function addChoiceSelectionToSummary(imageKey, zoneColor, choiceLetter) {
   // Look for a choice icon in the summaryIcons array
   let choiceIconIndex = -1;
   for (let i = 0; i < summaryIcons.length; i++) {
@@ -1440,10 +1455,13 @@ function addChoiceSelectionToSummary(imageKey, zoneColor) {
     }
     
     // Log what we're using for debugging
-    console.log(`Choice selection: using demonstrator image ${demoImage} from index ${demoIndex}`);
+    console.log(`Choice selection: using demonstrator image ${demoImage} from index ${demoIndex}, choice letter: ${choiceLetter}`);
     
     // Use the actual demonstrator image, or fall back to a default
     summaryIcons[choiceIconIndex].imageKey = demoImage || `demonstrator_${demoIndex}`;
+    
+    // Store the choice letter for display
+    summaryIcons[choiceIconIndex].choiceLetter = choiceLetter;
     
     // Redraw the summary bar to show the change
     redrawSummaryBarDOM();
@@ -1918,7 +1936,7 @@ function setupOnlineChoiceChoice(stage) {
       highlightRect.setAlpha(0.6);
       
       // Add the selected demonstrator to the summary bar
-      addOnlineChoiceSelectionToSummary(cells[index].imageKey, stage.zone);
+      addOnlineChoiceSelectionToSummary(cells[index].imageKey, stage.zone, partnerLetter);
       
       // Add next button
       const nextButton = currentScene.add.text(
@@ -1975,7 +1993,7 @@ function setupOnlineChoiceChoice(stage) {
 /**
  * Add the selected demonstrator to the summary bar after online choice
  */
-function addOnlineChoiceSelectionToSummary(imageKey, zone) {
+function addOnlineChoiceSelectionToSummary(imageKey, zone, partnerLetter) {
   if (!zone) return;
   
   // Look for an online-choice icon in the summaryIcons array
@@ -2003,6 +2021,11 @@ function addOnlineChoiceSelectionToSummary(imageKey, zone) {
       
     // Convert to the proper format expected by redrawSummaryBarDOM
     summaryIcons[choiceIconIndex].imageKey = `demonstrator_0${demoIndex}`;
+    
+    // Store the partner letter for display
+    if (partnerLetter) {
+      summaryIcons[choiceIconIndex].choiceLetter = partnerLetter;
+    }
     
     // Redraw the summary bar to show the change
     redrawSummaryBarDOM();
@@ -2134,7 +2157,10 @@ function setupOnlineChoiceWatch(stage) {
     let currentStep = 0;
     let totalSteps = trajectory.length;
 
-    moveAlongTrajectoryStep.call(currentScene);
+    // Add a delay before starting the trajectory to allow all assets to load
+    currentScene.time.delayedCall(WATCH_START_DELAY, () => {
+      moveAlongTrajectoryStep.call(currentScene);
+    });
 
     function moveAlongTrajectoryStep() {
       if (currentStep >= totalSteps) {
