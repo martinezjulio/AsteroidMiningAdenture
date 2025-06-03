@@ -22,6 +22,12 @@ let summaryIcons = [];
 let seenDemonstratorsThisSession = new Set();
 let lastSessionIndex = -1; // Track when session changes to reset demonstrator history
 
+// Global image mappings - randomized at game start
+let demonstratorImageMapping = {};
+let landscapeImageMapping = {};
+let zoneBackgroundImageMapping = {};
+let imageMappingsInitialized = false;
+
 // Adjust these as you wish:
 const DEMO_SPRITE_SIZE = 40;       // user/demonstrator sprite size
 const HIGHLIGHT_COLOR = 0xffffff;  // Lighter highlight => 0xffffff
@@ -33,6 +39,181 @@ const TANK_MARGIN_TOP = 100;       // Space between grid bottom and tank
 const CELL_PADDING = 5;            // Spacing between cells (in pixels)
 const BASE_CELL_SIZE = (400 / 12) * 1.5; // ~50% larger than before
 const WATCH_START_DELAY = 500;     // Delay before starting watch demonstrations (ms)
+
+// Function to test if an image exists (with error suppression)
+async function imageExists(imagePath) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(true);
+    img.onerror = () => resolve(false);
+    // Suppress console errors by setting this
+    img.style.display = 'none';
+    img.src = imagePath;
+  });
+}
+
+// Function to discover available images in a category
+async function discoverAvailableImages(basePath, prefix, extension, maxToCheck = 50) {
+  const availableImages = [];
+  
+  console.log(`Discovering ${prefix} images (checking up to ${maxToCheck} files)...`);
+  
+  for (let i = 0; i < maxToCheck; i++) {
+    const paddedIndex = i.toString().padStart(2, '0');
+    const imageName = `${prefix}${paddedIndex}${extension}`;
+    const fullPath = `${basePath}/${imageName}`;
+    
+    if (await imageExists(fullPath)) {
+      availableImages.push(imageName);
+      console.log(`✓ Found: ${imageName}`);
+    } else {
+      // Stop immediately after first missing file since images are sequential
+      console.log(`⚡ Stopping search at first missing file: ${imageName}`);
+      break;
+    }
+  }
+  
+  console.log(`Found ${availableImages.length} ${prefix} images total`);
+  return availableImages;
+}
+
+// Function to create a random mapping from indices to shuffled images
+function createRandomMapping(imageList) {
+  // Create a copy and shuffle it
+  const shuffledImages = [...imageList];
+  for (let i = shuffledImages.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffledImages[i], shuffledImages[j]] = [shuffledImages[j], shuffledImages[i]];
+  }
+  
+  // Create mapping from index to image filename
+  const mapping = {};
+  shuffledImages.forEach((imageName, index) => {
+    mapping[index] = imageName;
+  });
+  
+  console.log('Created mapping:', mapping);
+  return mapping;
+}
+
+// Function to initialize all image mappings
+async function initializeImageMappings() {
+  if (imageMappingsInitialized) return;
+  
+  console.log('Initializing random image mappings...');
+  
+  try {
+    // Discover and map demonstrator images
+    console.log('🎭 Discovering demonstrator images...');
+    const demonstratorImages = await discoverAvailableImages('assets/demonstrators', 'demonstrator_', '.png');
+    if (demonstratorImages.length > 0) {
+      demonstratorImageMapping = createRandomMapping(demonstratorImages);
+    } else {
+      console.warn('No demonstrator images found, using minimal fallback');
+      demonstratorImageMapping = { 0: 'demonstrator_00.png', 1: 'demonstrator_01.png' };
+    }
+    
+    // Discover and map landscape images
+    console.log('🌄 Discovering landscape images...');
+    const landscapeImages = await discoverAvailableImages('assets/landscapes', 'landscape_', '.png');
+    if (landscapeImages.length > 0) {
+      landscapeImageMapping = createRandomMapping(landscapeImages);
+    } else {
+      console.warn('No landscape images found, using minimal fallback');
+      landscapeImageMapping = { 0: 'landscape_00.png' };
+    }
+    
+    // Discover and map zone background images
+    console.log('🎨 Discovering zone background images...');
+    const zoneBackgroundImages = await discoverAvailableImages('assets/zone_backgrounds', 'zone_', '.png');
+    if (zoneBackgroundImages.length > 0) {
+      zoneBackgroundImageMapping = createRandomMapping(zoneBackgroundImages);
+    } else {
+      console.warn('No zone background images found, using minimal fallback');
+      zoneBackgroundImageMapping = { 0: 'zone_00.png' };
+    }
+    
+    imageMappingsInitialized = true;
+    console.log('✅ Image mappings initialized successfully');
+    console.log('📊 Final mappings:');
+    console.log('  Demonstrators:', Object.keys(demonstratorImageMapping).length, 'images');
+    console.log('  Landscapes:', Object.keys(landscapeImageMapping).length, 'images');  
+    console.log('  Zone backgrounds:', Object.keys(zoneBackgroundImageMapping).length, 'images');
+    
+  } catch (error) {
+    console.error('❌ Error initializing image mappings:', error);
+    // Fallback to default mappings if discovery fails
+    demonstratorImageMapping = { 0: 'demonstrator_00.png', 1: 'demonstrator_01.png' };
+    landscapeImageMapping = { 0: 'landscape_00.png' };
+    zoneBackgroundImageMapping = { 0: 'zone_00.png' };
+    imageMappingsInitialized = true;
+    console.log('🔄 Using fallback mappings');
+  }
+}
+
+// Helper functions to get mapped image names
+function getMappedDemonstratorImage(index) {
+  const imageName = demonstratorImageMapping[index];
+  if (!imageName) {
+    console.warn(`No demonstrator image mapped for index ${index}, using default`);
+    return demonstratorImageMapping[0] || 'demonstrator_00.png';
+  }
+  return imageName;
+}
+
+// Helper function to convert demonstrator image filename to mapped image
+function getMappedDemonstratorFromFilename(filename) {
+  // Extract index from filename like "demonstrator_01.png" -> 1
+  const match = filename.match(/demonstrator_(\d+)\.png/);
+  if (match) {
+    const index = parseInt(match[1], 10);
+    return getMappedDemonstratorImage(index);
+  }
+  console.warn(`Could not extract index from demonstrator filename: ${filename}`);
+  return getMappedDemonstratorImage(0);
+}
+
+function getMappedLandscapeImage(index) {
+  const imageName = landscapeImageMapping[index];
+  if (!imageName) {
+    console.warn(`No landscape image mapped for index ${index}, using default`);
+    return landscapeImageMapping[0] || 'landscape_00.png';
+  }
+  return imageName;
+}
+
+// Helper function to convert landscape image filename to mapped image
+function getMappedLandscapeFromFilename(filename) {
+  // Extract index from filename like "landscape_01.png" -> 1
+  const match = filename.match(/landscape_(\d+)\.png/);
+  if (match) {
+    const index = parseInt(match[1], 10);
+    return getMappedLandscapeImage(index);
+  }
+  console.warn(`Could not extract index from landscape filename: ${filename}`);
+  return getMappedLandscapeImage(0);
+}
+
+function getMappedZoneBackgroundImage(index) {
+  const imageName = zoneBackgroundImageMapping[index];
+  if (!imageName) {
+    console.warn(`No zone background image mapped for index ${index}, using default`);
+    return zoneBackgroundImageMapping[0] || 'zone_00.png';
+  }
+  return imageName;
+}
+
+// Helper function to convert zone background image filename to mapped image
+function getMappedZoneBackgroundFromFilename(filename) {
+  // Extract index from filename like "zone_01.png" -> 1
+  const match = filename.match(/zone_(\d+)\.png/);
+  if (match) {
+    const index = parseInt(match[1], 10);
+    return getMappedZoneBackgroundImage(index);
+  }
+  console.warn(`Could not extract index from zone background filename: ${filename}`);
+  return getMappedZoneBackgroundImage(0);
+}
 
 // Phaser config
 const config = {
@@ -62,14 +243,17 @@ function create() {
   const circle = this.add.circle(400, 300, 40, 0xffff00, 1);
   circle.setDepth(99999);
 
-  // Load timeline
-  fetch('data/timeline.json')
-    .then(r => r.json())
-    .then(jsonData => {
-      timelineData = jsonData;
-      loadStage.call(this);
-    })
-    .catch(err => console.error("Error loading timeline JSON:", err));
+  // Initialize image mappings first, then load timeline
+  initializeImageMappings().then(() => {
+    // Load timeline after image mappings are ready
+    fetch('data/timeline.json')
+      .then(r => r.json())
+      .then(jsonData => {
+        timelineData = jsonData;
+        loadStage.call(this);
+      })
+      .catch(err => console.error("Error loading timeline JSON:", err));
+  });
 }
 
 function update(time, delta) {
@@ -349,7 +533,9 @@ function redrawSummaryBarDOM() {
     // The image
     const img = document.createElement("img");
     if (iconData.imageKey.startsWith('demonstrator_')) {
-      img.src = `assets/demonstrators/${iconData.imageKey}.png`;
+      // Use the mapping system to get the actual image file
+      const mappedImage = getMappedDemonstratorFromFilename(`${iconData.imageKey}.png`);
+      img.src = `assets/demonstrators/${mappedImage}`;
     } else if (iconData.imageKey.startsWith('choice_demonstrator_')) {
       // For choice demonstrator keys, we need to be more cautious
       // The key format is something like 'choice_demonstrator_0'
@@ -669,8 +855,12 @@ function setupWatch(stage) {
   
   console.log(`Loading demonstrator for session ${sessionIndex}, game ${gameIndex}: ${demoImage}`);
   
+  // Get the mapped image filename instead of using the direct filename
+  const mappedImage = getMappedDemonstratorFromFilename(demoImage);
+  console.log(`Mapped ${demoImage} to ${mappedImage}`);
+  
   // Always load the image to ensure we get the correct one
-  this.load.image(demoImageKey, `assets/demonstrators/${demoImage}`);
+  this.load.image(demoImageKey, `assets/demonstrators/${mappedImage}`);
   this.load.once('complete', () => {
     startDemonstration.call(this);
   });
@@ -832,8 +1022,12 @@ function setupIndicate(stage) {
   
   console.log(`Loading demonstrator for indicate session ${sessionIndex}, game ${gameIndex}: ${demoImage}`);
   
+  // Get the mapped image filename instead of using the direct filename
+  const mappedImage = getMappedDemonstratorFromFilename(demoImage);
+  console.log(`Mapped ${demoImage} to ${mappedImage}`);
+  
   // Always load the image to ensure we get the correct one
-  this.load.image(demoImageKey, `assets/demonstrators/${demoImage}`);
+  this.load.image(demoImageKey, `assets/demonstrators/${mappedImage}`);
   this.load.once('complete', () => {
     startDemonstration.call(this);
   });
@@ -1245,7 +1439,12 @@ function setupChoice(stage) {
     
     // Make sure the image path is correct
     console.log(`Loading demonstrator image ${i} for session ${sessionIndex}: ${demonstratorImages[i]}`);
-    this.load.image(imageKey, `assets/demonstrators/${demonstratorImages[i]}`);
+    
+    // Get the mapped image filename instead of using the direct filename
+    const mappedImage = getMappedDemonstratorFromFilename(demonstratorImages[i]);
+    console.log(`Mapped ${demonstratorImages[i]} to ${mappedImage}`);
+    
+    this.load.image(imageKey, `assets/demonstrators/${mappedImage}`);
     
     // Store cell info
     cells.push({
@@ -1834,8 +2033,12 @@ function setupOnlineChoiceChoice(stage) {
     const imagePath = demo.demonstrator_image;
     console.log(`Loading online-choice demonstrator image for ${demoKey}: ${imagePath}`);
     
-    // Load from the demonstrators folder with the actual image path
-    this.load.image(imageKey, `assets/demonstrators/${imagePath}`);
+    // Get the mapped image filename instead of using the direct filename
+    const mappedImage = getMappedDemonstratorFromFilename(imagePath);
+    console.log(`Mapped ${imagePath} to ${mappedImage}`);
+    
+    // Load from the demonstrators folder with the mapped image path
+    this.load.image(imageKey, `assets/demonstrators/${mappedImage}`);
     
     cells.push({
       key: demoKey,
@@ -2145,8 +2348,12 @@ function setupOnlineChoiceWatch(stage) {
   const demoImagePath = selectedDemo.demonstrator_image;
   console.log(`Loading online-choice watch demonstrator image: ${demoImagePath}`);
   
+  // Get the mapped image filename instead of using the direct filename
+  const mappedImage = getMappedDemonstratorFromFilename(demoImagePath);
+  console.log(`Mapped ${demoImagePath} to ${mappedImage}`);
+  
   if (!this.textures.exists(demoImageKey)) {
-    this.load.image(demoImageKey, `assets/demonstrators/${demoImagePath}`);
+    this.load.image(demoImageKey, `assets/demonstrators/${mappedImage}`);
     this.load.once('complete', () => {
       startDemonstration.call(this);
     });
@@ -2332,7 +2539,12 @@ function setupOnlineChoiceFinalPlay(stage) {
     
     // Load demonstrator image
     const imageKey = `online_choice_${demoKey}`;
-    this.load.image(imageKey, `assets/demonstrators/${demo.demonstrator_image}`);
+    
+    // Get the mapped image filename instead of using the direct filename
+    const mappedImage = getMappedDemonstratorFromFilename(demo.demonstrator_image);
+    console.log(`Mapped ${demo.demonstrator_image} to ${mappedImage}`);
+    
+    this.load.image(imageKey, `assets/demonstrators/${mappedImage}`);
     
     cells.push({
       key: demoKey,
@@ -2722,7 +2934,12 @@ function createZoneBackgroundMask(stage, gridX, gridY, numRows, numCols, cellWid
       if (!this.textures.exists(backgroundImageKey)) {
         // Load the background image from zone_backgrounds folder
         console.log(`Loading zone background image: ${background}`);
-        this.load.image(backgroundImageKey, `assets/zone_backgrounds/${background}`);
+        
+        // Get the mapped image filename instead of using the direct filename
+        const mappedBackground = getMappedZoneBackgroundFromFilename(background);
+        console.log(`Mapped ${background} to ${mappedBackground}`);
+        
+        this.load.image(backgroundImageKey, `assets/zone_backgrounds/${mappedBackground}`);
         this.load.once('complete', () => {
           applyBackground.call(this);
         });
@@ -2801,7 +3018,11 @@ function createZoneBackgroundMask(stage, gridX, gridY, numRows, numCols, cellWid
       const landscapeKey = `landscape_${stage.zone.zone_index}`;
       
       if (!this.textures.exists(landscapeKey)) {
-        this.load.image(landscapeKey, `assets/landscapes/${landscapeImage[0]}`);
+        // Get the mapped image filename instead of using the direct filename
+        const mappedLandscape = getMappedLandscapeFromFilename(landscapeImage[0]);
+        console.log(`Mapped ${landscapeImage[0]} to ${mappedLandscape}`);
+        
+        this.load.image(landscapeKey, `assets/landscapes/${mappedLandscape}`);
         this.load.once('complete', () => {
           createLandscapeBackground.call(this, landscapeKey, gridX, gridY, numRows, numCols, cellWidth, cellHeight);
         });
@@ -3358,7 +3579,11 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
             const demoImage = nextStage.demonstrator.demonstrator_image;
             console.log(`Loading transition overlay demonstrator image: ${demoImage} for session ${sessionIndex}, game ${gameIndex}`);
             
-            scene.load.image(playerImageKey, `assets/demonstrators/${demoImage}`);
+            // Get the mapped image filename instead of using the direct filename
+            const mappedImage = getMappedDemonstratorFromFilename(demoImage);
+            console.log(`Mapped transition overlay ${demoImage} to ${mappedImage}`);
+            
+            scene.load.image(playerImageKey, `assets/demonstrators/${mappedImage}`);
             scene.load.once('complete', () => {
                 addPlayerImageToContainer(playerImageKey);
             });
