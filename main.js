@@ -1160,10 +1160,11 @@ function setupChoice(stage) {
   ).setOrigin(0.5);
   
   // Create instruction text
+  const transferText = stage.transfer === true ? "in a new zone" : "in the same zone";
   const instructionText = this.add.text(
     this.sys.game.config.width / 2,
     gridY + cellHeight + 150,
-    "If you play again in a new zone, which starship partner would you choose watch before playing to optimize your reward?",
+    `Choose the starship you would watch before playing again to achieve higher rewards ${transferText}.`,
     { 
       font: '18px Arial', 
       fill: '#ffffff',
@@ -3117,7 +3118,7 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
     case 'practice': buttonText = 'Practice'; break;
     case 'play': buttonText = 'Play'; break;
     case 'blind': buttonText = 'Play'; break; // Use "Play" for blind too
-    case 'choice': buttonText = 'Choose'; break; // Add "Choose" for choice game
+    case 'choice': buttonText = 'Ready to Choose'; break; // Changed from "Choose" to "Ready to Choose"
     case 'online-choice': buttonText = 'Start'; break; // Add "Start" for online-choice
     case 'watch': buttonText = 'Watch'; break;
     case 'indicate': buttonText = 'Watch'; break; // Indicate also uses "Watch"
@@ -3128,6 +3129,12 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   let message = nextStage["overlay-message"] || 
                (nextStage.zone && nextStage.zone["overlay-message"]) || 
                `Get ready to ${buttonText.toLowerCase()}!`;
+  
+  // For choice stages, override with dynamic message based on transfer property
+  if (stageType === 'choice') {
+    const transferText = nextStage.transfer === true ? "in a new zone" : "in the same zone";
+    message = `You will now choose between one of the starships you watched during this session. Choose the starship you would watch before playing again to achieve higher rewards ${transferText}.`;
+  }
   
   // For watch and indicate stages, customize the message based on demonstrator history
   if (stageType === 'watch' || stageType === 'indicate') {
