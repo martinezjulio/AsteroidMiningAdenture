@@ -134,6 +134,9 @@ def generate_timeline(
         dem_ids = session_to_ids[sess_i]
         payoff_key = zone_to_payoff[games[0]["zone"]["zone_index"]]
 
+        # Track demonstrators seen in this session to determine if they're "new" or "previously seen"
+        seen_demonstrators = set()
+
         # stage0 entries with corrected overlay logic
         prev_zone = None
         for i, e in enumerate(games):
@@ -167,10 +170,22 @@ def generate_timeline(
                     "demonstrator_image": f"demonstrator_{did:02d}.png",
                     "demonstrator_trajectory": traj
                 }
-                parts.append(
-                    "In this game you will watch a starship partner play the game. "
-                    "Pay close attention to your partner's choices."
-                )
+                
+                # Check if this demonstrator has been seen before in this session
+                if did in seen_demonstrators:
+                    # Previously seen demonstrator
+                    parts.append(
+                        "You will watch one of the starship partners you have seen before play again. "
+                        "Pay close attention to your partner's choices."
+                    )
+                else:
+                    # New demonstrator
+                    parts.append(
+                        "In this game you will watch a new starship partner play the game. "
+                        "Pay close attention to your partner's choices."
+                    )
+                    seen_demonstrators.add(did)
+                
             elif e["game"] == "play":
                 parts.append(
                     "In this game you will get to play and mine for rewards. "
@@ -194,17 +209,15 @@ def generate_timeline(
             }
             del choice[key]
 
-        # choice overlay-message
-        parts = ["You will now be presented with choices of which partner you prefer to choose."]
+        # choice overlay-message with updated format
+        parts = ["You will now choose between one of the starships you watched during this session."]
         last_zone = games[-1]["zone"]["zone_index"]
         if cz == last_zone:
-            parts.append(
-                "Choose the partner you would find most helpful to watch if you had to play again in the same zone."
-            )
+            transfer_text = "in the same zone"
         else:
-            parts.append(
-                "Choose the partner you would find most helpful to watch if you had to play again in a new zone you've never been to before."
-            )
+            transfer_text = "in a new zone you've never been to before"
+        
+        parts.append(f"Choose the starship you would watch before playing again to achieve higher rewards {transfer_text}.")
         choice["overlay-message"] = " ".join(parts)
 
     # 9) fixed practice session

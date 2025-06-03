@@ -3318,13 +3318,6 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   // Clear existing scene elements
   scene.children.removeAll();
   
-  // Check if we've moved to a new session and reset demonstrator tracking
-  if (currentSessionIndex !== lastSessionIndex) {
-    seenDemonstratorsThisSession.clear();
-    lastSessionIndex = currentSessionIndex;
-    console.log(`Starting new session ${currentSessionIndex}, cleared demonstrator history`);
-  }
-  
   // Add a semi-transparent overlay background
   const overlay = scene.add.rectangle(
     0, 0, 
@@ -3349,54 +3342,10 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
     default: buttonText = 'Next';
   }
   
-  // Get the overlay message - check both at top level and in zone
+  // Get the overlay message directly from timeline.json
   let message = nextStage["overlay-message"] || 
                (nextStage.zone && nextStage.zone["overlay-message"]) || 
                `Get ready to ${buttonText.toLowerCase()}!`;
-  
-  // For choice stages, override with dynamic message based on transfer property
-  if (stageType === 'choice') {
-    const transferText = nextStage.transfer === true ? "in a new zone" : "in the same zone";
-    message = `You will now choose between one of the starships you watched during this session. Choose the starship you would watch before playing again to achieve higher rewards ${transferText}.`;
-  }
-  
-  // For watch and indicate stages, customize the message based on demonstrator history
-  if (stageType === 'watch' || stageType === 'indicate') {
-    const demonstrator = nextStage.demonstrator;
-    if (demonstrator) {
-      // Create a unique identifier for the demonstrator
-      const demoId = demonstrator.demonstrator_id || demonstrator.demonstrator_image || demonstrator.image;
-      
-      // Check if we've seen this demonstrator before in this session
-      const hasSeenBefore = seenDemonstratorsThisSession.has(demoId);
-      
-      if (hasSeenBefore) {
-        // Demonstrator has been seen before in this session
-        message = message.replace(
-          /In this game you will watch a starship partner play the game/gi,
-          "You will watch one of the starship partners you have seen before play again"
-        );
-        message = message.replace(
-          /you will watch a starship partner play the game/gi,
-          "you will watch one of the starship partners you have seen before play again"
-        );
-      } else {
-        // First time seeing this demonstrator in this session
-        message = message.replace(
-          /In this game you will watch a starship partner play the game/gi,
-          "In this game you will watch a new starship partner play the game"
-        );
-        message = message.replace(
-          /you will watch a starship partner play the game/gi,
-          "you will watch a new starship partner play the game"
-        );
-        
-        // Add this demonstrator to the seen list
-        seenDemonstratorsThisSession.add(demoId);
-        console.log(`Added demonstrator ${demoId} to seen list for session ${currentSessionIndex}`);
-      }
-    }
-  }
   
   // Add the message text
   const messageText = scene.add.text(
