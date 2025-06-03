@@ -233,6 +233,6 @@ if __name__ == "__main__":
     import json
 
     # e.g. 1 round, 24 pulls for play, 48 pulls for watch
-    tl = generate_timeline(rounds=1, num_play_arm_pulls=6, num_watch_arm_pulls=4)
+    tl = generate_timeline(rounds=2, num_play_arm_pulls=6, num_watch_arm_pulls=6)
     print(json.dumps(tl, indent=4))
-    with open('timeline.json', 'w') as f: json.dump(tl, f, indent=4)
+    with open('../data/timeline.json', 'w') as f: json.dump(tl, f, indent=4)
