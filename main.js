@@ -478,6 +478,9 @@ function setupPlayOrPractice(stage, isPractice) {
 
   let pullsRemaining = num_arm_pulls;
   
+  // Store reference to scene for use in closures
+  const sceneRef = this;
+  
   // Add clickable areas for each cell
   let cellRects = [];
   for (let r = 0; r < numRows; r++) {
@@ -489,16 +492,24 @@ function setupPlayOrPractice(stage, isPractice) {
         .setOrigin(0, 0)
         .setInteractive();
         
-      cellRect.on('pointerdown', () => {
-    if (pullsRemaining <= 0) return;
+      // Store row and col as properties to avoid closure issues
+      cellRect.cellRow = r;
+      cellRect.cellCol = c;
+        
+      cellRect.on('pointerdown', function() {
+        if (pullsRemaining <= 0) return;
+
+        // Use the stored row/col values from the rectangle properties
+        const clickedR = this.cellRow;
+        const clickedC = this.cellCol;
 
         // If the user is already at this position, pull the arm
-        if (r === cursorR && c === cursorC) {
-          pullArm.call(this, r, c); // Use call to bind 'this' correctly
+        if (clickedR === cursorR && clickedC === cursorC) {
+          pullArm.call(sceneRef, clickedR, clickedC);
         } else {
           // Otherwise, move to this position
-          cursorR = r;
-          cursorC = c;
+          cursorR = clickedR;
+          cursorC = clickedC;
           let { x, y } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
           userSprite.setPosition(x, y);
           highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
@@ -952,6 +963,9 @@ function setupBlind(stage) {
   let highlightRect = createHighlightRect.call(this, cellWidth, cellHeight);
   highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
 
+  // Store reference to scene for use in closures
+  const blindSceneRef = this;
+
   // Add clickable areas for each cell
   let cellRects = [];
   for (let r = 0; r < numRows; r++) {
@@ -963,16 +977,24 @@ function setupBlind(stage) {
         .setOrigin(0, 0)
         .setInteractive();
         
-      cellRect.on('pointerdown', () => {
+      // Store row and col as properties to avoid closure issues
+      cellRect.cellRow = r;
+      cellRect.cellCol = c;
+        
+      cellRect.on('pointerdown', function() {
         if (pullsRemaining <= 0) return;
 
+        // Use the stored row/col values from the rectangle properties
+        const clickedR = this.cellRow;
+        const clickedC = this.cellCol;
+
         // If the user is already at this position, pull the arm
-        if (r === cursorR && c === cursorC) {
-          pullArm.call(this, r, c); // Use call to bind 'this' correctly
+        if (clickedR === cursorR && clickedC === cursorC) {
+          pullArm.call(blindSceneRef, clickedR, clickedC);
         } else {
           // Otherwise, move to this position
-          cursorR = r;
-          cursorC = c;
+          cursorR = clickedR;
+          cursorC = clickedC;
           let { x, y } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
           userSprite.setPosition(x, y);
           highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
@@ -1599,7 +1621,11 @@ function setupOnlineChoicePlay(stage) {
 
   let pullsRemaining = num_arm_pulls;
   
+  // Store reference to scene for use in closures
+  const sceneRef = this;
+  
   // Add clickable areas for each cell
+  let cellRects = [];
   for (let r = 0; r < numRows; r++) {
     for (let c = 0; c < numCols; c++) {
       let rx = gridOriginX + c * (cellWidth + CELL_PADDING);
@@ -1609,71 +1635,73 @@ function setupOnlineChoicePlay(stage) {
         .setOrigin(0, 0)
         .setInteractive();
         
+      // Store row and col as properties to avoid closure issues
+      cellRect.cellRow = r;
+      cellRect.cellCol = c;
+        
       cellRect.on('pointerdown', function() {
         if (pullsRemaining <= 0) return;
-        
-        // If the user is already at this position, pull the arm
-        if (r === cursorR && c === cursorC) {
-          // Pull the arm
-          pullsRemaining--;
-          let payoff = bandit[cursorR][cursorC];
-          let outcome = (Math.random() < payoff) ? 1 : 0;
-          
-          // Create a simple flash effect (just one flash)
-          let g = currentScene.add.graphics();
-          g.fillStyle(HIGHLIGHT_COLOR, 1);
-          g.fillRect(
-            gridOriginX + cursorC*(cellWidth + CELL_PADDING),
-            gridOriginY + cursorR*(cellHeight + CELL_PADDING),
-            cellWidth, cellHeight
-          );
-          
-          // Fade out only to get a single flash
-          currentScene.tweens.add({
-            targets: g,
-            alpha: 0,
-            duration: 200, // Reduced flash time for better performance
-            onComplete: () => {
-              g.destroy();
-              
-              // Record outcome and update tank
-              pullOutcomes.push(outcome);
-              drawMarkerDot.call(currentScene, gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC, outcome);
-              drawRewardTank.call(currentScene, rewardTankContainer, num_arm_pulls, pullOutcomes);
 
-              if (pullsRemaining <= 0) {
-                // Create next button
-                const nextButton = currentScene.add.text(
-                  currentScene.sys.game.config.width - 100,
-                  currentScene.sys.game.config.height - 40,
-                  "Next",
-                  { font: '18px Arial', fill: '#00ff00', backgroundColor: '#333', padding: 5 }
-                ).setOrigin(0.5).setInteractive();
-                
-                nextButton.on('pointerdown', () => {
-                  if (isFinalPlay) {
-                    // If this is the final play after all rounds, move to next stage in timeline
-                    window.onlineChoiceState = null; // Clear state
-                    nextStage.call(currentScene);
-                  } else {
-                    // Move to choice sub-stage
-                    state.currentSubStage = "choice";
-                    loadStage.call(currentScene);
-                  }
-                });
-              }
-            }
-          });
+        // Use the stored row/col values from the rectangle properties
+        const clickedR = this.cellRow;
+        const clickedC = this.cellCol;
+
+        // If the user is already at this position, pull the arm
+        if (clickedR === cursorR && clickedC === cursorC) {
+          pullArm.call(sceneRef, clickedR, clickedC);
         } else {
           // Otherwise, move to this position
-          cursorR = r;
-          cursorC = c;
+          cursorR = clickedR;
+          cursorC = clickedC;
           let { x, y } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
           userSprite.setPosition(x, y);
           highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
         }
       });
+      
+      cellRects.push(cellRect);
     }
+  }
+  
+  // Function to handle pulling the arm
+  function pullArm(row, col) {
+    const scene = this; // Capture the scene context
+      pullsRemaining--;
+    
+    // Don't try to update remainingText - it doesn't exist in this context!
+    
+    let payoff = bandit[row][col];
+      let outcome = (Math.random() < payoff) ? 1 : 0;
+      
+      // Create a simple flash effect (just one flash)
+    let g = scene.add.graphics();
+      g.fillStyle(HIGHLIGHT_COLOR, 1);
+      g.fillRect(
+      gridOriginX + col*(cellWidth + CELL_PADDING),
+      gridOriginY + row*(cellHeight + CELL_PADDING),
+        cellWidth, cellHeight
+      );
+      
+      // Fade out only to get a single flash
+    scene.tweens.add({
+        targets: g,
+        alpha: 0,
+      duration: 200, // Reduced from 400 to 200
+        onComplete: () => {
+          g.destroy();
+          
+          // Record outcome and update tank
+          pullOutcomes.push(outcome);
+        drawMarkerDot.call(scene, gridOriginX, gridOriginY, cellWidth, cellHeight, row, col, outcome);
+        drawRewardTank.call(scene, rewardTankContainer, num_arm_pulls, pullOutcomes);
+
+      if (pullsRemaining <= 0) {
+          makeNextButton.call(scene, "Next", () => {
+            nextStage.call(scene);
+        });
+      }
+        }
+      });
   }
 
   this.input.keyboard.on('keydown', (evt) => {
@@ -1686,55 +1714,7 @@ function setupOnlineChoicePlay(stage) {
     if (evt.code === 'ArrowRight') cursorC = Phaser.Math.Clamp(cursorC + 1, 0, numCols-1);
 
     if (evt.code === 'Space') {
-      pullsRemaining--;
-      let payoff = bandit[cursorR][cursorC];
-      let outcome = (Math.random() < payoff) ? 1 : 0;
-      
-      // Create a simple flash effect (just one flash)
-      let g = this.add.graphics();
-      g.fillStyle(HIGHLIGHT_COLOR, 1);
-      g.fillRect(
-        gridOriginX + cursorC*(cellWidth + CELL_PADDING),
-        gridOriginY + cursorR*(cellHeight + CELL_PADDING),
-        cellWidth, cellHeight
-      );
-      
-      // Fade out only to get a single flash
-      this.tweens.add({
-        targets: g,
-        alpha: 0,
-        duration: 200, // Reduced from 400 to 200
-        onComplete: () => {
-          g.destroy();
-          
-          // Record outcome and update tank
-          pullOutcomes.push(outcome);
-          drawMarkerDot.call(this, gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC, outcome);
-          drawRewardTank.call(this, rewardTankContainer, num_arm_pulls, pullOutcomes);
-
-          if (pullsRemaining <= 0) {
-            // Create next button
-            const nextButton = this.add.text(
-              this.sys.game.config.width - 100,
-              this.sys.game.config.height - 40,
-              "Next",
-              { font: '18px Arial', fill: '#00ff00', backgroundColor: '#333', padding: 5 }
-            ).setOrigin(0.5).setInteractive();
-            
-            nextButton.on('pointerdown', () => {
-              if (isFinalPlay) {
-                // If this is the final play after all rounds, move to next stage in timeline
-                window.onlineChoiceState = null; // Clear state
-                nextStage.call(this);
-              } else {
-                // Move to choice sub-stage
-                state.currentSubStage = "choice";
-                loadStage.call(this);
-              }
-            });
-          }
-        }
-      });
+      pullArm.call(this, cursorR, cursorC);
     }
 
     if (oldR !== cursorR || oldC !== cursorC) {
