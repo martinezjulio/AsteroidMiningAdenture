@@ -1,0 +1,4 @@
+{
+    "user": "your_mongodb_username",
+    "password": "your_mongodb_password"
+} 

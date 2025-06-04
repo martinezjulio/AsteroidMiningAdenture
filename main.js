@@ -8,6 +8,7 @@
  *   1) Light highlight color (white-ish).
  *   2) Thick random-color border around #game-container for each zone
  *   3) Same random color used as border for summary bar icons of that zone
+ *   4) MongoDB logging for all user actions and game events
  ****************************************/
 
 let timelineData = null;        
@@ -27,6 +28,174 @@ let demonstratorImageMapping = {};
 let landscapeImageMapping = {};
 let zoneBackgroundImageMapping = {};
 let imageMappingsInitialized = false;
+
+// MongoDB Logging Variables
+let userUID = generateUID(); // Generate unique user ID
+let currentGameStep = 0; // Reset for each game
+let userTotalReward = 0; // Cumulative across all games
+let currentGameReward = 0; // Reset for each game
+let refreshCount = 0;
+let currentGameSequence = []; // Track sequence of games in session
+let currentGameType = null;
+let currentShotsRemaining = 0;
+let currentPosition = 0;
+
+// Generate a unique user ID
+function generateUID() {
+  return 'uid_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+}
+
+// MongoDB Logging Function
+async function logToMongoDB(action, additionalData = {}) {
+  if (!window.currentStage) return;
+  
+  const stage = window.currentStage;
+  const logData = {
+    prolific_id: prolificID,
+    uid: userUID,
+    session_index: currentSessionIndex,
+    step: currentGameStep,
+    position: currentPosition,
+    action: action,
+    timestamp: new Date(),
+    shots_remaining: currentShotsRemaining,
+    game: currentGameType,
+    game_total_reward: currentGameReward,
+    user_total_reward: userTotalReward,
+    reward_generated: additionalData.reward_generated || false,
+    shot: action === 'pull',
+    transfer: stage.transfer || false,
+    game_sequence: currentGameSequence,
+    game_index: stage.game_index || 0,
+    stage_index: stage.stage_index || 0,
+    round_index: stage.round_index || null,
+    demonstrator_index: stage.demonstrator ? stage.demonstrator.demonstrator_index : 
+                       (stage.demonstrator1 && window.onlineChoiceSelectedDemo ? 
+                        window.onlineChoiceSelectedDemo.data.demonstrator_index : null),
+    demonstrator_type: stage.demonstrator ? stage.demonstrator.demonstrator_type :
+                      (stage.demonstrator1 && window.onlineChoiceSelectedDemo ? 
+                       window.onlineChoiceSelectedDemo.data.demonstrator_type : null),
+    demonstrator_id: stage.demonstrator ? stage.demonstrator.demonstrator_id :
+                    (stage.demonstrator1 && window.onlineChoiceSelectedDemo ? 
+                     window.onlineChoiceSelectedDemo.data.demonstrator_id : null),
+    demonstrator_trajectory: stage.demonstrator ? stage.demonstrator.demonstrator_trajectory :
+                           (stage.demonstrator1 && window.onlineChoiceSelectedDemo ? 
+                            window.onlineChoiceSelectedDemo.data.demonstrator_trajectory : []),
+    zone_index: stage.zone ? stage.zone.zone_index : 0,
+    zone_bandit: stage.zone ? (stage.zone.zone_bandit || stage.zone.bandit) : [],
+    zone_bandit_id: stage.zone ? (stage.zone.bandit_id || null) : null,
+    refresh_count: refreshCount,
+    experiment_number: 1,
+    ...additionalData
+  };
+  
+  try {
+    const response = await fetch('/api/log', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(logData)
+    });
+    
+    if (!response.ok) {
+      console.error('Failed to log to MongoDB:', response.statusText);
+    }
+  } catch (error) {
+    console.error('Error logging to MongoDB:', error);
+  }
+}
+
+// Function to log page refresh
+async function logPageRefresh() {
+  refreshCount++;
+  try {
+    const response = await fetch('/api/log-refresh', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        prolific_id: prolificID,
+        uid: userUID
+      })
+    });
+  } catch (error) {
+    console.error('Error logging page refresh:', error);
+  }
+}
+
+// Initialize game sequence tracking
+function initializeGameSequence() {
+  if (!timelineData || currentSessionIndex >= timelineData.length) return;
+  
+  const currentSession = timelineData[currentSessionIndex];
+  currentGameSequence = [];
+  
+  // Build game sequence for current session
+  if (Array.isArray(currentSession[0])) {
+    // Nested array session
+    for (let container of currentSession) {
+      for (let stage of container) {
+        const gameType = stage.stage_type || stage.game;
+        if (gameType === 'online-choice') {
+          // For online-choice, add both choice and watch to the sequence
+          currentGameSequence.push('choice');
+          currentGameSequence.push('watch');
+        } else if (['practice', 'play', 'watch', 'indicate', 'blind', 'choice'].includes(gameType)) {
+          currentGameSequence.push(gameType);
+        }
+      }
+    }
+  } else {
+    // Simple array session
+    for (let stage of currentSession) {
+      const gameType = stage.stage_type || stage.game;
+      if (gameType === 'online-choice') {
+        // For online-choice, add both choice and watch to the sequence
+        currentGameSequence.push('choice');
+        currentGameSequence.push('watch');
+      } else if (['practice', 'play', 'watch', 'indicate', 'blind', 'choice'].includes(gameType)) {
+        currentGameSequence.push(gameType);
+      }
+    }
+  }
+}
+
+// Reset game-specific tracking variables
+function resetGameTracking(gameType, numArmPulls = 0) {
+  currentGameStep = 0;
+  currentGameReward = 0;
+  
+  // Handle online-choice phases
+  if (gameType === 'online-choice') {
+    // Check which phase we're in
+    if (window.onlineChoicePhase === 'choice') {
+      currentGameType = 'choice';
+    } else if (window.onlineChoicePhase === 'watch') {
+      currentGameType = 'watch';
+    } else {
+      currentGameType = 'choice'; // Default to choice phase
+    }
+  } else {
+    currentGameType = gameType;
+  }
+  
+  currentShotsRemaining = numArmPulls;
+  currentPosition = 0;
+}
+
+// Track page refresh events
+window.addEventListener('beforeunload', () => {
+  logPageRefresh();
+});
+
+// Log when page loads
+window.addEventListener('load', () => {
+  if (refreshCount === 0) {
+    refreshCount = 1;
+  }
+});
 
 // Adjust these as you wish:
 const DEMO_SPRITE_SIZE = 40;       // user/demonstrator sprite size
@@ -345,6 +514,20 @@ function loadStage() {
 
   // Store the current stage for reference in other functions if needed
   window.currentStage = stage;
+
+  // Initialize logging for gameplay stages
+  const gameType = stage.stage_type || stage.game;
+  if (['practice', 'play', 'watch', 'indicate', 'blind', 'choice', 'online-choice'].includes(gameType)) {
+    // Initialize game sequence tracking if this is the first game in a session
+    if (currentStageIndex === 0 || lastSessionIndex !== currentSessionIndex) {
+      initializeGameSequence();
+      lastSessionIndex = currentSessionIndex;
+    }
+    
+    // Reset game tracking for new game
+    const numArmPulls = stage.num_arm_pulls || 0;
+    resetGameTracking(gameType, numArmPulls);
+  }
 
   // Possibly add an icon for summary
   maybeAddSummaryIcon(stage);
@@ -895,6 +1078,9 @@ function setupPlayOrPractice(stage, isPractice) {
     .setDepth(9999)
     .setOrigin(0.5);
 
+  // Initialize position tracking for logging
+  currentPosition = cursorR * numCols + cursorC;
+
   // highlight rect
   let highlightRect = createHighlightRect.call(this, cellWidth, cellHeight);
   highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
@@ -931,8 +1117,20 @@ function setupPlayOrPractice(stage, isPractice) {
           pullArm.call(sceneRef, clickedR, clickedC);
         } else {
           // Otherwise, move to this position
+          const oldPosition = currentPosition;
           cursorR = clickedR;
           cursorC = clickedC;
+          currentPosition = cursorR * numCols + cursorC;
+          
+          // Log movement action
+          currentGameStep++;
+          currentShotsRemaining = pullsRemaining;
+          const action = currentPosition > oldPosition ? 'right' : 'left';
+          logToMongoDB(action, {
+            reward_generated: false,
+            shot: false
+          });
+          
           let { x, y } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
           userSprite.setPosition(x, y);
           highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
@@ -952,6 +1150,20 @@ function setupPlayOrPractice(stage, isPractice) {
     
     let payoff = bandit[row][col];
       let outcome = (Math.random() < payoff) ? 1 : 0;
+      
+      // Update tracking variables
+      currentGameStep++;
+      currentShotsRemaining = pullsRemaining;
+      if (outcome === 1) {
+        currentGameReward++;
+        userTotalReward++;
+      }
+      
+      // Log the pull action
+      logToMongoDB('pull', {
+        reward_generated: outcome === 1,
+        shot: true
+      });
       
       // Create a simple flash effect (just one flash)
     let g = scene.add.graphics();
@@ -988,16 +1200,41 @@ function setupPlayOrPractice(stage, isPractice) {
     if (pullsRemaining <= 0) return;
 
     let oldR = cursorR, oldC = cursorC;
-    if (evt.code === 'ArrowUp')    cursorR = Phaser.Math.Clamp(cursorR - 1, 0, numRows-1);
-    if (evt.code === 'ArrowDown')  cursorR = Phaser.Math.Clamp(cursorR + 1, 0, numRows-1);
-    if (evt.code === 'ArrowLeft')  cursorC = Phaser.Math.Clamp(cursorC - 1, 0, numCols-1);
-    if (evt.code === 'ArrowRight') cursorC = Phaser.Math.Clamp(cursorC + 1, 0, numCols-1);
+    let moveAction = null;
+    
+    if (evt.code === 'ArrowUp')    {
+      cursorR = Phaser.Math.Clamp(cursorR - 1, 0, numRows-1);
+      moveAction = 'up';
+    }
+    if (evt.code === 'ArrowDown')  {
+      cursorR = Phaser.Math.Clamp(cursorR + 1, 0, numRows-1);
+      moveAction = 'down';
+    }
+    if (evt.code === 'ArrowLeft')  {
+      cursorC = Phaser.Math.Clamp(cursorC - 1, 0, numCols-1);
+      moveAction = 'left';
+    }
+    if (evt.code === 'ArrowRight') {
+      cursorC = Phaser.Math.Clamp(cursorC + 1, 0, numCols-1);
+      moveAction = 'right';
+    }
 
     if (evt.code === 'Space') {
       pullArm.call(this, cursorR, cursorC);
     }
 
     if (oldR !== cursorR || oldC !== cursorC) {
+      // Update position and log movement
+      currentPosition = cursorR * numCols + cursorC;
+      currentGameStep++;
+      currentShotsRemaining = pullsRemaining;
+      
+      // Log the movement action
+      logToMongoDB(moveAction, {
+        reward_generated: false,
+        shot: false
+      });
+      
       let { x, y } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
       userSprite.setPosition(x, y);
       highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
@@ -1014,20 +1251,33 @@ function setupWatch(stage) {
     return;
   }
   
-  // Check for bandit data at zone.zone_bandit
-  const bandit = stage.zone.zone_bandit;
-  if (!bandit || !stage.demonstrator) {
-    console.error("Missing bandit or demonstrator data");
-    return;
-  }
+  // Use watch-overlay-message if available, otherwise use default
+  const overlayMessage = stage["watch-overlay-message"] || 
+    "You will now watch your chosen starship partner.";
   
-  // In the new JSON format, the trajectory is directly in demonstrator.demonstrator_trajectory
-  const trajectory = stage.demonstrator.demonstrator_trajectory;
+  // Get demonstrator data and trajectory
+  const demoData = stage.demonstrator;
+  const trajectory = demoData.demonstrator_trajectory;
+  
+  const bandit = stage.zone.zone_bandit;
   const numRows = bandit.length;
   const numCols = bandit[0].length;
   
-  // Debug log to check dimensions
-  console.log(`Loading WATCH with grid: ${numRows}x${numCols}`);
+  // Show zone information
+  const zoneText = this.add.text(
+    this.sys.game.config.width / 2,
+    30,
+    `Zone ${stage.zone.zone_index}`,
+    { font: '20px Arial', fill: '#ffffff' }
+  ).setOrigin(0.5);
+  
+  // Show which demonstrator is being watched
+  const demoText = this.add.text(
+    this.sys.game.config.width / 2,
+    70,
+    `Watching Partner ${stage.demonstrator.demonstrator_name}`,
+    { font: '22px Arial', fill: '#ffffff' }
+  ).setOrigin(0.5);
   
   // Use the larger fixed cell size
   let cellWidth = BASE_CELL_SIZE;
@@ -1049,14 +1299,12 @@ function setupWatch(stage) {
   createZoneBackgroundMask.call(this, stage, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
 
   // Keep reward tank for watch stages to show mining outcomes
-  // Use trajectory length for num_arm_pulls if it's null
-  const totalPulls = stage.num_arm_pulls || trajectory.length;
   let watchOutcomes = [];
   const tankX = gridOriginX + (totalGridWidth / 2);
   const tankY = gridBottomY + TANK_MARGIN_TOP;
   const rewardTankContainer = this.add.container(tankX, tankY);
-  rewardTankContainer.setDepth(100); // Add high depth value to ensure visibility
-  drawRewardTank.call(this, rewardTankContainer, totalPulls, watchOutcomes);
+  rewardTankContainer.setDepth(100);
+  drawRewardTank.call(this, rewardTankContainer, trajectory.length, watchOutcomes);
 
   let highlightRect = createHighlightRect.call(this, cellWidth, cellHeight);
 
@@ -1065,62 +1313,49 @@ function setupWatch(stage) {
   let currentR = Math.floor(currentLinearIndex / numCols);
   let currentC = currentLinearIndex % numCols;
   
-  // Create a unique key for this specific demonstrator to prevent texture caching issues
-  // Include session and stage index to ensure uniqueness
-  const demoIndex = stage.demonstrator.demonstrator_index;
-  const demoImage = stage.demonstrator.demonstrator_image;
-  const sessionIndex = stage.session_index || 0;
-  const stageIndex = stage.stage_index || 0;
-  const gameIndex = stage.game_index || 0;
+  // Load demonstrator image
+  const demoImageKey = `watch_${stage.demonstrator.demonstrator_id}`;
+  const demoImagePath = demoData.demonstrator_image;
   
-  // Create a session-specific key to avoid reusing demonstrator images across sessions
-  const demoImageKey = `demo_s${sessionIndex}_g${gameIndex}_${demoIndex}`;
+  // Get the mapped image filename
+  const mappedImage = getMappedDemonstratorFromFilename(demoImagePath);
   
-  console.log(`Loading demonstrator for session ${sessionIndex}, game ${gameIndex}: ${demoImage}`);
-  
-  // Get the mapped image filename instead of using the direct filename
-  const mappedImage = getMappedDemonstratorFromFilename(demoImage);
-  console.log(`Mapped ${demoImage} to ${mappedImage}`);
-  
-  // Always load the image to ensure we get the correct one
-  this.load.image(demoImageKey, `assets/demonstrators/${mappedImage}`);
-  this.load.once('complete', () => {
+  if (!this.textures.exists(demoImageKey)) {
+    this.load.image(demoImageKey, `assets/demonstrators/${mappedImage}`);
+    this.load.once('complete', () => {
+      startDemonstration.call(this);
+    });
+    this.load.start();
+  } else {
     startDemonstration.call(this);
-  });
-  this.load.start();
+  }
   
   function startDemonstration() {
     let startPos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC);
     let dSprite = this.add.image(startPos.x, startPos.y, demoImageKey)
-    .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
-    .setDepth(9999)
-    .setOrigin(0.5);
+      .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
+      .setDepth(9999)
+      .setOrigin(0.5);
 
-  let currentStep = 0;
-  let totalSteps = trajectory.length;
+    let currentStep = 0;
+    let totalSteps = trajectory.length;
 
-  // Add a delay before starting the trajectory to allow all assets to load
-  this.time.delayedCall(WATCH_START_DELAY, () => {
-    moveAlongTrajectoryStep.call(this);
-  });
+    // Add a delay before starting the trajectory
+    this.time.delayedCall(WATCH_START_DELAY, () => {
+      moveAlongTrajectoryStep.call(this);
+    });
 
-  function moveAlongTrajectoryStep() {
-    if (currentStep >= totalSteps) {
+    function moveAlongTrajectoryStep() {
+      if (currentStep >= totalSteps) {
         // When demonstration is complete, show next button
-        const nextButton = this.add.text(
-          this.sys.game.config.width - 100,
-          this.sys.game.config.height - 40,
-          "Next",
-          { font: '18px Arial', fill: '#00ff00', backgroundColor: '#333', padding: 5 }
-        ).setOrigin(0.5).setInteractive();
-        
-        nextButton.on('pointerdown', () => {
-          // This is where the error happens - state isn't defined in regular watch mode
-          // Remove the online-choice specific code and just call nextStage
+        makeNextButton.call(this, "Next", () => {
+          // Reset online choice state and move to next stage
+          window.onlineChoicePhase = null;
+          window.onlineChoiceSelectedDemo = null;
           nextStage.call(this);
         });
-      return;
-    }
+        return;
+      }
 
       let targetLinearIndex = trajectory[currentStep];
       let targetR = Math.floor(targetLinearIndex / numCols);
@@ -1128,27 +1363,27 @@ function setupWatch(stage) {
       
       let pathCells = getManhattanPath(currentR, currentC, targetR, targetC);
 
-    let index = 0;
-    let pathTimer = this.time.addEvent({
-        delay: 600, // Increased from 300 to 600 (doubled)
-      repeat: pathCells.length - 1,
-      callback: () => {
-        let cell = pathCells[index];
+      let index = 0;
+      let pathTimer = this.time.addEvent({
+        delay: 600,
+        repeat: pathCells.length - 1,
+        callback: () => {
+          let cell = pathCells[index];
           let pos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cell.r, cell.c);
-        dSprite.setPosition(pos.x, pos.y);
+          dSprite.setPosition(pos.x, pos.y);
           highlightCurrentCell(highlightRect, cell.r, cell.c, gridOriginX, gridOriginY, cellWidth, cellHeight);
 
-        index++;
-        if (index >= pathCells.length) {
-          pathTimer.remove();
+          index++;
+          if (index >= pathCells.length) {
+            pathTimer.remove();
             currentR = targetR;
             currentC = targetC;
 
-            // Calculate outcome first
-          let payoff = bandit[currentR][currentC];
-          let outcome = (Math.random() < payoff) ? 1 : 0;
+            // Calculate outcome
+            let payoff = bandit[currentR][currentC];
+            let outcome = (Math.random() < payoff) ? 1 : 0;
             
-            // Create a simple flash effect (just one flash)
+            // Create a simple flash effect
             let g = this.add.graphics();
             g.fillStyle(HIGHLIGHT_COLOR, 1);
             g.fillRect(
@@ -1157,352 +1392,28 @@ function setupWatch(stage) {
               cellWidth, cellHeight
             );
             
-            // Fade out only (NO YOYO!) to get a single flash
+            // Fade out only
             this.tweens.add({
               targets: g,
               alpha: 0,
-              duration: 200, // Reduced from 400 to 200 for quicker flash
+              duration: 200,
               onComplete: () => {
                 g.destroy();
                 
                 // Record outcome and update tank
                 watchOutcomes.push(outcome);
                 drawMarkerDot.call(this, gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC, outcome);
-                drawRewardTank.call(this, rewardTankContainer, totalPulls, watchOutcomes);
+                drawRewardTank.call(this, rewardTankContainer, totalSteps, watchOutcomes);
 
-          currentStep++;
-          moveAlongTrajectoryStep.call(this);
+                currentStep++;
+                moveAlongTrajectoryStep.call(this);
               }
             });
-        }
-      }
-    });
-    }
-  }
-}
-
-/**
- * INDICATE Stage
- */
-function setupIndicate(stage) {
-  if (!stage.zone) {
-    console.error("Missing zone data");
-    return;
-  }
-  
-  // Check for bandit data at zone.zone_bandit
-  const bandit = stage.zone.zone_bandit;
-  if (!bandit || !stage.demonstrator) {
-    console.error("Missing bandit or demonstrator data");
-    return;
-  }
-  
-  // In the new JSON format, the trajectory is directly in demonstrator.demonstrator_trajectory
-  const trajectory = stage.demonstrator.demonstrator_trajectory;
-  const numRows = bandit.length;
-  const numCols = bandit[0].length;
-  
-  // Debug log to check dimensions
-  console.log(`Loading INDICATE with grid: ${numRows}x${numCols}`);
-  console.log(`Trajectory length: ${trajectory.length}`);
-  
-  // Use the larger fixed cell size
-  let cellWidth = BASE_CELL_SIZE;
-  let cellHeight = BASE_CELL_SIZE;
-  
-  // Calculate total grid size based on fixed cell size
-  const totalGridWidth = numCols * cellWidth + (numCols - 1) * CELL_PADDING;
-  const totalGridHeight = numRows * cellHeight + (numRows - 1) * CELL_PADDING;
-  
-  // Center the grid in the full container width
-  const gridOriginX = (this.sys.game.config.width - totalGridWidth) / 2;
-  const gridOriginY = 100 + (400 - totalGridHeight) / 2;
-  const gridBottomY = gridOriginY + totalGridHeight;
-
-  // Add zone labels
-  addZoneLabels(this, stage.zone.zone_index);
-  
-  // zone background
-  createZoneBackgroundMask.call(this, stage, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
-
-  // Note: We don't create a mining progress bar for indicate stages
-  
-  // Convert first linear index to row,col
-  let currentLinearIndex = trajectory[0];
-  let currentR = Math.floor(currentLinearIndex / numCols);
-  let currentC = currentLinearIndex % numCols;
-  
-  // Create a unique key for this specific demonstrator to prevent texture caching issues
-  // Include session and stage index to ensure uniqueness
-  const demoIndex = stage.demonstrator.demonstrator_index;
-  const demoImage = stage.demonstrator.demonstrator_image;
-  const sessionIndex = stage.session_index || 0;
-  const stageIndex = stage.stage_index || 0;
-  const gameIndex = stage.game_index || 0;
-  
-  // Create a session-specific key to avoid reusing demonstrator images across sessions
-  const demoImageKey = `demo_s${sessionIndex}_g${gameIndex}_${demoIndex}`;
-  
-  console.log(`Loading demonstrator for indicate session ${sessionIndex}, game ${gameIndex}: ${demoImage}`);
-  
-  // Get the mapped image filename instead of using the direct filename
-  const mappedImage = getMappedDemonstratorFromFilename(demoImage);
-  console.log(`Mapped ${demoImage} to ${mappedImage}`);
-  
-  // Always load the image to ensure we get the correct one
-  this.load.image(demoImageKey, `assets/demonstrators/${mappedImage}`);
-  this.load.once('complete', () => {
-    startDemonstration.call(this);
-  });
-  this.load.start();
-  
-  function startDemonstration() {
-    let startPos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC);
-    let dSprite = this.add.image(startPos.x, startPos.y, demoImageKey)
-    .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
-    .setDepth(9999)
-    .setOrigin(0.5);
-
-  let currentStep = 0;
-  let totalSteps = trajectory.length;
-
-  // Add a delay before starting the trajectory to allow all assets to load
-  this.time.delayedCall(WATCH_START_DELAY, () => {
-    moveAlongTrajectoryStep.call(this);
-  });
-
-  function moveAlongTrajectoryStep() {
-    if (currentStep >= totalSteps) {
-      makeNextButton.call(this, "Next", () => {
-        nextStage.call(this);
-      });
-      return;
-    }
-
-      let targetLinearIndex = trajectory[currentStep];
-      let targetR = Math.floor(targetLinearIndex / numCols);
-      let targetC = targetLinearIndex % numCols;
-      
-      let pathCells = getManhattanPath(currentR, currentC, targetR, targetC);
-
-    let index = 0;
-    let pathTimer = this.time.addEvent({
-        delay: 600, // Increased from 300 to 600 (doubled)
-      repeat: pathCells.length - 1,
-      callback: () => {
-        let cell = pathCells[index];
-          let pos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cell.r, cell.c);
-        dSprite.setPosition(pos.x, pos.y);
-
-        index++;
-        if (index >= pathCells.length) {
-          pathTimer.remove();
-
-            currentR = targetR;
-            currentC = targetC;
-            
-            // No mining tank updates in indicate mode
-            
-            // Create a more pronounced blinking highlight
-          let g = this.add.graphics();
-          g.fillStyle(HIGHLIGHT_COLOR, 1);
-          g.fillRect(
-              gridOriginX + currentC*(cellWidth + CELL_PADDING),
-              gridOriginY + currentR*(cellHeight + CELL_PADDING),
-              cellWidth, cellHeight
-          );
-          this.tweens.add({
-            targets: g,
-            alpha: 0.1,
-            duration: 150, // Reduced from 300 to 150 for quicker flash
-            yoyo: true,
-            repeat: 1, // Reduced from 2 to 1 for quicker overall effect
-            onComplete: () => {
-              g.destroy();
-            }
-          });
-
-          currentStep++;
-          moveAlongTrajectoryStep.call(this);
-        }
-      }
-    });
-    }
-  }
-}
-
-/**
- * BLIND stage - like play but without showing outcomes
- */
-function setupBlind(stage) {
-  if (!stage.zone) {
-    console.error("Missing zone data");
-    return;
-  }
-  
-  // Check for bandit data at zone.zone_bandit
-  const bandit = stage.zone.zone_bandit;
-  if (!bandit) {
-    console.error("Missing bandit data in zone");
-    return;
-  }
-  
-  const num_arm_pulls = stage.num_arm_pulls;
-  
-  let numRows = bandit.length;
-  let numCols = bandit[0].length;
-  
-  // Debug log to check dimensions
-  console.log(`Loading BLIND with grid: ${numRows}x${numCols}`);
-  
-  // Use the larger fixed cell size 
-  let cellWidth = BASE_CELL_SIZE;
-  let cellHeight = BASE_CELL_SIZE;
-  
-  // Calculate total grid size based on fixed cell size
-  const totalGridWidth = numCols * cellWidth + (numCols - 1) * CELL_PADDING;
-  const totalGridHeight = numRows * cellHeight + (numRows - 1) * CELL_PADDING;
-  
-  // Center the grid in the full container width
-  const gridOriginX = (this.sys.game.config.width - totalGridWidth) / 2;
-  const gridOriginY = 100 + (400 - totalGridHeight) / 2;
-  const gridBottomY = gridOriginY + totalGridHeight;
-
-  // Add zone labels
-  addZoneLabels(this, stage.zone.zone_index);
-  
-  // zone background
-  createZoneBackgroundMask.call(this, stage, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
-
-  // Initialize pullOutcomes array (needed for the pullArm function)
-  let pullOutcomes = [];
-
-  // Instead of reward tank, we'll create a text counter for remaining shots
-  let pullsRemaining = num_arm_pulls;
-  
-  // Create text to display remaining shots
-  const remainingText = this.add.text(
-    this.sys.game.config.width / 2,
-    gridBottomY + TANK_MARGIN_TOP,
-    `Remaining Shots: ${pullsRemaining}`,
-    { font: '20px Arial', fill: '#ffffff' }
-  ).setOrigin(0.5);
-
-  // user sprite - start at random position instead of always (0, 0)
-  let cursorR = Phaser.Math.Between(0, numRows - 1);
-  let cursorC = Phaser.Math.Between(0, numCols - 1);
-  let { x: initX, y: initY } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
-  let userSprite = this.add.image(initX, initY, 'user')
-    .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
-    .setDepth(9999)
-    .setOrigin(0.5);
-
-  // highlight rect
-  let highlightRect = createHighlightRect.call(this, cellWidth, cellHeight);
-  highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
-
-  // Store reference to scene for use in closures
-  const blindSceneRef = this;
-
-  // Add clickable areas for each cell
-  let cellRects = [];
-  for (let r = 0; r < numRows; r++) {
-    for (let c = 0; c < numCols; c++) {
-      let rx = gridOriginX + c * (cellWidth + CELL_PADDING);
-      let ry = gridOriginY + r * (cellHeight + CELL_PADDING);
-      
-      let cellRect = this.add.rectangle(rx, ry, cellWidth, cellHeight, 0xffffff, 0)
-        .setOrigin(0, 0)
-        .setInteractive();
-        
-      // Store row and col as properties to avoid closure issues
-      cellRect.cellRow = r;
-      cellRect.cellCol = c;
-        
-      cellRect.on('pointerdown', function() {
-        if (pullsRemaining <= 0) return;
-
-        // Use the stored row/col values from the rectangle properties
-        const clickedR = this.cellRow;
-        const clickedC = this.cellCol;
-
-        // If the user is already at this position, pull the arm
-        if (clickedR === cursorR && clickedC === cursorC) {
-          pullArm.call(blindSceneRef, clickedR, clickedC);
-        } else {
-          // Otherwise, move to this position
-          cursorR = clickedR;
-          cursorC = clickedC;
-          let { x, y } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
-          userSprite.setPosition(x, y);
-          highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
+          }
         }
       });
-      
-      cellRects.push(cellRect);
     }
   }
-  
-  // Function to handle pulling the arm
-  function pullArm(row, col) {
-    const scene = this; // Capture the scene context
-    pullsRemaining--;
-      
-    // Update the remainingText to show the new count
-    remainingText.setText(`Remaining Shots: ${pullsRemaining}`);
-      
-    let payoff = bandit[row][col];
-    let outcome = (Math.random() < payoff) ? 1 : 0;
-      
-    // Create a simple flash effect (just one flash)
-    let g = scene.add.graphics();
-    g.fillStyle(HIGHLIGHT_COLOR, 1);
-    g.fillRect(
-      gridOriginX + col*(cellWidth + CELL_PADDING),
-      gridOriginY + row*(cellHeight + CELL_PADDING),
-      cellWidth, cellHeight
-    );
-      
-    // Fade out only to get a single flash
-    scene.tweens.add({
-      targets: g,
-      alpha: 0,
-      duration: 200, // Reduced from 400 to 200
-      onComplete: () => {
-        g.destroy();
-          
-        // In blind mode, we don't show outcomes or update tanks
-        // But we still track outcomes internally
-        pullOutcomes.push(outcome);
-          
-        if (pullsRemaining <= 0) {
-          makeNextButton.call(scene, "Next", () => {
-            nextStage.call(scene);
-          });
-        }
-      }
-    });
-  }
-
-  this.input.keyboard.on('keydown', (evt) => {
-    if (pullsRemaining <= 0) return;
-
-    let oldR = cursorR, oldC = cursorC;
-    if (evt.code === 'ArrowUp')    cursorR = Phaser.Math.Clamp(cursorR - 1, 0, numRows-1);
-    if (evt.code === 'ArrowDown')  cursorR = Phaser.Math.Clamp(cursorR + 1, 0, numRows-1);
-    if (evt.code === 'ArrowLeft')  cursorC = Phaser.Math.Clamp(cursorC - 1, 0, numCols-1);
-    if (evt.code === 'ArrowRight') cursorC = Phaser.Math.Clamp(cursorC + 1, 0, numCols-1);
-
-    if (evt.code === 'Space') {
-      pullArm.call(this, cursorR, cursorC);
-    }
-
-    if (oldR !== cursorR || oldC !== cursorC) {
-      let { x, y } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
-      userSprite.setPosition(x, y);
-      highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
-    }
-  });
 }
 
 /**
@@ -1930,6 +1841,9 @@ function setupOnlineChoice(stage) {
  * Choice phase for online-choice
  */
 function setupOnlineChoicePhaseChoice(stage) {
+  // Reset game tracking for choice phase
+  resetGameTracking('choice', 0);
+  
   const currentScene = this;
   const zoneColor = stage.zone && stage.zone.zone_color ? stage.zone.zone_color : "#888888";
   
@@ -2191,13 +2105,13 @@ function setupOnlineChoicePhaseChoice(stage) {
  * Watch phase for online-choice
  */
 function setupOnlineChoicePhaseWatch(stage) {
-  const currentScene = this;
-  
   // Get the selected demonstrator from the choice phase
   const selectedDemo = window.onlineChoiceSelectedDemo;
   if (!selectedDemo) {
     return;
   }
+  
+  const currentScene = this;
   
   // Use watch-overlay-message if available, otherwise use default
   const overlayMessage = stage["watch-overlay-message"] || 
@@ -2206,6 +2120,9 @@ function setupOnlineChoicePhaseWatch(stage) {
   // Get demonstrator data and trajectory
   const demoData = selectedDemo.data;
   const trajectory = demoData.demonstrator_trajectory;
+  
+  // Reset game tracking for watch phase  
+  resetGameTracking('watch', trajectory.length);
   
   const bandit = stage.zone.zone_bandit;
   const numRows = bandit.length;
