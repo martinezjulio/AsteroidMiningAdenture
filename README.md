@@ -128,15 +128,36 @@ The `data/timeline.json` file defines the entire game experience. It's structure
 
 ## Game Types
 
-### 1. **Introduction**
+### 1. **Prolific ID Form**
 ```json
 {
-  "stage_type": "introduction",
-  "message": "Welcome text that appears on screen"
+  "stage_type": "prolific_id_form",
+  "message": "Please enter your Prolific ID below:"
 }
 ```
 
-### 2. **Instructions**
+### 2. **Introduction**
+```json
+{
+  "stage_type": "introduction",
+  "message": "Welcome text that appears on screen",
+  "instructions": {
+    "instruction1": "Move left and right with arrow keys",
+    "instruction1_image": "move_left_right.gif",
+    "instruction2": "Move up and down with arrow keys", 
+    "instruction2_image": "move_up_down.gif",
+    "instruction3": "Press spacebar to mine asteroid",
+    "instruction3_image": "mine.gif",
+    "instruction4": "green indicates successful mining\n(increases reward)",
+    "instruction4_image": "success.png",
+    "instruction5": "red indicates unsuccessful mining\n(no reward)",
+    "instruction5_image": "failure.png",
+    "instruction6": "Final instruction text (optional)"
+  }
+}
+```
+
+### 3. **Instructions**
 ```json
 {
   "stage_type": "instructions", 
@@ -157,67 +178,80 @@ The `data/timeline.json` file defines the entire game experience. It's structure
 }
 ```
 
-### 3. **Practice**
+### 4. **Practice**
 ```json
 {
-  "stage_type": "practice",
-  "num_arm_pulls": 5,
+  "game": "practice",
+  "demonstrator": null,
+  "game_index": 0,
+  "num_arm_pulls": 6,
+  "transfer": null,
+  "stage_index": 0,
+  "round_index": 0,
+  "session_index": 0,
   "zone": {...zone_object...}
 }
 ```
 
-### 4. **Play**
+### 5. **Play**
 ```json
 {
-  "stage_type": "play", 
-  "num_arm_pulls": 10,
+  "game": "play", 
+  "demonstrator": null,
+  "game_index": 1,
+  "num_arm_pulls": 6,
+  "transfer": null,
+  "stage_index": 0,
+  "round_index": 0,
+  "session_index": 1,
   "zone": {...zone_object...}
 }
 ```
 
-### 5. **Watch** 
+### 6. **Watch** 
 ```json
 {
-  "stage_type": "watch",
+  "game": "watch",
+  "demonstrator": {...demonstrator_object...},
+  "game_index": 0,
+  "num_arm_pulls": 6,
+  "transfer": null,
+  "stage_index": 0,
+  "round_index": 0,
+  "session_index": 1,
   "zone": {...zone_object...},
-  "demonstrator": {...demonstrator_object...}
+  "overlay-message": "Watch message text"
 }
 ```
 
-### 6. **Indicate**
+### 7. **Choice**
 ```json
 {
-  "stage_type": "indicate",
-  "zone": {...zone_object...}, 
-  "demonstrator": {...demonstrator_object...}
-}
-```
-
-### 7. **Blind**
-```json
-{
-  "stage_type": "blind",
-  "num_arm_pulls": 8,
-  "zone": {...zone_object...}
-}
-```
-
-### 8. **Choice**
-```json
-{
-  "stage_type": "choice",
+  "game": "choice",
+  "game_index": 8,
+  "num_arm_pulls": null,
   "transfer": false,
+  "stage_index": 1,
+  "round_index": null,
+  "session_index": 2,
   "zone": {...zone_object...},
   "demonstrator1": {...demonstrator_object...},
-  "demonstrator2": {...demonstrator_object...}
+  "demonstrator2": {...demonstrator_object...},
+  "overlay-message": "Choose between starships message"
 }
 ```
 
-### 9. **Online-Choice**
+### 8. **Online-Choice**
 ```json
 {
-  "stage_type": "online-choice",
+  "game": "online-choice",
+  "choice_game_index": 8,
+  "watch_game_index": 9,
+  "num_arm_pulls": null,
   "transfer": false,
+  "stage_index": 1,
+  "round_index": null,
+  "session_index": 1,
   "zone": {...zone_object...},
   "demonstrator1": {...demonstrator_object...},
   "demonstrator2": {...demonstrator_object...},
@@ -275,20 +309,39 @@ The `data/timeline.json` file defines the entire game experience. It's structure
 
 ### Stage Properties
 
-#### Common Properties
-- `stage_type`: Game type (see Game Types above)
+#### Property Usage Patterns
+The timeline uses two different property naming patterns:
+
+**Meta Stages** (setup/instruction phases):
+- Use `stage_type`: "prolific_id_form", "introduction", "instructions"
+- Do not have `game_index`, `session_index`, etc.
+
+**Game Stages** (actual gameplay):
+- Use `game`: "practice", "play", "watch", "choice", "online-choice"
+- Include full tracking properties: `game_index`, `session_index`, `stage_index`, etc.
+
+#### Common Properties for Game Stages
+- `game`: Game type ("practice", "play", "watch", "choice", "online-choice")
 - `game_index`: Sequential game number within session
 - `stage_index`: Stage number within session container
 - `session_index`: Session number (0-based)
-- `round_index`: Round number (optional)
+- `round_index`: Round number (can be null)
+- `num_arm_pulls`: Number of actions allowed (null for choice games)
+- `demonstrator`: Demonstrator object (null for play/practice games)
+
+#### Special Properties for Online-Choice
+- `choice_game_index`: Game index for the choice phase
+- `watch_game_index`: Game index for the watch phase
+- `choice-overlay-message`: Text for choice phase
+- `watch-overlay-message`: Text for watch phase
 
 #### Transfer Learning
 - `transfer`: Boolean indicating if this is a transfer condition
 
 #### Overlay Messages
 - `overlay-message`: Text shown in transition overlay
-- `choice-overlay-message`: Text for choice phase (online-choice)
-- `watch-overlay-message`: Text for watch phase (online-choice)
+- `choice-overlay-message`: Text for choice phase (online-choice only)
+- `watch-overlay-message`: Text for watch phase (online-choice only)
 
 ## MongoDB Logging
 
@@ -296,6 +349,7 @@ The game automatically logs all user actions to MongoDB:
 
 ### Logged Data
 - User actions: `left`, `right`, `up`, `down`, `pull`
+- Game types: `practice`, `play`, `watch`, `choice` (includes online-choice phases)
 - Game state: rewards, position, remaining shots
 - Session information: game sequence, stage indices
 - Demonstrator data: type, trajectory, selections
@@ -325,9 +379,12 @@ The game uses a randomization system that maps logical indices to shuffled image
 
 ### Adding New Game Types
 1. Add the new game type to the `gameLog.js` schema
-2. Create a `setup[GameType]` function in `main.js`
-3. Add the case to the switch statement in `loadStage()`
-4. Update the `maybeAddSummaryIcon()` function if needed
+2. For meta stages: Create a `setup[GameType]` function using `stage_type` property
+3. For game stages: Create a `setup[GameType]` function using `game` property
+4. Add the case to the switch statement in `loadStage()`
+5. Update the `maybeAddSummaryIcon()` function if needed
+
+**Note**: Meta stages (prolific_id_form, introduction, instructions) use `stage_type`, while gameplay stages (practice, play, watch, choice, online-choice) use `game` property.
 
 ### Timeline Generation
 Use the Python scripts in `timeline_models/` to generate timeline.json files programmatically rather than editing by hand.
