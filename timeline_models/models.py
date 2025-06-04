@@ -224,7 +224,40 @@ def generate_timeline(
     practice_zone = zone_meta[0]
     practice_session = [
         {"stage_type": "prolific_id_form", "message": "Please enter your Prolific ID below:"},
-        {"stage_type": "introduction", "message": "Welcome to the mining expedition! Here's the backstory..."},
+        {
+            "stage_type": "introduction",
+            "message": "Welcome to fortune frontier the asteroid mining adventure.\n\nPlayers navigate the Asteroid Belt of Fortune, piloting the ship *Prospector One* to mine asteroids, each with unknown rewards. The game combines strategy and luck, as players decide which asteroids to mine. Players guide their starship through the different zones of the asteroid belt, making strategic choices to strike asteroids with potential for high payoffs. Each zone introduces your starship to new asteroids with different payoffs than the zones before it. Success fills the mining tank with celestial wealth. Throughout the game you will observe and learn from other starships to improve your chances of becoming the galaxy's greatest miner.\n\nWelcome to \"Asteroid Fortune Frontier\" – where the universe is yours to mine.\n\n[RED_BOLD]Note: please refrain from refreshing/reloading your web browser for the remainder of this game! Also please do not go back to previous pages. This will corrupt results. Thank you![/RED_BOLD]",
+            "instructions": {
+                "instruction1": "move left with left arrow",
+                "instruction1_image": "move_left.gif",
+                "instruction2": "move right with right arrow",
+                "instruction2_image": "move_right.gif",
+                "instruction3": "mine rewards with spacebar",
+                "instruction3_image": "mine.gif",
+                "instruction4": "green indicates successful mining\n(increases reward)",
+                "instruction4_image": "successful_mine.png",
+                "instruction5": "red indicates unsuccessful mining\n(no reward)",
+                "instruction5_image": "unsuccessful_mine.png",
+                "instruction6": "Rewards are probabilistic meaning that mining from any asteroid will sometimes yield reward and sometimes yield no reward. Your goal is to find and mine from the asteroids that yield reward most often as much as you can!"
+            }
+        },
+        {
+            "stage_type": "instructions",
+            "message": "Game Instructions",
+            "instructions": {
+                "instruction1": "move left with left arrow",
+                "instruction1_image": "move_left.gif",
+                "instruction2": "move right with right arrow",
+                "instruction2_image": "move_right.gif",
+                "instruction3": "mine rewards with spacebar",
+                "instruction3_image": "mine.gif",
+                "instruction4": "green indicates successful mining\n(increases reward)",
+                "instruction4_image": "successful_mine.png",
+                "instruction5": "red indicates unsuccessful mining\n(no reward)",
+                "instruction5_image": "unsuccessful_mine.png",
+                "instruction6": "Rewards are probabilistic meaning that mining from any asteroid will sometimes yield reward and sometimes yield no reward. Your goal is to find and mine from the asteroids that yield reward most often as much as you can!"
+            }
+        },
         {
             "game": "practice",
             "demonstrator": None,

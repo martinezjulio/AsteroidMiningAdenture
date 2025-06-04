@@ -218,7 +218,7 @@ function getMappedZoneBackgroundFromFilename(filename) {
 // Phaser config
 const config = {
   type: Phaser.AUTO,
-  width: 800,
+  width: 1000,
   height: 700,
   parent: 'game-container',
   backgroundColor: '#000000',
@@ -373,6 +373,9 @@ function loadStage() {
       break;
     case 'introduction':
       setupIntroduction.call(this, stage);
+      break;
+    case 'instructions':
+      setupInstructions.call(this, stage);
       break;
     case 'practice':
       setupPlayOrPractice.call(this, stage, true);
@@ -600,14 +603,271 @@ function setupProlificIdForm(stage) {
 }
 
 function setupIntroduction(stage) {
-  this.add.text(
-    this.sys.game.config.width/2,
-    this.sys.game.config.height/2,
-    stage.message || "Introduction",
-    { font: '20px Arial', fill: '#ffffff', align: 'center', wordWrap: { width: 600 } }
-  ).setOrigin(0.5);
+  const message = stage.message || "Introduction";
+  
+  // Check if message contains red bold formatting
+  const redBoldRegex = /\[RED_BOLD\](.*?)\[\/RED_BOLD\]/s;
+  const match = message.match(redBoldRegex);
+  
+  if (match) {
+    // Split message into main content and red bold note
+    const mainMessage = message.replace(redBoldRegex, '').trim();
+    const redBoldNote = match[1].trim();
+    
+    // Display main message
+    this.add.text(
+      this.sys.game.config.width/2,
+      this.sys.game.config.height/2 - 50,
+      mainMessage,
+      { 
+        font: '18px Arial', 
+        fill: '#ffffff', 
+        align: 'center', 
+        wordWrap: { width: 700 } 
+      }
+    ).setOrigin(0.5);
+    
+    // Display red bold note below main message
+    this.add.text(
+      this.sys.game.config.width/2,
+      this.sys.game.config.height/2 + 120,
+      redBoldNote,
+      { 
+        font: 'bold 16px Arial', 
+        fill: '#ff0000', 
+        align: 'center', 
+        wordWrap: { width: 600 },
+        backgroundColor: '#000000',
+        padding: { x: 10, y: 5 }
+      }
+    ).setOrigin(0.5);
+  } else {
+    // Original behavior for messages without special formatting
+    this.add.text(
+      this.sys.game.config.width/2,
+      this.sys.game.config.height/2,
+      message,
+      { font: '20px Arial', fill: '#ffffff', align: 'center', wordWrap: { width: 600 } }
+    ).setOrigin(0.5);
+  }
 
   makeNextButton.call(this, "Next", () => {
+    nextStage.call(this);
+  });
+}
+
+function setupInstructions(stage) {
+  if (!stage.instructions) {
+    console.error("Missing instructions data");
+    return;
+  }
+
+  const instructions = stage.instructions;
+  
+  // Display title
+  this.add.text(
+    this.sys.game.config.width / 2,
+    50,
+    stage.message || "Game Instructions",
+    { font: 'bold 28px Arial', fill: '#ffffff', align: 'center' }
+  ).setOrigin(0.5);
+
+  // Store reference for loading images
+  const currentScene = this;
+  
+  // Separate GIF and PNG images
+  const gifImages = [];
+  const pngImages = [];
+  
+  for (let i = 1; i <= 5; i++) {
+    const imageName = instructions[`instruction${i}_image`];
+    if (imageName && imageName.endsWith('.gif')) {
+      gifImages.push({ index: i, imageName });
+    } else if (imageName && imageName.endsWith('.png')) {
+      pngImages.push({ index: i, imageName });
+      // Load PNG images through Phaser
+      if (!this.textures.exists(`instruction_${i}`)) {
+        this.load.image(`instruction_${i}`, `assets/introduction/${imageName}`);
+      }
+    }
+  }
+
+  // Load PNG images if any
+  if (pngImages.length > 0) {
+    this.load.once('complete', () => {
+      displayInstructionLayout.call(currentScene, instructions, gifImages);
+    });
+    this.load.start();
+  } else {
+    // If no PNG images to load, display immediately
+    displayInstructionLayout.call(currentScene, instructions, gifImages);
+  }
+}
+
+function displayInstructionLayout(instructions, gifImages) {
+  const gameWidth = this.sys.game.config.width;
+  const gameHeight = this.sys.game.config.height;
+  
+  // Get the game canvas position for proper HTML element positioning
+  const canvas = this.sys.game.canvas;
+  const rect = canvas.getBoundingClientRect();
+  
+  // Layout configuration
+  const maxImageSize = 193;
+  const columnSpacing = 20; // Spacing between columns
+  const imageTextGap = 10; // Small gap between image and its text
+  const textHeight = 30; // Estimated text height
+  const sectionGap = 30; // Gap between sections
+  
+  // Simple positioning - images at fixed Y positions, text positioned relative to images
+  const row1ImagesY = 115;     // First row images top edge (moved up from 130)
+  const row3ImagesY = 310;     // Second row images top edge (moved up from 325)
+  
+  // First section: 3 instructions in 3 columns (move left, move right, mine)
+  const topSectionWidth = 3 * maxImageSize + 2 * columnSpacing;
+  const topStartX = (gameWidth - topSectionWidth) / 2;
+  
+  for (let i = 1; i <= 3; i++) {
+    const x = topStartX + (i - 1) * (maxImageSize + columnSpacing) + maxImageSize / 2;
+    const imageKey = `instruction_${i}`;
+    const imageName = instructions[`instruction${i}_image`];
+    const instructionText = instructions[`instruction${i}`];
+    
+    // Add image (Row 1)
+    if (imageName && imageName.endsWith('.gif')) {
+      // Create HTML img element for GIF
+      const imgElement = document.createElement('img');
+      imgElement.src = `assets/introduction/${imageName}`;
+      imgElement.style.position = 'absolute';
+      imgElement.style.maxWidth = `${maxImageSize}px`;
+      imgElement.style.maxHeight = `${maxImageSize}px`;
+      
+      // Try centering the GIF like we do with PNGs
+      const gifCenterY = row1ImagesY + maxImageSize/2;
+      
+      imgElement.style.left = `${rect.left + x - maxImageSize/2}px`;
+      imgElement.style.top = `${rect.top + gifCenterY - maxImageSize/2}px`; // Center the GIF properly
+      imgElement.style.zIndex = '1000';
+      imgElement.style.pointerEvents = 'none';
+      imgElement.className = 'instruction-gif';
+      
+      // Debug logging
+      console.log(`GIF ${i}: positioned at top=${rect.top + gifCenterY - maxImageSize/2}, center should be at ${rect.top + gifCenterY}`);
+      
+      document.body.appendChild(imgElement);
+    } else if (this.textures.exists(imageKey)) {
+      // Add Phaser image for PNG
+      const pngCenterY = row1ImagesY + maxImageSize/2;
+      const image = this.add.image(x, pngCenterY, imageKey); // Position PNG center
+      const scale = Math.min(
+        maxImageSize / image.width,
+        maxImageSize / image.height
+      );
+      image.setScale(scale);
+      image.setOrigin(0.5);
+      
+      // Debug logging
+      console.log(`PNG ${i}: positioned at center=${pngCenterY}`);
+    }
+    
+    // Add text (Row 2) - position text right at image bottom edge  
+    const textY = row1ImagesY + maxImageSize - 20; // Position text to overlap more with images
+    
+    console.log(`Text ${i}: positioned at ${textY} (much closer to images)`);
+    
+    this.add.text(
+      x,
+      textY, // Position text much closer to images
+      instructionText,
+      { 
+        font: '16px Arial', 
+        fill: '#ffffff', 
+        align: 'center',
+        wordWrap: { width: maxImageSize + 20 },
+        lineSpacing: 4
+      }
+    ).setOrigin(0.5);
+  }
+  
+  // Second section: 2 instructions in 2 columns (successful mine, unsuccessful mine)
+  const bottomSectionWidth = 2 * maxImageSize + columnSpacing;
+  const bottomStartX = (gameWidth - bottomSectionWidth) / 2;
+  
+  for (let i = 4; i <= 5; i++) {
+    const x = bottomStartX + (i - 4) * (maxImageSize + columnSpacing) + maxImageSize / 2;
+    const imageKey = `instruction_${i}`;
+    const imageName = instructions[`instruction${i}_image`];
+    const instructionText = instructions[`instruction${i}`];
+    
+    // Add image (Row 3)
+    if (imageName && imageName.endsWith('.gif')) {
+      // Create HTML img element for GIF
+      const imgElement = document.createElement('img');
+      imgElement.src = `assets/introduction/${imageName}`;
+      imgElement.style.position = 'absolute';
+      imgElement.style.maxWidth = `${maxImageSize}px`;
+      imgElement.style.maxHeight = `${maxImageSize}px`;
+      imgElement.style.left = `${rect.left + x - maxImageSize/2}px`;
+      imgElement.style.top = `${rect.top + row3ImagesY}px`; // Position GIF top edge
+      imgElement.style.zIndex = '1000';
+      imgElement.style.pointerEvents = 'none';
+      imgElement.className = 'instruction-gif';
+      
+      document.body.appendChild(imgElement);
+    } else if (this.textures.exists(imageKey)) {
+      // Add Phaser image for PNG
+      const image = this.add.image(x, row3ImagesY + maxImageSize/2, imageKey); // Position PNG center
+      const scale = Math.min(
+        maxImageSize / image.width,
+        maxImageSize / image.height
+      );
+      image.setScale(scale);
+      image.setOrigin(0.5);
+    }
+    
+    // Add text (Row 4) - position text close to images  
+    const textY2 = row3ImagesY + maxImageSize + 25; // Position text 25px below image bottom edge (increased from 15px)
+    console.log(`Second row text ${i}: positioned at ${textY2}`);
+    
+    this.add.text(
+      x,
+      textY2, // Position text below images with small gap
+      instructionText,
+      { 
+        font: '16px Arial', 
+        fill: '#ffffff', 
+        align: 'center',
+        wordWrap: { width: maxImageSize + 40 },
+        lineSpacing: 4
+      }
+    ).setOrigin(0.5);
+  }
+  
+  // Final instruction text (Row 5) - position it below the second section
+  if (instructions.instruction6) {
+    const finalTextY = row3ImagesY + maxImageSize + 15 + 30 + 60; // Position below second section text with even more spacing (increased from +45 to +60)
+    console.log(`Final instruction text positioned at ${finalTextY}`);
+    
+    this.add.text(
+      gameWidth / 2,
+      finalTextY, // Position below second section text with spacing
+      instructions.instruction6,
+      { 
+        font: '18px Arial', 
+        fill: '#ffffff', 
+        align: 'center',
+        wordWrap: { width: 800 },
+        lineSpacing: 4
+      }
+    ).setOrigin(0.5);
+  }
+  
+  // Add next button
+  makeNextButton.call(this, "Next", () => {
+    // Clean up HTML elements before proceeding
+    const gifElements = document.querySelectorAll('.instruction-gif');
+    gifElements.forEach(element => element.remove());
+    
     nextStage.call(this);
   });
 }
@@ -3333,7 +3593,7 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   
   switch(stageType) {
     case 'practice': buttonText = 'Practice'; break;
-    case 'play': buttonText = 'Play'; break;
+    case 'play': buttonText = 'Play'; break; // Use "Play" for blind too
     case 'blind': buttonText = 'Play'; break; // Use "Play" for blind too
     case 'choice': buttonText = 'Ready to Choose'; break; // Changed from "Choose" to "Ready to Choose"
     case 'online-choice': buttonText = 'Start'; break; // Add "Start" for online-choice
