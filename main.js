@@ -56,6 +56,8 @@ async function imageExists(imagePath) {
 async function discoverAvailableImages(basePath, prefix, extension, maxToCheck = 50) {
   const availableImages = [];
   
+  console.log(`Discovering ${prefix} images (checking up to ${maxToCheck} files)...`);
+  
   for (let i = 0; i < maxToCheck; i++) {
     const paddedIndex = i.toString().padStart(2, '0');
     const imageName = `${prefix}${paddedIndex}${extension}`;
@@ -63,12 +65,15 @@ async function discoverAvailableImages(basePath, prefix, extension, maxToCheck =
     
     if (await imageExists(fullPath)) {
       availableImages.push(imageName);
+      console.log(`✓ Found: ${imageName}`);
     } else {
       // Stop immediately after first missing file since images are sequential
+      console.log(`⚡ Stopping search at first missing file: ${imageName}`);
       break;
     }
   }
   
+  console.log(`Found ${availableImages.length} ${prefix} images total`);
   return availableImages;
 }
 
@@ -87,6 +92,7 @@ function createRandomMapping(imageList) {
     mapping[index] = imageName;
   });
   
+  console.log('Created mapping:', mapping);
   return mapping;
 }
 
@@ -94,39 +100,54 @@ function createRandomMapping(imageList) {
 async function initializeImageMappings() {
   if (imageMappingsInitialized) return;
   
+  console.log('Initializing random image mappings...');
+  
   try {
     // Discover and map demonstrator images
+    console.log('🎭 Discovering demonstrator images...');
     const demonstratorImages = await discoverAvailableImages('assets/demonstrators', 'demonstrator_', '.png');
     if (demonstratorImages.length > 0) {
       demonstratorImageMapping = createRandomMapping(demonstratorImages);
     } else {
+      console.warn('No demonstrator images found, using minimal fallback');
       demonstratorImageMapping = { 0: 'demonstrator_00.png', 1: 'demonstrator_01.png' };
     }
     
     // Discover and map landscape images
+    console.log('🌄 Discovering landscape images...');
     const landscapeImages = await discoverAvailableImages('assets/landscapes', 'landscape_', '.png');
     if (landscapeImages.length > 0) {
       landscapeImageMapping = createRandomMapping(landscapeImages);
     } else {
+      console.warn('No landscape images found, using minimal fallback');
       landscapeImageMapping = { 0: 'landscape_00.png' };
     }
     
     // Discover and map zone background images
+    console.log('🎨 Discovering zone background images...');
     const zoneBackgroundImages = await discoverAvailableImages('assets/zone_backgrounds', 'zone_', '.png');
     if (zoneBackgroundImages.length > 0) {
       zoneBackgroundImageMapping = createRandomMapping(zoneBackgroundImages);
     } else {
+      console.warn('No zone background images found, using minimal fallback');
       zoneBackgroundImageMapping = { 0: 'zone_00.png' };
     }
     
     imageMappingsInitialized = true;
+    console.log('✅ Image mappings initialized successfully');
+    console.log('📊 Final mappings:');
+    console.log('  Demonstrators:', Object.keys(demonstratorImageMapping).length, 'images');
+    console.log('  Landscapes:', Object.keys(landscapeImageMapping).length, 'images');  
+    console.log('  Zone backgrounds:', Object.keys(zoneBackgroundImageMapping).length, 'images');
     
   } catch (error) {
+    console.error('❌ Error initializing image mappings:', error);
     // Fallback to default mappings if discovery fails
     demonstratorImageMapping = { 0: 'demonstrator_00.png', 1: 'demonstrator_01.png' };
     landscapeImageMapping = { 0: 'landscape_00.png' };
     zoneBackgroundImageMapping = { 0: 'zone_00.png' };
     imageMappingsInitialized = true;
+    console.log('🔄 Using fallback mappings');
   }
 }
 
@@ -134,6 +155,7 @@ async function initializeImageMappings() {
 function getMappedDemonstratorImage(index) {
   const imageName = demonstratorImageMapping[index];
   if (!imageName) {
+    console.warn(`No demonstrator image mapped for index ${index}, using default`);
     return demonstratorImageMapping[0] || 'demonstrator_00.png';
   }
   return imageName;
@@ -147,12 +169,14 @@ function getMappedDemonstratorFromFilename(filename) {
     const index = parseInt(match[1], 10);
     return getMappedDemonstratorImage(index);
   }
+  console.warn(`Could not extract index from demonstrator filename: ${filename}`);
   return getMappedDemonstratorImage(0);
 }
 
 function getMappedLandscapeImage(index) {
   const imageName = landscapeImageMapping[index];
   if (!imageName) {
+    console.warn(`No landscape image mapped for index ${index}, using default`);
     return landscapeImageMapping[0] || 'landscape_00.png';
   }
   return imageName;
@@ -166,12 +190,14 @@ function getMappedLandscapeFromFilename(filename) {
     const index = parseInt(match[1], 10);
     return getMappedLandscapeImage(index);
   }
+  console.warn(`Could not extract index from landscape filename: ${filename}`);
   return getMappedLandscapeImage(0);
 }
 
 function getMappedZoneBackgroundImage(index) {
   const imageName = zoneBackgroundImageMapping[index];
   if (!imageName) {
+    console.warn(`No zone background image mapped for index ${index}, using default`);
     return zoneBackgroundImageMapping[0] || 'zone_00.png';
   }
   return imageName;
@@ -185,6 +211,7 @@ function getMappedZoneBackgroundFromFilename(filename) {
     const index = parseInt(match[1], 10);
     return getMappedZoneBackgroundImage(index);
   }
+  console.warn(`Could not extract index from zone background filename: ${filename}`);
   return getMappedZoneBackgroundImage(0);
 }
 
@@ -225,9 +252,7 @@ function create() {
         timelineData = jsonData;
         loadStage.call(this);
       })
-      .catch(err => {
-        // Error loading timeline
-      });
+      .catch(err => console.error("Error loading timeline JSON:", err));
   });
 }
 
@@ -250,6 +275,9 @@ function loadStage() {
   
   const currentSession = timelineData[currentSessionIndex];
   
+  console.log("Current session index:", currentSessionIndex, "Stage index:", currentStageIndex);
+  console.log("Current session first element:", JSON.stringify(currentSession[0], null, 2).substring(0, 150) + "...");
+  
   // Check if the current session has nested arrays
   let currentStageContainer;
   let effectiveStageIndex;
@@ -265,12 +293,14 @@ function loadStage() {
         currentStageContainer = currentSession[i];
         effectiveStageIndex = currentStageIndex - totalStagesSoFar;
         foundContainer = true;
+        console.log(`Found stage in container ${i}, effective index: ${effectiveStageIndex}`);
         break;
       }
       totalStagesSoFar += currentSession[i].length;
     }
     
     if (!foundContainer) {
+      console.error("Could not find container for stage index:", currentStageIndex);
       // We've reached the end of this session, move to the next
       currentSessionIndex++;
       currentStageIndex = 0;
@@ -285,6 +315,8 @@ function loadStage() {
   
   // Check if we've reached the end of current stage container
   if (effectiveStageIndex >= currentStageContainer.length) {
+    console.error("Stage index out of bounds:", effectiveStageIndex, "container length:", currentStageContainer.length);
+    
     // Move to the next session
     currentSessionIndex++;
     currentStageIndex = 0;
@@ -304,7 +336,13 @@ function loadStage() {
   document.getElementById('prolific-form-overlay').style.visibility = 'hidden';
 
   const stage = currentStageContainer[effectiveStageIndex];
+  console.log(`Loading session ${currentSessionIndex}, stage ${currentStageIndex}, type: ${stage.stage_type || stage.game}`);
   
+  // Log the zone information to help with debugging
+  if (stage.zone) {
+    console.log(`Zone data: index=${stage.zone.zone_index}, mode=${stage.zone.zone_mode}, bandit=${!!stage.zone.zone_bandit}`);
+  }
+
   // Store the current stage for reference in other functions if needed
   window.currentStage = stage;
 
@@ -318,6 +356,7 @@ function loadStage() {
     const gameContainer = document.getElementById('game-container');
     if (gameContainer) {
       gameContainer.style.border = `10px solid ${zoneColor}`;
+      console.log(`Applied zone border color: ${zoneColor}`);
     }
   }
 
@@ -360,6 +399,7 @@ function loadStage() {
       setupIndicate.call(this, stage);
       break;
     default:
+      console.warn("Unknown stage type:", stageType);
       nextStage.call(this);
   }
 }
@@ -391,51 +431,18 @@ function maybeAddSummaryIcon(stage) {
     return;
   }
   
-  // For online-choice games, we need an icon for each sub-stage 
+  // For online-choice games, add an icon that will be updated when user makes choice
   if (stageType === 'online-choice') {
-    // Check which sub-stage we're in
-    if (window.onlineChoiceState) {
-      const subStage = window.onlineChoiceState.currentSubStage;
-      const round = window.onlineChoiceState.currentRound;
-      
-      // Only add icons for play and watch sub-stages
-      if (subStage === 'play' || subStage === 'watch') {
-        // First check if we already have an icon for this specific round and sub-stage
-        // to avoid duplicates
-        const iconId = `online-choice-${round}-${subStage}`;
-        
-        // Check if we already have this icon
-        const exists = summaryIcons.some(icon => icon.id === iconId);
-        if (exists) {
-          return;
-        }
-        
-        // For 'play' sub-stage, use user icon
-        // For 'watch' sub-stage, use the selected demonstrator icon
-        let imageKey = (subStage === 'play') ? 'user' : null;
-        
-        // For watch, we'll set the demonstrator image when selected
-        if (subStage === 'watch' && window.onlineChoiceState.chosenDemonstrator) {
-          const demoKey = window.onlineChoiceState.chosenDemonstrator;
-          const demoIndex = stage.demonstrators[demoKey].demonstrator_index || 0;
-          imageKey = `demonstrator_0${demoIndex}`;
-        }
-        
-        // Create icon with appropriate label - just show Zone X
-        summaryIcons.push({
-          id: iconId, // Add a unique identifier
-          imageKey: imageKey,
-          zone: stage.zone && stage.zone.zone_index ? stage.zone.zone_index : 0,
-          color: stage.zone && stage.zone.color ? stage.zone.color : '#888888',
-          // Simplified label showing just the zone
-          label: `Zone ${stage.zone.zone_index}`
-        });
-      }
-    }
+    // Add a placeholder icon that will be updated when user selects demonstrator
+    summaryIcons.push({
+      imageKey: null, // Will be updated when user selects
+      zone: stage.zone && stage.zone.zone_index ? stage.zone.zone_index : 0,
+      color: stage.zone && stage.zone.zone_color ? stage.zone.zone_color : '#888888'
+    });
     return;
   }
   
-    // For all other game types, use the normal icon logic
+  // For all other game types, use the normal icon logic
   let imageKey = 'user';
   if (stageType === 'watch' || stageType === 'indicate') {
     if (stage.demonstrator && stage.demonstrator.demonstrator_image) {
@@ -614,6 +621,7 @@ function setupIntroduction(stage) {
 
 function setupInstructions(stage) {
   if (!stage.instructions) {
+    console.error("Missing instructions data");
     return;
   }
 
@@ -706,6 +714,9 @@ function displayInstructionLayout(instructions, gifImages) {
       imgElement.style.pointerEvents = 'none';
       imgElement.className = 'instruction-gif';
       
+      // Debug logging
+      console.log(`GIF ${i}: positioned at top=${rect.top + gifCenterY - maxImageSize/2}, center should be at ${rect.top + gifCenterY}`);
+      
       document.body.appendChild(imgElement);
     } else if (this.textures.exists(imageKey)) {
       // Add Phaser image for PNG
@@ -717,10 +728,15 @@ function displayInstructionLayout(instructions, gifImages) {
       );
       image.setScale(scale);
       image.setOrigin(0.5);
+      
+      // Debug logging
+      console.log(`PNG ${i}: positioned at center=${pngCenterY}`);
     }
     
     // Add text (Row 2) - position text right at image bottom edge  
     const textY = row1ImagesY + maxImageSize - 20; // Position text to overlap more with images
+    
+    console.log(`Text ${i}: positioned at ${textY} (much closer to images)`);
     
     this.add.text(
       x,
@@ -774,6 +790,8 @@ function displayInstructionLayout(instructions, gifImages) {
     
     // Add text (Row 4) - position text close to images  
     const textY2 = row3ImagesY + maxImageSize + 25; // Position text 25px below image bottom edge (increased from 15px)
+    console.log(`Second row text ${i}: positioned at ${textY2}`);
+    
     this.add.text(
       x,
       textY2, // Position text below images with small gap
@@ -791,6 +809,8 @@ function displayInstructionLayout(instructions, gifImages) {
   // Final instruction text (Row 5) - position it below the second section
   if (instructions.instruction6) {
     const finalTextY = row3ImagesY + maxImageSize + 15 + 30 + 60; // Position below second section text with even more spacing (increased from +45 to +60)
+    console.log(`Final instruction text positioned at ${finalTextY}`);
+    
     this.add.text(
       gameWidth / 2,
       finalTextY, // Position below second section text with spacing
@@ -820,12 +840,14 @@ function displayInstructionLayout(instructions, gifImages) {
  */
 function setupPlayOrPractice(stage, isPractice) {
   if (!stage.zone) {
+    console.error("Missing zone data");
     return;
   }
   
   // Check for bandit data at zone.zone_bandit
   const bandit = stage.zone.zone_bandit;
   if (!bandit) {
+    console.error("Missing bandit data in zone");
     return;
   }
   
@@ -833,6 +855,9 @@ function setupPlayOrPractice(stage, isPractice) {
   
   let numRows = bandit.length;
   let numCols = bandit[0].length;
+  
+  // Debug log to check dimensions
+  console.log(`Loading ${isPractice ? 'PRACTICE' : 'PLAY'} with grid: ${numRows}x${numCols}`);
   
   // Use the larger fixed cell size 
   let cellWidth = BASE_CELL_SIZE;
@@ -985,12 +1010,14 @@ function setupPlayOrPractice(stage, isPractice) {
  */
 function setupWatch(stage) {
   if (!stage.zone) {
+    console.error("Missing zone data");
     return;
   }
   
   // Check for bandit data at zone.zone_bandit
   const bandit = stage.zone.zone_bandit;
   if (!bandit || !stage.demonstrator) {
+    console.error("Missing bandit or demonstrator data");
     return;
   }
   
@@ -998,6 +1025,9 @@ function setupWatch(stage) {
   const trajectory = stage.demonstrator.demonstrator_trajectory;
   const numRows = bandit.length;
   const numCols = bandit[0].length;
+  
+  // Debug log to check dimensions
+  console.log(`Loading WATCH with grid: ${numRows}x${numCols}`);
   
   // Use the larger fixed cell size
   let cellWidth = BASE_CELL_SIZE;
@@ -1046,8 +1076,11 @@ function setupWatch(stage) {
   // Create a session-specific key to avoid reusing demonstrator images across sessions
   const demoImageKey = `demo_s${sessionIndex}_g${gameIndex}_${demoIndex}`;
   
+  console.log(`Loading demonstrator for session ${sessionIndex}, game ${gameIndex}: ${demoImage}`);
+  
   // Get the mapped image filename instead of using the direct filename
   const mappedImage = getMappedDemonstratorFromFilename(demoImage);
+  console.log(`Mapped ${demoImage} to ${mappedImage}`);
   
   // Always load the image to ensure we get the correct one
   this.load.image(demoImageKey, `assets/demonstrators/${mappedImage}`);
@@ -1153,12 +1186,14 @@ function setupWatch(stage) {
  */
 function setupIndicate(stage) {
   if (!stage.zone) {
+    console.error("Missing zone data");
     return;
   }
   
   // Check for bandit data at zone.zone_bandit
   const bandit = stage.zone.zone_bandit;
   if (!bandit || !stage.demonstrator) {
+    console.error("Missing bandit or demonstrator data");
     return;
   }
   
@@ -1166,6 +1201,10 @@ function setupIndicate(stage) {
   const trajectory = stage.demonstrator.demonstrator_trajectory;
   const numRows = bandit.length;
   const numCols = bandit[0].length;
+  
+  // Debug log to check dimensions
+  console.log(`Loading INDICATE with grid: ${numRows}x${numCols}`);
+  console.log(`Trajectory length: ${trajectory.length}`);
   
   // Use the larger fixed cell size
   let cellWidth = BASE_CELL_SIZE;
@@ -1204,8 +1243,11 @@ function setupIndicate(stage) {
   // Create a session-specific key to avoid reusing demonstrator images across sessions
   const demoImageKey = `demo_s${sessionIndex}_g${gameIndex}_${demoIndex}`;
   
+  console.log(`Loading demonstrator for indicate session ${sessionIndex}, game ${gameIndex}: ${demoImage}`);
+  
   // Get the mapped image filename instead of using the direct filename
   const mappedImage = getMappedDemonstratorFromFilename(demoImage);
+  console.log(`Mapped ${demoImage} to ${mappedImage}`);
   
   // Always load the image to ensure we get the correct one
   this.load.image(demoImageKey, `assets/demonstrators/${mappedImage}`);
@@ -1294,12 +1336,14 @@ function setupIndicate(stage) {
  */
 function setupBlind(stage) {
   if (!stage.zone) {
+    console.error("Missing zone data");
     return;
   }
   
   // Check for bandit data at zone.zone_bandit
   const bandit = stage.zone.zone_bandit;
   if (!bandit) {
+    console.error("Missing bandit data in zone");
     return;
   }
   
@@ -1307,6 +1351,9 @@ function setupBlind(stage) {
   
   let numRows = bandit.length;
   let numCols = bandit[0].length;
+  
+  // Debug log to check dimensions
+  console.log(`Loading BLIND with grid: ${numRows}x${numCols}`);
   
   // Use the larger fixed cell size 
   let cellWidth = BASE_CELL_SIZE;
@@ -1462,6 +1509,9 @@ function setupBlind(stage) {
  * CHOICE stage - user chooses between demonstrators 
  */
 function setupChoice(stage) {
+  console.log("Loading CHOICE stage");
+  console.log("Full stage data:", JSON.stringify(stage, null, 2));
+  
   // Default color if none provided
   const zoneColor = stage.zone && stage.zone.color ? stage.zone.color : "#888888";
   
@@ -1470,9 +1520,12 @@ function setupChoice(stage) {
   let demonstrator1 = stage.demonstrator1 || {};
   let demonstrator2 = stage.demonstrator2 || {};
   
+  console.log("Demonstrator data:", JSON.stringify({ demonstrator1, demonstrator2 }, null, 2));
+  
   // Create demonstrator data if missing or invalid
   if ((!demonstrator1 || Object.keys(demonstrator1).length === 0) && 
       (!demonstrator2 || Object.keys(demonstrator2).length === 0)) {
+    console.warn("Missing demonstrator data for choice stage. Creating default data.");
     demonstrator1 = {
       "demonstrator_type": "novice",
       "demonstrator_index": 0,
@@ -1498,6 +1551,7 @@ function setupChoice(stage) {
     demonstrator2.demonstrator_index || 1
   ];
   
+  console.log(`Found ${demonstratorImages.length} demonstrator images:`, demonstratorImages);
   
   // Configuration
   const numDemonstrators = demonstratorImages.length;
@@ -1606,8 +1660,12 @@ function setupChoice(stage) {
     // Load demonstrator image - use a unique key for the texture that includes session index
     const imageKey = `choice_s${sessionIndex}_demonstrator_${i}`;
     
+    // Make sure the image path is correct
+    console.log(`Loading demonstrator image ${i} for session ${sessionIndex}: ${demonstratorImages[i]}`);
+    
     // Get the mapped image filename instead of using the direct filename
     const mappedImage = getMappedDemonstratorFromFilename(demonstratorImages[i]);
+    console.log(`Mapped ${demonstratorImages[i]} to ${mappedImage}`);
     
     this.load.image(imageKey, `assets/demonstrators/${mappedImage}`);
     
@@ -1704,6 +1762,7 @@ function setupChoice(stage) {
       
       // Add next button - properly bind currentScene
       makeNextButton.call(currentScene, "Next", () => {
+        console.log(`Selected Partner ${selectedDemonstrator}`);
         // Restore normal controls display before moving to next stage
         updateControlsDisplay("default");
         nextStage.call(currentScene);
@@ -1824,6 +1883,9 @@ function addChoiceSelectionToSummary(imageKey, zoneColor, choiceLetter) {
       }
     }
     
+    // Log what we're using for debugging
+    console.log(`Choice selection: using demonstrator image ${demoImage} from index ${demoIndex}, choice letter: ${choiceLetter}`);
+    
     // Use the actual demonstrator image, or fall back to a default
     summaryIcons[choiceIconIndex].imageKey = demoImage || `demonstrator_${demoIndex}`;
     
@@ -1839,302 +1901,57 @@ function addChoiceSelectionToSummary(imageKey, zoneColor, choiceLetter) {
  * ONLINE-CHOICE stage - manages play-choice-watch cycles
  */
 function setupOnlineChoice(stage) {
-  if (!stage.zone || !stage.zone.bandit) {
+  if (!stage.zone || !stage.zone.zone_bandit) {
     return;
   }
   
-  if (!stage.demonstrators) {
+  if (!stage.demonstrator1 || !stage.demonstrator2) {
     return;
   }
   
-  if (!stage.rounds || !stage.num_arm_pulls_per_block || !stage.num_demonstrator_arm_pulls_per_block) {
-    return;
+  // Initialize or get the current phase
+  if (!window.onlineChoicePhase) {
+    window.onlineChoicePhase = 'choice'; // Start with choice phase
+    window.onlineChoiceSelectedDemo = null;
   }
   
-  // Store game state in a global object to persist across sub-stages
-  if (!window.onlineChoiceState) {
-    // Initialize state on first load
-    window.onlineChoiceState = {
-      currentRound: 1,
-      totalRounds: stage.rounds,
-      currentSubStage: "play", // "play", "choice", "watch", or "final-play"
-      chosenDemonstrator: null,
-      demoTrajectoryIndices: {}, // Will store indices for each demonstrator
-      demonstratorHistory: [],
-      // Create a map of demonstrator keys to letters (A, B, C, etc.)
-      demoLetters: {},
-      // Flag to track if summary icon has been added
-      summaryIconAdded: false
-    };
-    
-    // Assign letters to demonstrators (A, B, C, etc.)
-    const demoKeys = Object.keys(stage.demonstrators);
-    demoKeys.forEach((key, index) => {
-      window.onlineChoiceState.demoLetters[key] = String.fromCharCode(65 + index); // A, B, C, etc.
-      window.onlineChoiceState.demoTrajectoryIndices[key] = 0; // Initialize trajectory indices
-    });
-    
-    // Force add a summary icon for the first play sub-stage
-    // This ensures we have an icon for the very first play game
-    maybeAddSummaryIcon(stage);
-  }
+  const currentPhase = window.onlineChoicePhase;
   
-  const state = window.onlineChoiceState;
-  
-  // Handle each sub-stage
-  switch (state.currentSubStage) {
-    case "play":
-      setupOnlineChoicePlay.call(this, stage);
-      break;
-    case "choice":
-      setupOnlineChoiceChoice.call(this, stage);
-      break;
-    case "watch":
-      setupOnlineChoiceWatch.call(this, stage);
-      break;
-    case "final-play":
-      setupOnlineChoiceFinalPlay.call(this, stage);
-      break;
+  if (currentPhase === 'choice') {
+    // Show choice interface
+    setupOnlineChoicePhaseChoice.call(this, stage);
+  } else if (currentPhase === 'watch') {
+    // Show watch interface with selected demonstrator
+    setupOnlineChoicePhaseWatch.call(this, stage);
   }
 }
 
 /**
- * Play sub-stage for online-choice
+ * Choice phase for online-choice
  */
-function setupOnlineChoicePlay(stage) {
+function setupOnlineChoicePhaseChoice(stage) {
   const currentScene = this;
+  const zoneColor = stage.zone && stage.zone.zone_color ? stage.zone.zone_color : "#888888";
   
-  // Initialize onlineChoiceState if not already done
-  if (!window.onlineChoiceState) {
-    window.onlineChoiceState = {
-      currentRound: 1,
-      totalRounds: stage.rounds,
-      currentSubStage: "play", // "play", "choice", "watch", or "final-play"
-      chosenDemonstrator: null,
-      demoTrajectoryIndices: {}, // Will store indices for each demonstrator
-      demonstratorHistory: [],
-      // Create a map of demonstrator keys to letters (A, B, C, etc.)
-      demoLetters: {},
-      // Flag to track if summary icon has been added
-      summaryIconAdded: false
-    };
-    
-    // Assign letters to demonstrators (A, B, C, etc.)
-    const demoKeys = Object.keys(stage.demonstrators);
-    demoKeys.forEach((key, index) => {
-      window.onlineChoiceState.demoLetters[key] = String.fromCharCode(65 + index); // A, B, C, etc.
-      window.onlineChoiceState.demoTrajectoryIndices[key] = 0; // Initialize trajectory indices
-    });
-    
-  } else {
-    // Update the state for this sub-stage
-    window.onlineChoiceState.currentSubStage = 'play';
-  }
-  
-  const state = window.onlineChoiceState;
-  const bandit = stage.zone.bandit;
-  const num_arm_pulls = stage.num_arm_pulls_per_block;
-  
-  let numRows = bandit.length;
-  let numCols = bandit[0].length;
-  
-  // NOTE: We don't need to call maybeAddSummaryIcon here since loadStage already does it
-  // The unique ID approach will prevent duplicates
-  
-  // Check if this is the final play after all rounds
-  const isFinalPlay = state.currentRound === state.totalRounds && 
-                     state.demonstratorHistory.length >= state.totalRounds;
-  
-  
-  // Use the larger fixed cell size 
-  let cellWidth = BASE_CELL_SIZE;
-  let cellHeight = BASE_CELL_SIZE;
-  
-  // Calculate total grid size based on fixed cell size
-  const totalGridWidth = numCols * cellWidth + (numCols - 1) * CELL_PADDING;
-  const totalGridHeight = numRows * cellHeight + (numRows - 1) * CELL_PADDING;
-  
-  // Center the grid in the full container width
-  const gridOriginX = (this.sys.game.config.width - totalGridWidth) / 2;
-  const gridOriginY = 100 + (400 - totalGridHeight) / 2;
-  const gridBottomY = gridOriginY + totalGridHeight;
-
-  // Add zone labels
-  addZoneLabels(this, stage.zone.zone_index);
-  
-  // Show round information with final play indicator if applicable
-  const roundText = this.add.text(
-    this.sys.game.config.width / 2,
-    50,
-    isFinalPlay ? `Final Play (Round ${state.currentRound})` : `Round ${state.currentRound} of ${state.totalRounds}`,
-    { font: '20px Arial', fill: '#ffffff' }
-  ).setOrigin(0.5);
-  
-  // zone background
-  createZoneBackgroundMask.call(this, stage, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
-
-  // Reward tank
-  let pullOutcomes = [];
-  const tankX = gridOriginX + (totalGridWidth / 2);
-  const tankY = gridBottomY + TANK_MARGIN_TOP;
-  const rewardTankContainer = this.add.container(tankX, tankY);
-  rewardTankContainer.setDepth(100); // Add high depth value to ensure visibility
-  drawRewardTank.call(this, rewardTankContainer, num_arm_pulls, pullOutcomes);
-
-  // user sprite - start at random position instead of always (0, 0)
-  let cursorR = Phaser.Math.Between(0, numRows - 1);
-  let cursorC = Phaser.Math.Between(0, numCols - 1);
-  let { x: initX, y: initY } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
-  let userSprite = this.add.image(initX, initY, 'user')
-    .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
-    .setDepth(9999)
-    .setOrigin(0.5);
-
-  // highlight rect
-  let highlightRect = createHighlightRect.call(this, cellWidth, cellHeight);
-  highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
-
-  let pullsRemaining = num_arm_pulls;
-  
-  // Store reference to scene for use in closures
-  const sceneRef = this;
-  
-  // Add clickable areas for each cell
-  let cellRects = [];
-  for (let r = 0; r < numRows; r++) {
-    for (let c = 0; c < numCols; c++) {
-      let rx = gridOriginX + c * (cellWidth + CELL_PADDING);
-      let ry = gridOriginY + r * (cellHeight + CELL_PADDING);
-      
-      let cellRect = this.add.rectangle(rx, ry, cellWidth, cellHeight, 0xffffff, 0)
-        .setOrigin(0, 0)
-        .setInteractive();
-        
-      // Store row and col as properties to avoid closure issues
-      cellRect.cellRow = r;
-      cellRect.cellCol = c;
-        
-      cellRect.on('pointerdown', function() {
-        if (pullsRemaining <= 0) return;
-
-        // Use the stored row/col values from the rectangle properties
-        const clickedR = this.cellRow;
-        const clickedC = this.cellCol;
-
-        // If the user is already at this position, pull the arm
-        if (clickedR === cursorR && clickedC === cursorC) {
-          pullArm.call(sceneRef, clickedR, clickedC);
-        } else {
-          // Otherwise, move to this position
-          cursorR = clickedR;
-          cursorC = clickedC;
-          let { x, y } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
-          userSprite.setPosition(x, y);
-          highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
-        }
-      });
-      
-      cellRects.push(cellRect);
+  // Create demonstrator data from stage
+  const demonstrators = [
+    {
+      key: 'demonstrator1',
+      data: stage.demonstrator1,
+      letter: 'A'
+    },
+    {
+      key: 'demonstrator2', 
+      data: stage.demonstrator2,
+      letter: 'B'
     }
-  }
-  
-  // Function to handle pulling the arm
-  function pullArm(row, col) {
-    const scene = this; // Capture the scene context
-      pullsRemaining--;
-    
-    // Don't try to update remainingText - it doesn't exist in this context!
-    
-    let payoff = bandit[row][col];
-      let outcome = (Math.random() < payoff) ? 1 : 0;
-      
-      // Create a simple flash effect (just one flash)
-    let g = scene.add.graphics();
-      g.fillStyle(HIGHLIGHT_COLOR, 1);
-      g.fillRect(
-      gridOriginX + col*(cellWidth + CELL_PADDING),
-      gridOriginY + row*(cellHeight + CELL_PADDING),
-        cellWidth, cellHeight
-      );
-      
-      // Fade out only to get a single flash
-    scene.tweens.add({
-        targets: g,
-        alpha: 0,
-      duration: 200, // Reduced from 400 to 200
-        onComplete: () => {
-          g.destroy();
-          
-          // Record outcome and update tank
-          pullOutcomes.push(outcome);
-        drawMarkerDot.call(scene, gridOriginX, gridOriginY, cellWidth, cellHeight, row, col, outcome);
-        drawRewardTank.call(scene, rewardTankContainer, num_arm_pulls, pullOutcomes);
-
-      if (pullsRemaining <= 0) {
-          makeNextButton.call(scene, "Next", () => {
-            nextStage.call(scene);
-        });
-      }
-        }
-      });
-  }
-
-  this.input.keyboard.on('keydown', (evt) => {
-    if (pullsRemaining <= 0) return;
-
-    let oldR = cursorR, oldC = cursorC;
-    if (evt.code === 'ArrowUp')    cursorR = Phaser.Math.Clamp(cursorR - 1, 0, numRows-1);
-    if (evt.code === 'ArrowDown')  cursorR = Phaser.Math.Clamp(cursorR + 1, 0, numRows-1);
-    if (evt.code === 'ArrowLeft')  cursorC = Phaser.Math.Clamp(cursorC - 1, 0, numCols-1);
-    if (evt.code === 'ArrowRight') cursorC = Phaser.Math.Clamp(cursorC + 1, 0, numCols-1);
-
-    if (evt.code === 'Space') {
-      pullArm.call(this, cursorR, cursorC);
-    }
-
-    if (oldR !== cursorR || oldC !== cursorC) {
-      let { x, y } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
-      userSprite.setPosition(x, y);
-      highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
-    }
-  });
-}
-
-/**
- * Choice sub-stage for online-choice
- */
-function setupOnlineChoiceChoice(stage) {
-  const currentScene = this;
-  
-  // Update the state for this sub-stage
-  if (window.onlineChoiceState) {
-    window.onlineChoiceState.currentSubStage = 'choice';
-  }
-  
-  const state = window.onlineChoiceState;
-  const zoneColor = stage.zone && stage.zone.color ? stage.zone.color : "#888888";
-  
-  
-  // Show round information
-  const roundText = this.add.text(
-    this.sys.game.config.width / 2,
-    50,
-    `Round ${state.currentRound} of ${state.totalRounds}`,
-    { font: '20px Arial', fill: '#ffffff' }
-  ).setOrigin(0.5);
-  
-  // Update the control display section to show choice-specific controls
-  updateControlsDisplay("choice");
-  
-  // Create the demonstrator cells
-  const demonstrators = stage.demonstrators;
-  const demoKeys = Object.keys(demonstrators);
+  ];
   
   // Configuration
-  const numDemonstrators = demoKeys.length;
+  const numDemonstrators = demonstrators.length;
   const cellWidth = 150;
   const cellHeight = 150;
-  const cellPadding = 100; // More padding for clearer separation
+  const cellPadding = 30;
   
   // Calculate total grid width
   const totalWidth = numDemonstrators * cellWidth + (numDemonstrators - 1) * cellPadding;
@@ -2143,14 +1960,52 @@ function setupOnlineChoiceChoice(stage) {
   const gridX = (this.sys.game.config.width - totalWidth) / 2;
   const gridY = 200;
   
+  // Create title text (same as regular choice game)
+  const titleText = this.add.text(
+    this.sys.game.config.width / 2,
+    100,
+    "Choose your preferred partner:",
+    { 
+      font: '28px Arial', 
+      fill: '#ffffff',
+      align: 'center'
+    }
+  ).setOrigin(0.5);
+  
+  // Create instruction text (use transfer flag to determine message)
+  const transferText = stage.transfer === true ? "in a new zone" : "in the same zone";
+  const instructionText = this.add.text(
+    this.sys.game.config.width / 2,
+    gridY + cellHeight + 150,
+    `Choose the starship you would watch before playing again to achieve higher rewards ${transferText}.`,
+    { 
+      font: '18px Arial', 
+      fill: '#ffffff',
+      align: 'center',
+      wordWrap: { width: 600 }
+    }
+  ).setOrigin(0.5);
+  
+  // Create instruction for controls (same as regular choice game)
+  const controlsText = this.add.text(
+    this.sys.game.config.width / 2,
+    gridY + cellHeight + 200,
+    "Use arrow keys to move and spacebar to select",
+    { 
+      font: '16px Arial', 
+      fill: '#aaaaaa',
+      align: 'center'
+    }
+  ).setOrigin(0.5);
+  
+  // Update the control display section to show choice-specific controls
+  updateControlsDisplay("choice");
+  
   // Create cells for each demonstrator
   const cells = [];
   
-  for (let i = 0; i < demoKeys.length; i++) {
-    const demoKey = demoKeys[i];
-    const demo = demonstrators[demoKey];
-    const partnerLetter = state.demoLetters[demoKey]; // Get assigned letter (A, B, etc.)
-    
+  for (let i = 0; i < demonstrators.length; i++) {
+    const demo = demonstrators[i];
     const x = gridX + i * (cellWidth + cellPadding) + cellWidth/2;
     const y = gridY + cellHeight/2;
     
@@ -2161,11 +2016,11 @@ function setupOnlineChoiceChoice(stage) {
       0x333333
     ).setOrigin(0.5);
     
-    // Create label with Partner + Letter
-    const label = this.add.text(
+    // Create letter label (same format as regular choice game)
+    const letterText = this.add.text(
       x,
       gridY - 30,
-      `Partner ${partnerLetter}`,
+      `Partner ${demo.letter}`,
       { 
         font: '18px Arial', 
         fill: '#ffffff',
@@ -2174,26 +2029,22 @@ function setupOnlineChoiceChoice(stage) {
       }
     ).setOrigin(0.5);
     
-    // Load demonstrator image - use path directly from json
-    const imageKey = `online_choice_${demoKey}`;
+    // Load demonstrator image
+    const imageKey = `online_choice_${demo.key}`;
+    const imagePath = demo.data.demonstrator_image;
     
-    // Get the image path from the demonstrator configuration
-    // In the new format, image is in demonstrator_image
-    const imagePath = demo.demonstrator_image;
-    
-    // Get the mapped image filename instead of using the direct filename
+    // Get the mapped image filename
     const mappedImage = getMappedDemonstratorFromFilename(imagePath);
-    
-    // Load from the demonstrators folder with the mapped image path
     this.load.image(imageKey, `assets/demonstrators/${mappedImage}`);
     
     cells.push({
-      key: demoKey,
-      letter: partnerLetter,
+      key: demo.key,
+      data: demo.data,
+      letter: demo.letter,
       x,
       y,
       background: cellBg,
-      label,
+      letterText: letterText,
       imageKey
     });
   }
@@ -2224,7 +2075,7 @@ function setupOnlineChoiceChoice(stage) {
       parseInt(zoneColor.replace('#', '0x')) || 0x888888
     ).setOrigin(0.5).setAlpha(0.3);
     
-    // User sprite below cells
+    // Position for user sprite (below the cells, same as regular choice game)
     const userY = gridY + cellHeight + 40;
     let userX = cells[0].x;
     let currentPosition = 0;
@@ -2236,7 +2087,7 @@ function setupOnlineChoiceChoice(stage) {
       .setDepth(9999)
       .setOrigin(0.5);
     
-    // Selection feedback text (initially hidden)
+    // Selection feedback text (initially hidden, same position as regular choice game)
     const feedbackText = currentScene.add.text(
       currentScene.sys.game.config.width / 2,
       gridY + cellHeight + 120,
@@ -2276,46 +2127,35 @@ function setupOnlineChoiceChoice(stage) {
     
     // Function to handle selection
     function selectDemonstrator(index) {
-      const demoKey = cells[index].key;
-      const partnerLetter = cells[index].letter;
+      const selectedCell = cells[index];
+      selectedDemonstrator = selectedCell;
       
-      selectedDemonstrator = demoKey;
+      // Store the selection globally
+      window.onlineChoiceSelectedDemo = selectedCell;
       
-      // Store the selection
-      state.chosenDemonstrator = selectedDemonstrator;
-      state.demonstratorHistory.push(selectedDemonstrator);
-      
-      // Show selection feedback using Partner Letter
-      feedbackText.setText(`You selected Partner ${partnerLetter}`);
+      // Show selection feedback
+      feedbackText.setText(`You selected Partner ${selectedCell.letter}`);
       feedbackText.setVisible(true);
       
       // Highlight selected with stronger border
       highlightRect.setStrokeStyle(4, parseInt(zoneColor.replace('#', '0x')) || 0x888888);
       highlightRect.setAlpha(0.6);
       
-      // Add the selected demonstrator to the summary bar
-      addOnlineChoiceSelectionToSummary(cells[index].imageKey, stage.zone, partnerLetter);
+      // Update summary icon with selected demonstrator
+      updateOnlineChoiceSummaryIcon(selectedCell.imageKey, stage.zone.zone_color, selectedCell.letter);
       
-      // Add next button
-      const nextButton = currentScene.add.text(
-        currentScene.sys.game.config.width - 100,
-        currentScene.sys.game.config.height - 40,
-        "Next",
-        { font: '18px Arial', fill: '#00ff00', backgroundColor: '#333', padding: 5 }
-      ).setOrigin(0.5).setInteractive();
-      
-      nextButton.on('pointerdown', () => {
-        
+      // Add next button (same as regular choice game)
+      makeNextButton.call(currentScene, "Next", () => {
         // Restore default controls
         updateControlsDisplay("default");
         
-        // Move to watch sub-stage
-        state.currentSubStage = "watch";
+        // Move to watch phase
+        window.onlineChoicePhase = 'watch';
         loadStage.call(currentScene);
       });
     }
     
-    // Listen for arrow keys and spacebar
+    // Listen for arrow keys and spacebar (same as regular choice game)
     currentScene.input.keyboard.on('keydown', (evt) => {
       // Only allow movement if not already selected
       if (selectedDemonstrator !== null) return;
@@ -2348,106 +2188,44 @@ function setupOnlineChoiceChoice(stage) {
 }
 
 /**
- * Add the selected demonstrator to the summary bar after online choice
+ * Watch phase for online-choice
  */
-function addOnlineChoiceSelectionToSummary(imageKey, zone, partnerLetter) {
-  if (!zone) return;
-  
-  // Look for an online-choice icon in the summaryIcons array
-  let choiceIconIndex = -1;
-  for (let i = 0; i < summaryIcons.length; i++) {
-    if (summaryIcons[i].zone === zone.zone_index) {
-      choiceIconIndex = i;
-      break;
-    }
-  }
-  
-  // If we found an online-choice icon, update it with the selected demonstrator
-  if (choiceIconIndex >= 0) {
-    // For online_choice keys (format: online_choice_expert or online_choice_novice)
-    // Extract the demonstrator type from imageKey
-    const demoType = imageKey.split('_').slice(2).join('_'); // Gets "expert" or "novice"
-    
-    // Find the corresponding image in the demonstrators object of the stage
-    const demo = window.onlineChoiceState.chosenDemonstrator;
-    
-    // Use demonstrator format for summary icon
-    // In the new format, index is in demonstrator_index 
-    const demoIndex = (zone.demonstrators && zone.demonstrators[demo]) ? 
-      zone.demonstrators[demo].demonstrator_index : 0;
-      
-    // Convert to the proper format expected by redrawSummaryBarDOM
-    summaryIcons[choiceIconIndex].imageKey = `demonstrator_0${demoIndex}`;
-    
-    // Store the partner letter for display
-    if (partnerLetter) {
-      summaryIcons[choiceIconIndex].choiceLetter = partnerLetter;
-    }
-    
-    // Redraw the summary bar to show the change
-    redrawSummaryBarDOM();
-  }
-}
-
-/**
- * Watch sub-stage for online-choice
- */
-function setupOnlineChoiceWatch(stage) {
+function setupOnlineChoicePhaseWatch(stage) {
   const currentScene = this;
   
-  // Update the state for this sub-stage
-  if (window.onlineChoiceState) {
-    window.onlineChoiceState.currentSubStage = 'watch';
-  }
-  
-  const state = window.onlineChoiceState;
-  const bandit = stage.zone.bandit;
-  const numPulls = stage.num_demonstrator_arm_pulls_per_block;
-  
-  // Get the selected demonstrator
-  const selectedDemoKey = state.chosenDemonstrator;
-  const selectedDemo = stage.demonstrators[selectedDemoKey];
-  const partnerLetter = state.demoLetters[selectedDemoKey]; // Get the letter (A, B, etc.)
-  
+  // Get the selected demonstrator from the choice phase
+  const selectedDemo = window.onlineChoiceSelectedDemo;
   if (!selectedDemo) {
     return;
   }
   
-  // Define numRows and numCols before using them
-  let numRows = bandit.length;
-  let numCols = bandit[0].length;
+  // Use watch-overlay-message if available, otherwise use default
+  const overlayMessage = stage["watch-overlay-message"] || 
+    "You will now watch your chosen starship partner.";
   
+  // Get demonstrator data and trajectory
+  const demoData = selectedDemo.data;
+  const trajectory = demoData.demonstrator_trajectory;
   
-  // NOTE: We don't need to call maybeAddSummaryIcon here since loadStage already does it
-  // The unique ID approach will prevent duplicates
+  const bandit = stage.zone.zone_bandit;
+  const numRows = bandit.length;
+  const numCols = bandit[0].length;
   
-  // Show which demonstrator is being shown (using Partner letter)
-  const demoTypeText = this.add.text(
-    this.sys.game.config.width / 2,
-    70,
-    `Watching Partner ${partnerLetter}`,
-    { font: '22px Arial', fill: '#ffffff' }
-  ).setOrigin(0.5);
-  
-  // Show round information
-  const roundText = this.add.text(
+  // Show zone information
+  const zoneText = this.add.text(
     this.sys.game.config.width / 2,
     30,
-    `Round ${state.currentRound} of ${state.totalRounds}`,
+    `Zone ${stage.zone.zone_index}`,
     { font: '20px Arial', fill: '#ffffff' }
   ).setOrigin(0.5);
   
-  // Get the correct index for the demonstrator's trajectory
-  let trajectoryStartIndex = state.demoTrajectoryIndices[selectedDemoKey] || 0;
-  state.demoTrajectoryIndices[selectedDemoKey] = trajectoryStartIndex + numPulls;
-  
-  // Get the relevant portion of the trajectory
-  // In the new format, trajectory is in demonstrator_trajectory
-  const trajectory = selectedDemo.demonstrator_trajectory.slice(trajectoryStartIndex, trajectoryStartIndex + numPulls);
-  
-  // If trajectory is too short, log warning but continue with what we have
-  if (trajectory.length < numPulls) {
-  }
+  // Show which demonstrator is being watched
+  const demoText = this.add.text(
+    this.sys.game.config.width / 2,
+    70,
+    `Watching Partner ${selectedDemo.letter}`,
+    { font: '22px Arial', fill: '#ffffff' }
+  ).setOrigin(0.5);
   
   // Use the larger fixed cell size
   let cellWidth = BASE_CELL_SIZE;
@@ -2473,7 +2251,7 @@ function setupOnlineChoiceWatch(stage) {
   const tankX = gridOriginX + (totalGridWidth / 2);
   const tankY = gridBottomY + TANK_MARGIN_TOP;
   const rewardTankContainer = this.add.container(tankX, tankY);
-  rewardTankContainer.setDepth(100); // Add high depth value to ensure visibility
+  rewardTankContainer.setDepth(100);
   drawRewardTank.call(this, rewardTankContainer, trajectory.length, watchOutcomes);
 
   let highlightRect = createHighlightRect.call(this, cellWidth, cellHeight);
@@ -2484,12 +2262,10 @@ function setupOnlineChoiceWatch(stage) {
   let currentC = currentLinearIndex % numCols;
   
   // Load demonstrator image
-  const demoImageKey = `online_watch_${selectedDemoKey}`;
+  const demoImageKey = `online_watch_${selectedDemo.key}`;
+  const demoImagePath = demoData.demonstrator_image;
   
-  // Get the image path directly from the selected demonstrator config
-  const demoImagePath = selectedDemo.demonstrator_image;
-  
-  // Get the mapped image filename instead of using the direct filename
+  // Get the mapped image filename
   const mappedImage = getMappedDemonstratorFromFilename(demoImagePath);
   
   if (!this.textures.exists(demoImageKey)) {
@@ -2512,7 +2288,7 @@ function setupOnlineChoiceWatch(stage) {
     let currentStep = 0;
     let totalSteps = trajectory.length;
 
-    // Add a delay before starting the trajectory to allow all assets to load
+    // Add a delay before starting the trajectory
     currentScene.time.delayedCall(WATCH_START_DELAY, () => {
       moveAlongTrajectoryStep.call(currentScene);
     });
@@ -2520,16 +2296,11 @@ function setupOnlineChoiceWatch(stage) {
     function moveAlongTrajectoryStep() {
       if (currentStep >= totalSteps) {
         // When demonstration is complete, show next button
-        const nextButton = currentScene.add.text(
-          currentScene.sys.game.config.width - 100,
-          currentScene.sys.game.config.height - 40,
-          "Next",
-          { font: '18px Arial', fill: '#00ff00', backgroundColor: '#333', padding: 5 }
-        ).setOrigin(0.5).setInteractive();
-        
-        nextButton.on('pointerdown', () => {
-          // Call our new function to handle completing the watch stage
-          finishOnlineChoiceWatch.call(currentScene);
+        makeNextButton.call(currentScene, "Next", () => {
+          // Reset online choice state and move to next stage
+          window.onlineChoicePhase = null;
+          window.onlineChoiceSelectedDemo = null;
+          nextStage.call(currentScene);
         });
         return;
       }
@@ -2542,7 +2313,7 @@ function setupOnlineChoiceWatch(stage) {
 
       let index = 0;
       let pathTimer = currentScene.time.addEvent({
-        delay: 600, // Increased from 300 to 600 (doubled)
+        delay: 600,
         repeat: pathCells.length - 1,
         callback: () => {
           let cell = pathCells[index];
@@ -2560,7 +2331,7 @@ function setupOnlineChoiceWatch(stage) {
             let payoff = bandit[currentR][currentC];
             let outcome = (Math.random() < payoff) ? 1 : 0;
             
-            // Create a simple flash effect (just one flash)
+            // Create a simple flash effect
             let g = currentScene.add.graphics();
             g.fillStyle(HIGHLIGHT_COLOR, 1);
             g.fillRect(
@@ -2569,11 +2340,11 @@ function setupOnlineChoiceWatch(stage) {
               cellWidth, cellHeight
             );
             
-            // Fade out only (NO YOYO!) to get a single flash
+            // Fade out only
             currentScene.tweens.add({
               targets: g,
               alpha: 0,
-              duration: 200, // Reduced from 400 to 200 for quicker flash
+              duration: 200,
               onComplete: () => {
                 g.destroy();
                 
@@ -2594,244 +2365,31 @@ function setupOnlineChoiceWatch(stage) {
 }
 
 /**
- * FINAL PLAY sub-stage for online-choice
+ * Update the summary icon for online-choice selection
  */
-function setupOnlineChoiceFinalPlay(stage) {
-  const state = window.onlineChoiceState;
-  const zoneColor = stage.zone && stage.zone.color ? stage.zone.color : "#888888";
-  
-  
-  // Store a reference to the scene
-  const currentScene = this;
-  
-  // Create title text
-  const titleText = this.add.text(
-    this.sys.game.config.width / 2,
-    100,
-    "Final Play:",
-    { 
-      font: '28px Arial', 
-      fill: '#ffffff',
-      align: 'center'
+function updateOnlineChoiceSummaryIcon(imageKey, zoneColor, choiceLetter) {
+  // Look for the online-choice icon in the summaryIcons array
+  let onlineChoiceIconIndex = -1;
+  for (let i = 0; i < summaryIcons.length; i++) {
+    if (summaryIcons[i].imageKey === null && summaryIcons[i].zone !== 'Choice') {
+      onlineChoiceIconIndex = i;
+      break;
     }
-  ).setOrigin(0.5);
-  
-  // Show round information
-  const roundText = this.add.text(
-    this.sys.game.config.width / 2,
-    50,
-    `Round ${state.totalRounds} of ${state.totalRounds}`,
-    { font: '20px Arial', fill: '#ffffff' }
-  ).setOrigin(0.5);
-  
-  // Create the demonstrator cells
-  const demonstrators = stage.demonstrators;
-  const demoKeys = Object.keys(demonstrators);
-  
-  // Configuration
-  const numDemonstrators = demoKeys.length;
-  const cellWidth = 150;
-  const cellHeight = 150;
-  const cellPadding = 100; // More padding for clearer separation
-  
-  // Calculate total grid width
-  const totalWidth = numDemonstrators * cellWidth + (numDemonstrators - 1) * cellPadding;
-  
-  // Position grid in center of screen
-  const gridX = (this.sys.game.config.width - totalWidth) / 2;
-  const gridY = 200;
-  
-  // Create cells for each demonstrator
-  const cells = [];
-  
-  for (let i = 0; i < demoKeys.length; i++) {
-    const demoKey = demoKeys[i];
-    const demo = demonstrators[demoKey];
-    
-    const x = gridX + i * (cellWidth + cellPadding) + cellWidth/2;
-    const y = gridY + cellHeight/2;
-    
-    // Create background
-    const cellBg = this.add.rectangle(
-      x, y,
-      cellWidth, cellHeight,
-      0x333333
-    ).setOrigin(0.5);
-    
-    // Create label with demonstrator type (expert/novice)
-    // In the new format, type is in demonstrator_type
-    const labelText = demo.demonstrator_type ? 
-      demo.demonstrator_type.charAt(0).toUpperCase() + demo.demonstrator_type.slice(1) : // Capitalize
-      demoKey.charAt(0).toUpperCase() + demoKey.slice(1); // Fallback to key
-    
-    const label = this.add.text(
-      x,
-      gridY - 30,
-      labelText,
-      { 
-        font: '18px Arial', 
-        fill: '#ffffff',
-        backgroundColor: '#333333',
-        padding: { x: 10, y: 5 }
-      }
-    ).setOrigin(0.5);
-    
-    // Load demonstrator image
-    const imageKey = `online_choice_${demoKey}`;
-    
-    // Get the mapped image filename instead of using the direct filename
-    const mappedImage = getMappedDemonstratorFromFilename(demo.demonstrator_image);
-    
-    this.load.image(imageKey, `assets/demonstrators/${mappedImage}`);
-    
-    cells.push({
-      key: demoKey,
-      x,
-      y,
-      background: cellBg,
-      label,
-      imageKey
-    });
   }
   
-  // Once all images are loaded, create the demonstrator sprites
-  this.load.once('complete', () => {
-    // Add images to cells
-    for (let i = 0; i < cells.length; i++) {
-      const cell = cells[i];
-      cell.image = currentScene.add.image(cell.x, cell.y, cell.imageKey).setOrigin(0.5);
+  // If we found the online-choice icon, update it with the selected demonstrator
+  if (onlineChoiceIconIndex >= 0) {
+    // Extract demonstrator image from the selected demonstrator
+    const selectedDemo = window.onlineChoiceSelectedDemo;
+    if (selectedDemo && selectedDemo.data) {
+      const demoImage = selectedDemo.data.demonstrator_image.replace('.png', '');
+      summaryIcons[onlineChoiceIconIndex].imageKey = demoImage;
+      summaryIcons[onlineChoiceIconIndex].choiceLetter = choiceLetter;
       
-      // Scale to fit
-      const scale = Math.min(
-        (cellWidth - 20) / cell.image.width,
-        (cellHeight - 20) / cell.image.height
-      );
-      cell.image.setScale(scale);
-      
-      // Make cells clickable
-      cell.background.setInteractive();
-      cell.image.setInteractive();
+      // Redraw the summary bar to show the change
+      redrawSummaryBarDOM();
     }
-    
-    // Add highlight for selection
-    const highlightRect = currentScene.add.rectangle(
-      cells[0].x, cells[0].y,
-      cellWidth + 10, cellHeight + 10,
-      parseInt(zoneColor.replace('#', '0x')) || 0x888888
-    ).setOrigin(0.5).setAlpha(0.3);
-    
-    // User sprite below cells
-    const userY = gridY + cellHeight + 40;
-    let userX = cells[0].x;
-    let currentPosition = 0;
-    let selectedDemonstrator = null;
-    
-    // Add user sprite
-    const userSprite = currentScene.add.image(userX, userY, 'user')
-      .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
-      .setDepth(9999)
-      .setOrigin(0.5);
-    
-    // Selection feedback text (initially hidden)
-    const feedbackText = currentScene.add.text(
-      currentScene.sys.game.config.width / 2,
-      gridY + cellHeight + 120,
-      "",
-      { 
-        font: '20px Arial', 
-        fill: '#4CAF50',
-        align: 'center',
-        backgroundColor: '#333333',
-        padding: { x: 15, y: 10 }
-      }
-    ).setOrigin(0.5).setVisible(false);
-    
-    // Add click handlers for all cells
-    for (let i = 0; i < cells.length; i++) {
-      const cell = cells[i];
-      
-      const clickHandler = () => {
-        // Only allow selection if not already selected
-        if (selectedDemonstrator !== null) return;
-        
-        // If already on this position, select it
-        if (currentPosition === i) {
-          selectDemonstrator(i);
-        } else {
-          // Move to this position
-          currentPosition = i;
-          userX = cells[currentPosition].x;
-          userSprite.setPosition(userX, userY);
-          highlightRect.setPosition(cells[currentPosition].x, cells[currentPosition].y);
-        }
-      };
-      
-      cell.background.on('pointerdown', clickHandler);
-      cell.image.on('pointerdown', clickHandler);
-    }
-    
-    // Function to handle selection
-    function selectDemonstrator(index) {
-      selectedDemonstrator = cells[index].key;
-      
-      // Store the selection
-      state.chosenDemonstrator = selectedDemonstrator;
-      state.demonstratorHistory.push(selectedDemonstrator);
-      
-      // Show selection feedback
-      feedbackText.setText(`You selected: ${selectedDemonstrator}`);
-      feedbackText.setVisible(true);
-      
-      // Highlight selected with stronger border
-      highlightRect.setStrokeStyle(4, parseInt(zoneColor.replace('#', '0x')) || 0x888888);
-      highlightRect.setAlpha(0.6);
-      
-      // Add next button
-      const nextButton = currentScene.add.text(
-        currentScene.sys.game.config.width - 100,
-        currentScene.sys.game.config.height - 40,
-        "Next",
-        { font: '18px Arial', fill: '#00ff00', backgroundColor: '#333', padding: 5 }
-      ).setOrigin(0.5).setInteractive();
-      
-      nextButton.on('pointerdown', () => {
-        
-        // Move to watch sub-stage
-        state.currentSubStage = "watch";
-        loadStage.call(currentScene);
-      });
-    }
-    
-    // Listen for arrow keys and spacebar
-    currentScene.input.keyboard.on('keydown', (evt) => {
-      // Only allow movement if not already selected
-      if (selectedDemonstrator !== null) return;
-      
-      let oldPosition = currentPosition;
-      
-      if (evt.code === 'ArrowLeft') {
-        currentPosition = Math.max(0, currentPosition - 1);
-      }
-      if (evt.code === 'ArrowRight') {
-        currentPosition = Math.min(cells.length - 1, currentPosition + 1);
-      }
-      
-      // If position changed, update user sprite and highlight
-      if (oldPosition !== currentPosition) {
-        userX = cells[currentPosition].x;
-        userSprite.setPosition(userX, userY);
-        highlightRect.setPosition(cells[currentPosition].x, cells[currentPosition].y);
-      }
-      
-      // Space to select
-      if (evt.code === 'Space') {
-        selectDemonstrator(currentPosition);
-      }
-    });
-  });
-  
-  // Start loading the images
-  this.load.start();
+  }
 }
 
 /************************************************
@@ -2841,6 +2399,7 @@ function nextStage() {
   // Use the structure discovery from loadStage to handle nested arrays
   const currentSession = timelineData[currentSessionIndex];
   
+  console.log(`Current session: ${currentSessionIndex}, stage: ${currentStageIndex}`);
   
   // Check if we're at the end of all sessions
   if (currentSessionIndex >= timelineData.length) {
@@ -2870,6 +2429,7 @@ function nextStage() {
       totalStagesSoFar += container.length;
     }
     
+    console.log(`In nested session, container: ${currentContainerIndex}, stage in container: ${stageIndexInContainer}`);
     
     // Check if this is the last stage in the current container
     const isLastInContainer = (stageIndexInContainer === currentSession[currentContainerIndex].length - 1);
@@ -2885,12 +2445,14 @@ function nextStage() {
     
     // Check if we need to move to the next session
     if (isLastStageInSession) {
+      console.log("End of nested session reached, moving to next session");
       currentSessionIndex++;
       currentStageIndex = 0;
       
       // Clear summary icons when starting a new session
       summaryIcons = [];
       redrawSummaryBarDOM();
+      console.log("Cleared summary bar for new session");
     }
   } else {
     // For simple array sessions, the logic is more straightforward
@@ -2901,12 +2463,14 @@ function nextStage() {
     
     // Check if we need to move to the next session
     if (currentStageIndex >= currentSession.length) {
+      console.log("End of simple session reached, moving to next session");
       currentSessionIndex++;
       currentStageIndex = 0;
       
       // Clear summary icons when starting a new session
       summaryIcons = [];
       redrawSummaryBarDOM();
+      console.log("Cleared summary bar for new session");
     }
   }
   
@@ -2920,11 +2484,13 @@ function nextStage() {
   const nextStageObj = getCurrentStageObject();
   
   if (!nextStageObj) {
+    console.error("Could not find next stage object!");
     return;
   }
   
   // Get the stage type from both possible properties
   const nextStageType = nextStageObj.stage_type || nextStageObj.game;
+  console.log(`Next stage type: ${nextStageType}, session: ${currentSessionIndex}, stage: ${currentStageIndex}`);
   
   // Check if it's a gameplay stage that needs a transition overlay
   const gameplayStages = ['practice', 'play', 'watch', 'indicate', 'blind', 'choice', 'online-choice'];
@@ -3062,9 +2628,11 @@ function createZoneBackgroundMask(stage, gridX, gridY, numRows, numCols, cellWid
       // Check if image is already loaded
       if (!this.textures.exists(backgroundImageKey)) {
         // Load the background image from zone_backgrounds folder
+        console.log(`Loading zone background image: ${background}`);
         
         // Get the mapped image filename instead of using the direct filename
         const mappedBackground = getMappedZoneBackgroundFromFilename(background);
+        console.log(`Mapped ${background} to ${mappedBackground}`);
         
         this.load.image(backgroundImageKey, `assets/zone_backgrounds/${mappedBackground}`);
         this.load.once('complete', () => {
@@ -3138,6 +2706,7 @@ function createZoneBackgroundMask(stage, gridX, gridY, numRows, numCols, cellWid
       // Make sure we've loaded the landscape image
       const landscapeImage = stage.zone.images || stage.zone.zone_images;
       if (!landscapeImage || landscapeImage.length === 0) {
+        console.error("Missing landscape images");
         return;
       }
       
@@ -3146,6 +2715,7 @@ function createZoneBackgroundMask(stage, gridX, gridY, numRows, numCols, cellWid
       if (!this.textures.exists(landscapeKey)) {
         // Get the mapped image filename instead of using the direct filename
         const mappedLandscape = getMappedLandscapeFromFilename(landscapeImage[0]);
+        console.log(`Mapped ${landscapeImage[0]} to ${mappedLandscape}`);
         
         this.load.image(landscapeKey, `assets/landscapes/${mappedLandscape}`);
         this.load.once('complete', () => {
@@ -3161,6 +2731,7 @@ function createZoneBackgroundMask(stage, gridX, gridY, numRows, numCols, cellWid
       // Make sure we've loaded all the asteroid images
       const asteroidImages = stage.zone.images || stage.zone.zone_images;
       if (!asteroidImages || asteroidImages.length === 0) {
+        console.error("Missing asteroid images");
         return;
       }
       
@@ -3460,16 +3031,22 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
     case 'play': buttonText = 'Play'; break; // Use "Play" for blind too
     case 'blind': buttonText = 'Play'; break; // Use "Play" for blind too
     case 'choice': buttonText = 'Ready to Choose'; break; // Changed from "Choose" to "Ready to Choose"
-    case 'online-choice': buttonText = 'Start'; break; // Add "Start" for online-choice
+    case 'online-choice': buttonText = 'Ready to Choose'; break; // Use same as choice
     case 'watch': buttonText = 'Watch'; break;
     case 'indicate': buttonText = 'Watch'; break; // Indicate also uses "Watch"
     default: buttonText = 'Next';
   }
   
-  // Get the overlay message directly from timeline.json
-  let message = nextStage["overlay-message"] || 
-               (nextStage.zone && nextStage.zone["overlay-message"]) || 
-               `Get ready to ${buttonText.toLowerCase()}!`;
+  // Get the overlay message - for online-choice, use choice-overlay-message
+  let message;
+  if (stageType === 'online-choice') {
+    message = nextStage["choice-overlay-message"] || 
+             "Choose the starship you would watch before playing again to achieve higher rewards.";
+  } else {
+    message = nextStage["overlay-message"] || 
+             (nextStage.zone && nextStage.zone["overlay-message"]) || 
+             `Get ready to ${buttonText.toLowerCase()}!`;
+  }
   
   // Add the message text
   const messageText = scene.add.text(
@@ -3490,6 +3067,7 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
     const gameContainer = document.getElementById('game-container');
     if (gameContainer) {
       gameContainer.style.border = `10px solid ${zoneColor}`;
+      console.log(`Updated game container border to ${zoneColor}`);
     }
   }
   
@@ -3501,6 +3079,7 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   if (zone) {
     // Always use zone_color from timeline.json rather than color property
     const zoneColor = zone.zone_color || zone.color || '#ffffff';
+    console.log(`Transition overlay using zone_color: ${zoneColor}`);
     const zoneIndex = zone.zone_index;
     
     // For choice game, use a special zone display
@@ -3515,9 +3094,11 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
     }
   } else if (stageType === 'choice') {
     // Fallback for choice with no zone - use a default color
+    console.log("Using fallback color for choice with no zone");
     createChoiceZoneIcon(scene, '#888888');
   } else if (stageType === 'online-choice') {
     // Fallback for online-choice with no zone - use a default color
+    console.log("Using fallback color for online-choice with no zone");
     createOnlineChoiceZoneIcon(scene, '#888888', 0);
   }
   
@@ -3561,6 +3142,7 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
 
 // Create a summary-style icon (similar to the summary bar)
 function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneIndex) {
+    console.log(`Creating summary icon with zone color: ${zoneColor}`);
     
     // Convert color string to hex number - handle both named colors and hex codes
     let colorHex;
@@ -3592,6 +3174,7 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
         colorHex = colorMap[zoneColor.toLowerCase()] || 0xFF0000; // Default to red if not found
     }
     
+    console.log(`Converted color hex: 0x${colorHex.toString(16).padStart(6, '0').toUpperCase()}`);
     
     // Create dimensions for the icon
     const iconWidth = 140;
@@ -3644,9 +3227,11 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
             
             // Always load a fresh copy of the image to avoid caching issues
             const demoImage = nextStage.demonstrator.demonstrator_image;
+            console.log(`Loading transition overlay demonstrator image: ${demoImage} for session ${sessionIndex}, game ${gameIndex}`);
             
             // Get the mapped image filename instead of using the direct filename
             const mappedImage = getMappedDemonstratorFromFilename(demoImage);
+            console.log(`Mapped transition overlay ${demoImage} to ${mappedImage}`);
             
             scene.load.image(playerImageKey, `assets/demonstrators/${mappedImage}`);
             scene.load.once('complete', () => {
@@ -3697,6 +3282,7 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
 
 // Special function to create the choice zone icon
 function createChoiceZoneIcon(scene, zoneColor) {
+    console.log(`Creating choice zone icon with color: ${zoneColor}`);
     
     // Convert color string to hex number - handle both named colors and hex codes
     let colorHex;
@@ -3728,6 +3314,7 @@ function createChoiceZoneIcon(scene, zoneColor) {
         colorHex = colorMap[zoneColor.toLowerCase()] || 0xFF0000; // Default to red if not found
     }
     
+    console.log(`Choice zone color: ${zoneColor}, hex: ${colorHex}`);
     
     // Create dimensions for the icon
     const iconWidth = 140;
@@ -3785,6 +3372,7 @@ function createChoiceZoneIcon(scene, zoneColor) {
         );
         
         // Debug the user image
+        console.log("Adding user image for choice:", playerImage);
         
         // Scale image to fit
         const imageSize = 80;
@@ -3808,6 +3396,7 @@ function createChoiceZoneIcon(scene, zoneColor) {
 
 // Special function for online-choice zone icon
 function createOnlineChoiceZoneIcon(scene, zoneColor, zoneIndex) {
+    console.log("Creating online-choice zone icon");
     
     // Convert color string to hex number - handle both named colors and hex codes
     let colorHex;
@@ -3839,6 +3428,7 @@ function createOnlineChoiceZoneIcon(scene, zoneColor, zoneIndex) {
         colorHex = colorMap[zoneColor.toLowerCase()] || 0xFF0000; // Default to red if not found
     }
     
+    console.log(`Online-choice zone color: ${zoneColor}, hex: ${colorHex}`);
     
     // Create dimensions for the icon
     const iconWidth = 140;
@@ -3896,6 +3486,7 @@ function createOnlineChoiceZoneIcon(scene, zoneColor, zoneIndex) {
         );
         
         // Debug the user image
+        console.log("Adding user image for online-choice:", playerImage);
         
         // Scale image to fit
         const imageSize = 80;
@@ -3915,31 +3506,4 @@ function createOnlineChoiceZoneIcon(scene, zoneColor, zoneIndex) {
         ).setOrigin(0.5);
         container.add(zoneText);
     }
-}
-
-function finishOnlineChoiceWatch() {
-  const currentScene = this;
-  
-  // Update round number before proceeding to next round
-  if (window.onlineChoiceState) {
-    const state = window.onlineChoiceState;
-    
-    // Before incrementing round, set the next substage to play
-    state.currentSubStage = "play";
-    
-    // Check if we've completed all rounds
-    if (state.currentRound >= state.totalRounds) {
-      window.onlineChoiceState = null; // Clear state for next time
-      // Move to next stage in timeline
-      nextStage.call(currentScene);
-    } else {
-      // Not at the last round yet, increment round number
-      state.currentRound++;
-      // Go back to play sub-stage
-      loadStage.call(currentScene);
-    }
-  } else {
-    // If state is somehow missing, just move to next stage
-    nextStage.call(currentScene);
-  }
 }

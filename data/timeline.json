@@ -527,8 +527,9 @@
         ],
         [
             {
-                "game": "choice",
-                "game_index": 8,
+                "game": "online-choice",
+                "choice_game_index": 8,
+                "watch_game_index": 9,
                 "num_arm_pulls": null,
                 "transfer": false,
                 "stage_index": 1,
@@ -540,50 +541,67 @@
                     "zone_color": "#f2b179",
                     "zone_mode": "asteroid",
                     "zone_images": [
-                        "asteroid_75.png",
-                        "asteroid_63.png",
-                        "asteroid_42.png",
-                        "asteroid_00.png",
-                        "asteroid_29.png",
-                        "asteroid_47.png",
-                        "asteroid_34.png",
-                        "asteroid_09.png",
+                        "asteroid_12.png",
+                        "asteroid_49.png",
+                        "asteroid_46.png",
+                        "asteroid_62.png",
+                        "asteroid_44.png",
+                        "asteroid_28.png",
+                        "asteroid_26.png",
+                        "asteroid_06.png",
+                        "asteroid_17.png",
                         "asteroid_22.png",
-                        "asteroid_67.png",
-                        "asteroid_52.png",
-                        "asteroid_71.png"
+                        "asteroid_36.png",
+                        "asteroid_74.png"
                     ],
                     "zone_bandit": [
                         [
-                            0.4,
-                            0.3,
-                            0.75,
-                            0.55,
                             0.35,
+                            0.4,
+                            0.55,
+                            0.6,
+                            0.75,
+                            0.1,
                             0.5,
                             0.0,
-                            0.1,
+                            0.8,
+                            0.3,
                             0.2,
-                            0.6,
-                            0.45,
-                            0.8
+                            0.45
                         ]
                     ],
-                    "bandit_id": "payoffs28"
+                    "bandit_id": "payoffs29"
                 },
                 "demonstrator1": {
                     "demonstrator_type": "expert",
                     "demonstrator_index": 0,
                     "demonstrator_id": 6,
-                    "demonstrator_image": "demonstrator_06.png"
+                    "demonstrator_image": "demonstrator_06.png",
+                    "demonstrator_trajectory": [
+                        8,
+                        8,
+                        11,
+                        6,
+                        8,
+                        8
+                    ]
                 },
                 "demonstrator2": {
                     "demonstrator_type": "novice",
                     "demonstrator_index": 1,
                     "demonstrator_id": 16,
-                    "demonstrator_image": "demonstrator_16.png"
+                    "demonstrator_image": "demonstrator_16.png",
+                    "demonstrator_trajectory": [
+                        7,
+                        9,
+                        0,
+                        7,
+                        1,
+                        5
+                    ]
                 },
-                "overlay-message": "You will now choose between one of the starships you watched during this session. Choose the starship you would watch before playing again to achieve higher rewards in the same zone."
+                "choice-overlay-message": "You will now choose between one of the starships you watched during this session. Choose the starship you would watch before playing again to achieve higher rewards in the same zone.",
+                "watch-overlay-message": "You will continue in the same zone. In this game you will again watch your chosen starship partner. Pay close attention to your partner's choices."
             }
         ]
     ],
