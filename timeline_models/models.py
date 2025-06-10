@@ -69,11 +69,11 @@ def generate_timeline(
     for sess_i, (games, [choice]) in enumerate(raw_sessions, start=1):
         for e in games:
             e["session_index"] = sess_i
-            e["zone"] = {"zone_index": zone_idx}
+            e["zone"] = {"zone_global_index": zone_idx}
         if choice["transfer"]:
             zone_idx += 1
         choice["session_index"] = sess_i
-        choice["zone"] = {"zone_index": zone_idx}
+        choice["zone"] = {"zone_global_index": zone_idx}
         zone_idx += 1
 
     # 3) collect all zone_indices (include 0 for practice)
@@ -81,7 +81,7 @@ def generate_timeline(
     for sess in raw_sessions:
         for stage in sess:
             for e in stage:
-                all_zones.add(e["zone"]["zone_index"])
+                all_zones.add(e["zone"]["zone_global_index"])
     unique_zones = sorted(all_zones)
 
     # 4) sample payoff key per zone
@@ -90,33 +90,25 @@ def generate_timeline(
     chosen = random.sample(payoff_keys, len(unique_zones))
     zone_to_payoff = dict(zip(unique_zones, chosen))
 
-    # 5) generate colors & asteroid images
-    num_z = len(unique_zones)
-    colors = []
-    for i in range(num_z):
-        h = i / num_z
-        r, g, b = colorsys.hsv_to_rgb(h, 0.5, 0.95)
-        colors.append(f'#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}')
+    # 5) generate asteroid image indexes (no colors or backgrounds here)
     used_sets = set()
-    zone_images: Dict[int, List[str]] = {}
+    zone_bandit_arm_indexes: Dict[int, List[int]] = {}
     for idx in unique_zones:
         while True:
             picks = random.sample(range(80), 12)
             if tuple(picks) not in used_sets:
                 used_sets.add(tuple(picks))
                 break
-        zone_images[idx] = [f"asteroid_{p:02d}.png" for p in picks]
+        zone_bandit_arm_indexes[idx] = picks
 
     # 6) build full zone metadata
     zone_meta: Dict[int, Dict[str, Any]] = {}
     for i, z in enumerate(unique_zones):
         pk = zone_to_payoff[z]
         zone_meta[z] = {
-            "zone_index": z,
-            "zone_background": f"zone_{z:02d}.png",
-            "zone_color": colors[i],
+            "zone_global_index": z,
             "zone_mode": "asteroid",
-            "zone_images": zone_images[z],
+            "zone_bandit_arm_image_indexes": zone_bandit_arm_indexes[z],
             "zone_bandit": [bandits_data[pk]["payoffs"]],
             "bandit_id": pk
         }
@@ -132,7 +124,7 @@ def generate_timeline(
     for games, [choice] in raw_sessions:
         sess_i = games[0]["session_index"]
         dem_ids = session_to_ids[sess_i]
-        payoff_key = zone_to_payoff[games[0]["zone"]["zone_index"]]
+        payoff_key = zone_to_payoff[games[0]["zone"]["zone_global_index"]]
 
         # Track demonstrators seen in this session to determine if they're "new" or "previously seen"
         seen_demonstrators = set()
@@ -140,7 +132,7 @@ def generate_timeline(
         # stage0 entries with corrected overlay logic
         prev_zone = None
         for i, e in enumerate(games):
-            z = e["zone"]["zone_index"]
+            z = e["zone"]["zone_global_index"]
             e["zone"] = zone_meta[z]
 
             parts: List[str] = []
@@ -165,9 +157,8 @@ def generate_timeline(
                 traj = full[start : start + num_watch_arm_pulls]
                 e["demonstrator"] = {
                     "demonstrator_type": typ,
-                    "demonstrator_index": dem_idx,
-                    "demonstrator_id": did,
-                    "demonstrator_image": f"demonstrator_{did:02d}.png",
+                    "demonstrator_session_index": dem_idx,
+                    "demonstrator_global_index": did,
                     "demonstrator_trajectory": traj
                 }
                 
@@ -196,22 +187,21 @@ def generate_timeline(
             prev_zone = z
 
         # choice entry: nested demonstrators without trajectories
-        cz = choice["zone"]["zone_index"]
+        cz = choice["zone"]["zone_global_index"]
         choice["zone"] = zone_meta[cz]
         for i_key, key in enumerate(("demonstrator_1", "demonstrator_2")):
             typ = choice[key]
             did = dem_ids[i_key]
             choice[f"demonstrator{i_key+1}"] = {
                 "demonstrator_type": typ,
-                "demonstrator_index": i_key,
-                "demonstrator_id": did,
-                "demonstrator_image": f"demonstrator_{did:02d}.png"
+                "demonstrator_session_index": i_key,
+                "demonstrator_global_index": did
             }
             del choice[key]
 
         # choice overlay-message with updated format
         parts = ["You will now choose between one of the starships you watched during this session."]
-        last_zone = games[-1]["zone"]["zone_index"]
+        last_zone = games[-1]["zone"]["zone_global_index"]
         if cz == last_zone:
             transfer_text = "in the same zone"
         else:

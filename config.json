@@ -1,4 +1,3 @@
 {
-    "experiment_number": 1,
-    "experiment_directory": "SpatialBanditsGame"
+    "experiment_config": "configs/timeline.json"
 } 

@@ -4,12 +4,13 @@ const gameLogSchema = new mongoose.Schema({
     // User identification
     prolific_id: { type: String, required: true },
     uid: { type: String, required: true },
+    session_id: { type: String, required: true },
     
     // Game progression
     session_index: { type: Number, required: true },
     step: { type: Number, required: true },
     position: { type: Number, required: true },
-    action: { type: String, enum: ['left', 'right', 'up', 'down', 'pull'], required: true },
+    action: { type: String, enum: ['left', 'right', 'up', 'down', 'shoot'], required: true },
     timestamp: { type: Date, default: Date.now },
     
     // Game state
@@ -29,22 +30,30 @@ const gameLogSchema = new mongoose.Schema({
     stage_index: { type: Number, required: true },
     round_index: { type: Number, default: null },
     
-    // Demonstrator info
-    demonstrator_index: { type: Number, default: null },
+    // Demonstrator info (updated field names)
+    demonstrator_session_index: { type: Number, default: null },
     demonstrator_type: { type: String, default: null },
-    demonstrator_id: { type: Number, default: null },
+    demonstrator_global_index: { type: Number, default: null },
+    demonstrator_id: { type: String, default: null }, // Now stores the actual image filename
     demonstrator_trajectory: [{ type: Number }],
     
-    // Zone info
-    zone_index: { type: Number, required: true },
+    // Zone info (updated field names and new fields)
+    zone_global_index: { type: Number, required: true },
+    zone_color: { type: String, default: null }, // Generated zone color
+    zone_background: { type: String, default: null }, // Mapped background image filename
     zone_bandit: [[{ type: Number }]], // Array of arrays for bandit payoffs
     zone_bandit_id: { type: String, default: null },
+    zone_bandit_arm_image_ids: [{ type: String }], // Mapped asteroid image filenames
+    
+    // Choice-specific fields (null for non-choice games)
+    choice_demonstrator_id: { type: String, default: null }, // Demonstrator image filename of chosen demonstrator
+    choice_demonstrator_type: { type: String, default: null }, // Type of chosen demonstrator
     
     // Tracking
     refresh_count: { type: Number, default: 0 },
     
     // Additional metadata
-    experiment_number: { type: Number, default: null },
+    experiment_id: { type: String, required: true },
     created_at: { type: Date, default: Date.now }
 });
 

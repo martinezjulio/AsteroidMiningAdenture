@@ -15,9 +15,11 @@ app.use(express.static('.')); // Serve all files from current directory
 
 // Read config
 const config = require('./config.json');
-const experiment_number = config.experiment_number;
-const experiment_directory = config.experiment_directory;
-console.log('Experiment number:', experiment_number);
+const experiment_config_path = config.experiment_config;
+// Extract filename from path as experiment_id
+const experiment_id = experiment_config_path.split('/').pop(); // Gets "timeline_june_09_2025.json"
+console.log('Experiment config path:', experiment_config_path);
+console.log('Experiment ID:', experiment_id);
 
 if (isProduction) {
     // On server, read MongoDB credentials from mongo_auth.json
@@ -39,6 +41,14 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
+// Endpoint to get experiment config
+app.get('/api/config', (req, res) => {
+    res.json({ 
+        experiment_id,
+        experiment_config_path 
+    });
+});
+
 // Endpoint to log game data
 app.post('/api/log', async (req, res) => {
     try {
@@ -54,18 +64,19 @@ app.post('/api/log', async (req, res) => {
 // Endpoint to log page refresh
 app.post('/api/log-refresh', async (req, res) => {
     try {
-        const { prolific_id, uid } = req.body;
+        const { prolific_id, uid, session_id } = req.body;
         
         // Find the most recent log entry for this user and increment refresh count
         const lastLog = await GameLog.findOne({ 
             prolific_id: prolific_id,
-            uid: uid 
+            uid: uid,
+            session_id: session_id 
         }).sort({ timestamp: -1 });
         
         if (lastLog) {
-            // Update all logs for this user with incremented refresh count
+            // Update all logs for this user session with incremented refresh count
             await GameLog.updateMany(
-                { prolific_id: prolific_id, uid: uid },
+                { prolific_id: prolific_id, uid: uid, session_id: session_id },
                 { $inc: { refresh_count: 1 } }
             );
         }

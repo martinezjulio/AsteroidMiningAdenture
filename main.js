@@ -27,10 +27,22 @@ let lastSessionIndex = -1; // Track when session changes to reset demonstrator h
 let demonstratorImageMapping = {};
 let landscapeImageMapping = {};
 let zoneBackgroundImageMapping = {};
+let asteroidImageMapping = {};
 let imageMappingsInitialized = false;
+
+// Zone color and ID mappings - generated on the fly
+let zoneColorMapping = {}; // Maps zone_global_index -> unique color
+let usedColors = new Set(); // Track used colors to ensure uniqueness
+let zoneMappedBackgrounds = {}; // Maps zone_global_index -> background filename
+let demonstratorMappedImages = {}; // Maps demonstrator_global_index -> image filename
+let zoneBanditArmImageIds = {}; // Maps zone_global_index -> array of mapped asteroid filenames
 
 // MongoDB Logging Variables
 let userUID = generateUID(); // Generate unique user ID
+let sessionID = generateSessionID(); // Generate unique session ID
+let lastTrackedSessionIndex = -1; // Track session changes to regenerate session_id
+let experimentID = null; // Will be fetched from server
+let experimentConfigPath = null; // Will be fetched from server
 let currentGameStep = 0; // Reset for each game
 let userTotalReward = 0; // Cumulative across all games
 let currentGameReward = 0; // Reset for each game
@@ -40,9 +52,34 @@ let currentGameType = null;
 let currentShotsRemaining = 0;
 let currentPosition = 0;
 
+// Choice-specific logging variables
+let choiceDemonstratorId = null; // Will store the demonstrator_id of chosen demonstrator
+let choiceDemonstratorType = null; // Will store the demonstrator_type of chosen demonstrator
+
 // Generate a unique user ID
 function generateUID() {
   return 'uid_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+}
+
+// Generate a unique session ID
+function generateSessionID() {
+  return 'sid_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+}
+
+// Fetch experiment config from server
+async function fetchExperimentConfig() {
+  try {
+    const response = await fetch('/api/config');
+    const config = await response.json();
+    experimentID = config.experiment_id;
+    experimentConfigPath = config.experiment_config_path;
+    console.log('Loaded experiment ID:', experimentID);
+    console.log('Loaded experiment config path:', experimentConfigPath);
+  } catch (error) {
+    console.error('Error fetching experiment config:', error);
+    experimentID = 'unknown'; // fallback
+    experimentConfigPath = 'data/timeline.json'; // fallback
+  }
 }
 
 // MongoDB Logging Function
@@ -53,6 +90,7 @@ async function logToMongoDB(action, additionalData = {}) {
   const logData = {
     prolific_id: prolificID,
     uid: userUID,
+    session_id: sessionID,
     session_index: currentSessionIndex,
     step: currentGameStep,
     position: currentPosition,
@@ -63,29 +101,38 @@ async function logToMongoDB(action, additionalData = {}) {
     game_total_reward: currentGameReward,
     user_total_reward: userTotalReward,
     reward_generated: additionalData.reward_generated || false,
-    shot: action === 'pull',
+    shot: action === 'shoot',
     transfer: stage.transfer || false,
     game_sequence: currentGameSequence,
     game_index: stage.game_index || 0,
     stage_index: stage.stage_index || 0,
-    round_index: stage.round_index || null,
-    demonstrator_index: stage.demonstrator ? stage.demonstrator.demonstrator_index : 
-                       (stage.demonstrator1 && window.onlineChoiceSelectedDemo ? 
-                        window.onlineChoiceSelectedDemo.data.demonstrator_index : null),
+    round_index: stage.round_index !== null ? stage.round_index : 0,
+    demonstrator_session_index: stage.demonstrator ? stage.demonstrator.demonstrator_session_index : 
+                               (stage.demonstrator1 && window.onlineChoiceSelectedDemo ? 
+                                window.onlineChoiceSelectedDemo.data.demonstrator_session_index : null),
     demonstrator_type: stage.demonstrator ? stage.demonstrator.demonstrator_type :
                       (stage.demonstrator1 && window.onlineChoiceSelectedDemo ? 
                        window.onlineChoiceSelectedDemo.data.demonstrator_type : null),
-    demonstrator_id: stage.demonstrator ? stage.demonstrator.demonstrator_id :
+    demonstrator_global_index: stage.demonstrator ? stage.demonstrator.demonstrator_global_index :
+                              (stage.demonstrator1 && window.onlineChoiceSelectedDemo ? 
+                               window.onlineChoiceSelectedDemo.data.demonstrator_global_index : null),
+    demonstrator_id: stage.demonstrator ? mapDemonstratorImage(stage.demonstrator.demonstrator_global_index) :
                     (stage.demonstrator1 && window.onlineChoiceSelectedDemo ? 
-                     window.onlineChoiceSelectedDemo.data.demonstrator_id : null),
+                     mapDemonstratorImage(window.onlineChoiceSelectedDemo.data.demonstrator_global_index) : null),
     demonstrator_trajectory: stage.demonstrator ? stage.demonstrator.demonstrator_trajectory :
                            (stage.demonstrator1 && window.onlineChoiceSelectedDemo ? 
                             window.onlineChoiceSelectedDemo.data.demonstrator_trajectory : []),
-    zone_index: stage.zone ? stage.zone.zone_index : 0,
+    zone_global_index: stage.zone ? stage.zone.zone_global_index : 0,
+    zone_color: stage.zone ? generateZoneColor(stage.zone.zone_global_index) : null,
+    zone_background: stage.zone ? mapZoneBackground(stage.zone.zone_global_index) : null,
     zone_bandit: stage.zone ? (stage.zone.zone_bandit || stage.zone.bandit) : [],
     zone_bandit_id: stage.zone ? (stage.zone.bandit_id || null) : null,
+    zone_bandit_arm_image_ids: stage.zone && stage.zone.zone_bandit_arm_image_indexes ? 
+                               mapZoneBanditArmImages(stage.zone.zone_global_index, stage.zone.zone_bandit_arm_image_indexes) : [],
+    choice_demonstrator_id: choiceDemonstratorId,
+    choice_demonstrator_type: choiceDemonstratorType,
     refresh_count: refreshCount,
-    experiment_number: 1,
+    experiment_id: experimentID,
     ...additionalData
   };
   
@@ -117,7 +164,8 @@ async function logPageRefresh() {
       },
       body: JSON.stringify({
         prolific_id: prolificID,
-        uid: userUID
+        uid: userUID,
+        session_id: sessionID
       })
     });
   } catch (error) {
@@ -183,18 +231,17 @@ function resetGameTracking(gameType, numArmPulls = 0) {
   
   currentShotsRemaining = numArmPulls;
   currentPosition = 0;
+  
+  // Reset choice-specific variables for non-choice games
+  if (gameType !== 'choice' && currentGameType !== 'choice') {
+    choiceDemonstratorId = null;
+    choiceDemonstratorType = null;
+  }
 }
 
 // Track page refresh events
 window.addEventListener('beforeunload', () => {
   logPageRefresh();
-});
-
-// Log when page loads
-window.addEventListener('load', () => {
-  if (refreshCount === 0) {
-    refreshCount = 1;
-  }
 });
 
 // Adjust these as you wish:
@@ -302,12 +349,41 @@ async function initializeImageMappings() {
       zoneBackgroundImageMapping = { 0: 'zone_00.png' };
     }
     
+    // Discover and map asteroid images
+    console.log('☄️ Discovering asteroid images...');
+    const asteroidImages = await discoverAvailableImages('assets/asteroids', 'asteroid_', '.png');
+    if (asteroidImages.length > 0) {
+      // Create mapping for discovered images
+      const discoveredMapping = createRandomMapping(asteroidImages);
+      
+      // Ensure we have mappings for all possible indexes 0-79
+      asteroidImageMapping = {};
+      for (let i = 0; i < 80; i++) {
+        if (discoveredMapping[i]) {
+          // Use discovered mapping if available
+          asteroidImageMapping[i] = discoveredMapping[i];
+        } else {
+          // Create fallback mapping for missing indexes
+          asteroidImageMapping[i] = `asteroid_${i.toString().padStart(2, '0')}.png`;
+        }
+      }
+      console.log(`Mapped ${asteroidImages.length} discovered asteroids, created fallbacks for ${80 - asteroidImages.length} missing ones`);
+    } else {
+      console.warn('No asteroid images found, using complete fallback mapping');
+      // Create a complete fallback mapping for 80 asteroids
+      asteroidImageMapping = {};
+      for (let i = 0; i < 80; i++) {
+        asteroidImageMapping[i] = `asteroid_${i.toString().padStart(2, '0')}.png`;
+      }
+    }
+    
     imageMappingsInitialized = true;
     console.log('✅ Image mappings initialized successfully');
     console.log('📊 Final mappings:');
     console.log('  Demonstrators:', Object.keys(demonstratorImageMapping).length, 'images');
     console.log('  Landscapes:', Object.keys(landscapeImageMapping).length, 'images');  
     console.log('  Zone backgrounds:', Object.keys(zoneBackgroundImageMapping).length, 'images');
+    console.log('  Asteroids:', Object.keys(asteroidImageMapping).length, 'images');
     
   } catch (error) {
     console.error('❌ Error initializing image mappings:', error);
@@ -315,6 +391,12 @@ async function initializeImageMappings() {
     demonstratorImageMapping = { 0: 'demonstrator_00.png', 1: 'demonstrator_01.png' };
     landscapeImageMapping = { 0: 'landscape_00.png' };
     zoneBackgroundImageMapping = { 0: 'zone_00.png' };
+    // Create a fallback mapping for 80 asteroids
+    const fallbackMapping = {};
+    for (let i = 0; i < 80; i++) {
+      fallbackMapping[i] = `asteroid_${i.toString().padStart(2, '0')}.png`;
+    }
+    asteroidImageMapping = fallbackMapping;
     imageMappingsInitialized = true;
     console.log('🔄 Using fallback mappings');
   }
@@ -384,6 +466,95 @@ function getMappedZoneBackgroundFromFilename(filename) {
   return getMappedZoneBackgroundImage(0);
 }
 
+// Generate unique zone color for each zone
+function generateZoneColor(zoneGlobalIndex) {
+  if (zoneColorMapping[zoneGlobalIndex]) {
+    return zoneColorMapping[zoneGlobalIndex];
+  }
+  
+  // Generate HSV colors with good separation
+  const maxZones = 20; // Assume max 20 zones
+  const hue = (zoneGlobalIndex * 137.5) % 360; // Use golden angle for good separation
+  const saturation = 0.7;
+  const value = 0.9;
+  
+  // Convert HSV to RGB
+  const c = value * saturation;
+  const x = c * (1 - Math.abs((hue / 60) % 2 - 1));
+  const m = value - c;
+  
+  let r, g, b;
+  if (hue < 60) { r = c; g = x; b = 0; }
+  else if (hue < 120) { r = x; g = c; b = 0; }
+  else if (hue < 180) { r = 0; g = c; b = x; }
+  else if (hue < 240) { r = 0; g = x; b = c; }
+  else if (hue < 300) { r = x; g = 0; b = c; }
+  else { r = c; g = 0; b = x; }
+  
+  r = Math.round((r + m) * 255);
+  g = Math.round((g + m) * 255);
+  b = Math.round((b + m) * 255);
+  
+  const color = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+  
+  zoneColorMapping[zoneGlobalIndex] = color;
+  usedColors.add(color);
+  
+  console.log(`Generated color ${color} for zone ${zoneGlobalIndex}`);
+  return color;
+}
+
+// Map zone global index to background image
+function mapZoneBackground(zoneGlobalIndex) {
+  if (zoneMappedBackgrounds[zoneGlobalIndex]) {
+    return zoneMappedBackgrounds[zoneGlobalIndex];
+  }
+  
+  // Use the existing zone background mapping system
+  const mappedImage = getMappedZoneBackgroundImage(zoneGlobalIndex);
+  zoneMappedBackgrounds[zoneGlobalIndex] = mappedImage;
+  
+  console.log(`Mapped zone ${zoneGlobalIndex} to background ${mappedImage}`);
+  return mappedImage;
+}
+
+// Map demonstrator global index to image
+function mapDemonstratorImage(demonstratorGlobalIndex) {
+  if (demonstratorMappedImages[demonstratorGlobalIndex]) {
+    return demonstratorMappedImages[demonstratorGlobalIndex];
+  }
+  
+  // Use the existing demonstrator mapping system
+  const mappedImage = getMappedDemonstratorImage(demonstratorGlobalIndex);
+  demonstratorMappedImages[demonstratorGlobalIndex] = mappedImage;
+  
+  console.log(`Mapped demonstrator ${demonstratorGlobalIndex} to image ${mappedImage}`);
+  return mappedImage;
+}
+
+// Map zone bandit arm image indexes to actual filenames
+function mapZoneBanditArmImages(zoneGlobalIndex, imageIndexes) {
+  if (zoneBanditArmImageIds[zoneGlobalIndex]) {
+    return zoneBanditArmImageIds[zoneGlobalIndex];
+  }
+  
+  // Map each index to a randomly mapped asteroid image
+  const mappedImages = imageIndexes.map(index => {
+    // Use the random asteroid mapping initialized at game start
+    const mappedImage = asteroidImageMapping[index];
+    if (!mappedImage) {
+      console.warn(`No asteroid image mapped for index ${index}, using fallback`);
+      return `asteroid_${index.toString().padStart(2, '0')}.png`;
+    }
+    return mappedImage;
+  });
+  
+  zoneBanditArmImageIds[zoneGlobalIndex] = mappedImages;
+  
+  console.log(`Mapped zone ${zoneGlobalIndex} bandit arms:`, imageIndexes, '→', mappedImages);
+  return mappedImages;
+}
+
 // Phaser config
 const config = {
   type: Phaser.AUTO,
@@ -412,16 +583,18 @@ function create() {
   const circle = this.add.circle(400, 300, 40, 0xffff00, 1);
   circle.setDepth(99999);
 
-  // Initialize image mappings first, then load timeline
-  initializeImageMappings().then(() => {
-    // Load timeline after image mappings are ready
-    fetch('data/timeline.json')
-      .then(r => r.json())
-      .then(jsonData => {
-        timelineData = jsonData;
-        loadStage.call(this);
-      })
-      .catch(err => console.error("Error loading timeline JSON:", err));
+  // Fetch experiment config first, then initialize image mappings and load timeline
+  fetchExperimentConfig().then(() => {
+    initializeImageMappings().then(() => {
+      // Load timeline after experiment config and image mappings are ready
+      fetch(experimentConfigPath)
+    .then(r => r.json())
+    .then(jsonData => {
+      timelineData = jsonData;
+      loadStage.call(this);
+    })
+    .catch(err => console.error("Error loading timeline JSON:", err));
+    });
   });
 }
 
@@ -440,6 +613,16 @@ function loadStage() {
   if (currentSessionIndex >= timelineData.length) {
     showEndOfGameMessage.call(this);
     return;
+  }
+  
+  // Check if we've moved to a new session and need to generate a new session_id
+  if (currentSessionIndex !== lastTrackedSessionIndex) {
+    const oldSessionID = sessionID;
+    const oldSessionIndex = lastTrackedSessionIndex;
+    sessionID = generateSessionID();
+    lastTrackedSessionIndex = currentSessionIndex;
+    console.log(`New session detected! session_index: ${oldSessionIndex} → ${currentSessionIndex}`);
+    console.log(`Generated new session_id: ${oldSessionID} → ${sessionID}`);
   }
   
   const currentSession = timelineData[currentSessionIndex];
@@ -534,8 +717,8 @@ function loadStage() {
 
   // If stage has a zone, apply its color to the game container border
   if (stage.zone) {
-    // Use zone_color property for colored border to match exactly what's in timeline.json
-    const zoneColor = stage.zone.zone_color || stage.zone.color || "#ffffff";
+    // Generate zone color based on zone_global_index
+    const zoneColor = generateZoneColor(stage.zone.zone_global_index);
     const gameContainer = document.getElementById('game-container');
     if (gameContainer) {
       gameContainer.style.border = `10px solid ${zoneColor}`;
@@ -611,16 +794,16 @@ function maybeAddSummaryIcon(stage) {
       zone: 'Choice',
       color: stage.zone && stage.zone.color ? stage.zone.color : '#888888'
     });
-    return;
-  }
-  
+      return;
+    }
+    
   // For online-choice games, add an icon that will be updated when user makes choice
   if (stageType === 'online-choice') {
     // Add a placeholder icon that will be updated when user selects demonstrator
     summaryIcons.push({
       imageKey: null, // Will be updated when user selects
-      zone: stage.zone && stage.zone.zone_index ? stage.zone.zone_index : 0,
-      color: stage.zone && stage.zone.zone_color ? stage.zone.zone_color : '#888888'
+      zone: stage.zone && stage.zone.zone_global_index ? stage.zone.zone_global_index : 0,
+      color: stage.zone && stage.zone.zone_global_index ? generateZoneColor(stage.zone.zone_global_index) : '#888888'
     });
     return;
   }
@@ -628,20 +811,21 @@ function maybeAddSummaryIcon(stage) {
   // For all other game types, use the normal icon logic
   let imageKey = 'user';
   if (stageType === 'watch' || stageType === 'indicate') {
-    if (stage.demonstrator && stage.demonstrator.demonstrator_image) {
-      // Extract just the filename without path and extension
-      imageKey = stage.demonstrator.demonstrator_image.replace('.png', '');
+    if (stage.demonstrator && stage.demonstrator.demonstrator_global_index !== undefined) {
+      // Use the mapped demonstrator image based on global index
+      const mappedImage = mapDemonstratorImage(stage.demonstrator.demonstrator_global_index);
+      imageKey = mappedImage.replace('.png', '');
     } else {
       imageKey = 'demonstrator_01'; // fallback
     }
   }
 
-  // Add the icon with proper imageKey - prioritize zone_color from JSON directly
-  const zoneColorValue = stage.zone.zone_color || stage.zone.color || '#ffffff';
+  // Add the icon with proper imageKey - generate zone color
+  const zoneColorValue = generateZoneColor(stage.zone.zone_global_index);
   
   summaryIcons.push({
     imageKey: imageKey,
-    zone: stage.zone.zone_index,
+    zone: stage.zone.zone_global_index,
     zone_color: zoneColorValue,
     color: zoneColorValue // Keep color for backward compatibility
   });
@@ -682,9 +866,9 @@ function redrawSummaryBarDOM() {
     // The image
     const img = document.createElement("img");
     if (iconData.imageKey.startsWith('demonstrator_')) {
-      // Use the mapping system to get the actual image file
-      const mappedImage = getMappedDemonstratorFromFilename(`${iconData.imageKey}.png`);
-      img.src = `assets/demonstrators/${mappedImage}`;
+      // The imageKey is already a mapped demonstrator filename (without .png)
+      // Don't map it again - just use it directly
+      img.src = `assets/demonstrators/${iconData.imageKey}.png`;
     } else if (iconData.imageKey.startsWith('choice_demonstrator_')) {
       // For choice demonstrator keys, we need to be more cautious
       // The key format is something like 'choice_demonstrator_0'
@@ -714,7 +898,7 @@ function redrawSummaryBarDOM() {
     else if (iconData.choiceLetter) {
       label.textContent = `Zone ${iconData.zone} (Choice ${iconData.choiceLetter})`;
     } else {
-      label.textContent = "Zone " + iconData.zone;
+    label.textContent = "Zone " + iconData.zone;
     }
     label.style.color = "#fff";
     label.style.marginTop = "4px";
@@ -789,12 +973,12 @@ function setupIntroduction(stage) {
     ).setOrigin(0.5);
   } else {
     // Original behavior for messages without special formatting
-    this.add.text(
-      this.sys.game.config.width/2,
-      this.sys.game.config.height/2,
+  this.add.text(
+    this.sys.game.config.width/2,
+    this.sys.game.config.height/2,
       message,
-      { font: '20px Arial', fill: '#ffffff', align: 'center', wordWrap: { width: 600 } }
-    ).setOrigin(0.5);
+    { font: '20px Arial', fill: '#ffffff', align: 'center', wordWrap: { width: 600 } }
+  ).setOrigin(0.5);
   }
 
   makeNextButton.call(this, "Next", () => {
@@ -1056,7 +1240,7 @@ function setupPlayOrPractice(stage, isPractice) {
   const gridBottomY = gridOriginY + totalGridHeight;
 
   // Add zone labels
-  addZoneLabels(this, stage.zone.zone_index);
+  addZoneLabels(this, stage.zone.zone_global_index);
 
   // zone background
   createZoneBackgroundMask.call(this, stage, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
@@ -1106,7 +1290,7 @@ function setupPlayOrPractice(stage, isPractice) {
       cellRect.cellCol = c;
         
       cellRect.on('pointerdown', function() {
-        if (pullsRemaining <= 0) return;
+    if (pullsRemaining <= 0) return;
 
         // Use the stored row/col values from the rectangle properties
         const clickedR = this.cellRow;
@@ -1120,16 +1304,19 @@ function setupPlayOrPractice(stage, isPractice) {
           const oldPosition = currentPosition;
           cursorR = clickedR;
           cursorC = clickedC;
-          currentPosition = cursorR * numCols + cursorC;
+          const newPosition = cursorR * numCols + cursorC;
           
-          // Log movement action
-          currentGameStep++;
+          // Log movement action BEFORE updating position and incrementing step
           currentShotsRemaining = pullsRemaining;
-          const action = currentPosition > oldPosition ? 'right' : 'left';
+          const action = newPosition > oldPosition ? 'right' : 'left';
           logToMongoDB(action, {
             reward_generated: false,
             shot: false
           });
+          
+          // Update position and step AFTER logging
+          currentPosition = newPosition;
+          currentGameStep++;
           
           let { x, y } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
           userSprite.setPosition(x, y);
@@ -1151,19 +1338,19 @@ function setupPlayOrPractice(stage, isPractice) {
     let payoff = bandit[row][col];
       let outcome = (Math.random() < payoff) ? 1 : 0;
       
-      // Update tracking variables
-      currentGameStep++;
+      // Log the shoot action BEFORE incrementing step
       currentShotsRemaining = pullsRemaining;
+      logToMongoDB('shoot', {
+        reward_generated: outcome === 1,
+        shot: true
+      });
+      
+      // Update tracking variables AFTER logging
+      currentGameStep++;
       if (outcome === 1) {
         currentGameReward++;
         userTotalReward++;
       }
-      
-      // Log the pull action
-      logToMongoDB('pull', {
-        reward_generated: outcome === 1,
-        shot: true
-      });
       
       // Create a simple flash effect (just one flash)
     let g = scene.add.graphics();
@@ -1224,16 +1411,16 @@ function setupPlayOrPractice(stage, isPractice) {
     }
 
     if (oldR !== cursorR || oldC !== cursorC) {
-      // Update position and log movement
-      currentPosition = cursorR * numCols + cursorC;
-      currentGameStep++;
+      // Log movement action BEFORE updating position and incrementing step
       currentShotsRemaining = pullsRemaining;
-      
-      // Log the movement action
       logToMongoDB(moveAction, {
         reward_generated: false,
         shot: false
       });
+      
+      // Update position and step AFTER logging
+      currentPosition = cursorR * numCols + cursorC;
+      currentGameStep++;
       
       let { x, y } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
       userSprite.setPosition(x, y);
@@ -1259,6 +1446,9 @@ function setupWatch(stage) {
   const demoData = stage.demonstrator;
   const trajectory = demoData.demonstrator_trajectory;
   
+  // Reset game tracking for watch phase
+  resetGameTracking('watch', trajectory.length);
+  
   const bandit = stage.zone.zone_bandit;
   const numRows = bandit.length;
   const numCols = bandit[0].length;
@@ -1267,7 +1457,7 @@ function setupWatch(stage) {
   const zoneText = this.add.text(
     this.sys.game.config.width / 2,
     30,
-    `Zone ${stage.zone.zone_index}`,
+    `Zone ${stage.zone.zone_global_index}`,
     { font: '20px Arial', fill: '#ffffff' }
   ).setOrigin(0.5);
   
@@ -1293,7 +1483,7 @@ function setupWatch(stage) {
   const gridBottomY = gridOriginY + totalGridHeight;
 
   // Add zone labels
-  addZoneLabels(this, stage.zone.zone_index);
+  addZoneLabels(this, stage.zone.zone_global_index);
   
   // zone background
   createZoneBackgroundMask.call(this, stage, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
@@ -1313,15 +1503,15 @@ function setupWatch(stage) {
   let currentR = Math.floor(currentLinearIndex / numCols);
   let currentC = currentLinearIndex % numCols;
   
-  // Load demonstrator image
-  const demoImageKey = `watch_${stage.demonstrator.demonstrator_id}`;
-  const demoImagePath = demoData.demonstrator_image;
+  // Initialize position tracking for logging
+  currentPosition = currentLinearIndex;
   
-  // Get the mapped image filename
-  const mappedImage = getMappedDemonstratorFromFilename(demoImagePath);
+  // Load demonstrator image
+  const demoImageKey = `watch_${stage.demonstrator.demonstrator_global_index}`;
+  const mappedDemonstratorImage = mapDemonstratorImage(stage.demonstrator.demonstrator_global_index);
   
   if (!this.textures.exists(demoImageKey)) {
-    this.load.image(demoImageKey, `assets/demonstrators/${mappedImage}`);
+    this.load.image(demoImageKey, `assets/demonstrators/${mappedDemonstratorImage}`);
     this.load.once('complete', () => {
       startDemonstration.call(this);
     });
@@ -1333,20 +1523,20 @@ function setupWatch(stage) {
   function startDemonstration() {
     let startPos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC);
     let dSprite = this.add.image(startPos.x, startPos.y, demoImageKey)
-      .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
-      .setDepth(9999)
-      .setOrigin(0.5);
+    .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
+    .setDepth(9999)
+    .setOrigin(0.5);
 
-    let currentStep = 0;
-    let totalSteps = trajectory.length;
+  let currentStep = 0;
+  let totalSteps = trajectory.length;
 
     // Add a delay before starting the trajectory
     this.time.delayedCall(WATCH_START_DELAY, () => {
-      moveAlongTrajectoryStep.call(this);
+  moveAlongTrajectoryStep.call(this);
     });
 
-    function moveAlongTrajectoryStep() {
-      if (currentStep >= totalSteps) {
+  function moveAlongTrajectoryStep() {
+    if (currentStep >= totalSteps) {
         // When demonstration is complete, show next button
         makeNextButton.call(this, "Next", () => {
           // Reset online choice state and move to next stage
@@ -1354,8 +1544,8 @@ function setupWatch(stage) {
           window.onlineChoiceSelectedDemo = null;
           nextStage.call(this);
         });
-        return;
-      }
+      return;
+    }
 
       let targetLinearIndex = trajectory[currentStep];
       let targetR = Math.floor(targetLinearIndex / numCols);
@@ -1363,43 +1553,84 @@ function setupWatch(stage) {
       
       let pathCells = getManhattanPath(currentR, currentC, targetR, targetC);
 
-      let index = 0;
-      let pathTimer = this.time.addEvent({
+    let index = 0;
+    let pathTimer = this.time.addEvent({
         delay: 600,
-        repeat: pathCells.length - 1,
-        callback: () => {
-          let cell = pathCells[index];
+      repeat: pathCells.length - 1,
+      callback: () => {
+        let cell = pathCells[index];
           let pos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cell.r, cell.c);
-          dSprite.setPosition(pos.x, pos.y);
+        dSprite.setPosition(pos.x, pos.y);
           highlightCurrentCell(highlightRect, cell.r, cell.c, gridOriginX, gridOriginY, cellWidth, cellHeight);
 
-          index++;
-          if (index >= pathCells.length) {
-            pathTimer.remove();
+          // Log movement actions during watch (except for the first position)
+          if (index > 0) {
+            const prevCell = pathCells[index - 1];
+            const currentCellPosition = cell.r * numCols + cell.c;
+            const prevCellPosition = prevCell.r * numCols + prevCell.c;
+            
+            let moveAction;
+            if (currentCellPosition > prevCellPosition) {
+              moveAction = cell.r > prevCell.r ? 'down' : 'right';
+  } else {
+              moveAction = cell.r < prevCell.r ? 'up' : 'left';
+            }
+            
+            // Log the movement action from the PREVIOUS position (where action was taken from)
+            currentShotsRemaining = totalSteps - currentStep;
+            logToMongoDB(moveAction, {
+              reward_generated: false,
+              shot: false
+            });
+            
+            // Update position and step AFTER logging
+            currentPosition = currentCellPosition;
+            currentGameStep++;
+          }
+
+        index++;
+        if (index >= pathCells.length) {
+          pathTimer.remove();
             currentR = targetR;
             currentC = targetC;
-
+            
             // Calculate outcome
             let payoff = bandit[currentR][currentC];
             let outcome = (Math.random() < payoff) ? 1 : 0;
             
+            // Log the shoot action from current position (where shot was taken from)
+            currentShotsRemaining = totalSteps - currentStep - 1;
+            logToMongoDB('shoot', {
+              reward_generated: outcome === 1,
+              shot: true
+            });
+            
+            // Update tracking AFTER logging
+            currentPosition = currentR * numCols + currentC;
+            currentGameStep++;
+            
+            if (outcome === 1) {
+              currentGameReward++;
+              userTotalReward++;
+            }
+            
             // Create a simple flash effect
-            let g = this.add.graphics();
-            g.fillStyle(HIGHLIGHT_COLOR, 1);
-            g.fillRect(
+      let g = this.add.graphics();
+      g.fillStyle(HIGHLIGHT_COLOR, 1);
+      g.fillRect(
               gridOriginX + currentC*(cellWidth + CELL_PADDING),
               gridOriginY + currentR*(cellHeight + CELL_PADDING),
-              cellWidth, cellHeight
-            );
-            
+        cellWidth, cellHeight
+      );
+      
             // Fade out only
-            this.tweens.add({
-              targets: g,
-              alpha: 0,
+      this.tweens.add({
+        targets: g,
+        alpha: 0,
               duration: 200,
-              onComplete: () => {
-                g.destroy();
-                
+        onComplete: () => {
+          g.destroy();
+          
                 // Record outcome and update tank
                 watchOutcomes.push(outcome);
                 drawMarkerDot.call(this, gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC, outcome);
@@ -1413,7 +1644,7 @@ function setupWatch(stage) {
         }
       });
     }
-  }
+    }
 }
 
 /**
@@ -1423,8 +1654,11 @@ function setupChoice(stage) {
   console.log("Loading CHOICE stage");
   console.log("Full stage data:", JSON.stringify(stage, null, 2));
   
-  // Default color if none provided
-  const zoneColor = stage.zone && stage.zone.color ? stage.zone.color : "#888888";
+  // Reset game tracking for choice phase
+  resetGameTracking('choice', 0);
+  
+  // Generate zone color based on zone_global_index
+  const zoneColor = stage.zone && stage.zone.zone_global_index ? generateZoneColor(stage.zone.zone_global_index) : "#888888";
   
   // Check demonstrator data
   // In the new format, we have demonstrator1 and demonstrator2 properties
@@ -1433,39 +1667,40 @@ function setupChoice(stage) {
   
   console.log("Demonstrator data:", JSON.stringify({ demonstrator1, demonstrator2 }, null, 2));
   
-  // Create demonstrator data if missing or invalid
-  if ((!demonstrator1 || Object.keys(demonstrator1).length === 0) && 
-      (!demonstrator2 || Object.keys(demonstrator2).length === 0)) {
-    console.warn("Missing demonstrator data for choice stage. Creating default data.");
+  // Fix demonstrator data if missing or invalid - check each demonstrator individually
+  if (!demonstrator1 || Object.keys(demonstrator1).length === 0 || demonstrator1.demonstrator_global_index === undefined) {
+    console.warn("Missing or incomplete demonstrator1 data for choice stage. Creating default data.");
     demonstrator1 = {
       "demonstrator_type": "novice",
-      "demonstrator_index": 0,
-      "demonstrator_id": 1,
-      "demonstrator_image": "demonstrator_00.png"
-    };
-    demonstrator2 = {
-      "demonstrator_type": "expert",
-      "demonstrator_index": 1,
-      "demonstrator_id": 2,
-      "demonstrator_image": "demonstrator_01.png"
+      "demonstrator_session_index": 0,
+      "demonstrator_global_index": 1
     };
   }
   
-  // Prepare demonstrator images and indices
-  const demonstratorImages = [
-    demonstrator1.demonstrator_image || "demonstrator_00.png",
-    demonstrator2.demonstrator_image || "demonstrator_01.png"
+  if (!demonstrator2 || Object.keys(demonstrator2).length === 0 || demonstrator2.demonstrator_global_index === undefined) {
+    console.warn("Missing or incomplete demonstrator2 data for choice stage. Creating default data.");
+    demonstrator2 = {
+      "demonstrator_type": "expert",
+      "demonstrator_session_index": 1,
+      "demonstrator_global_index": 2
+    };
+  }
+  
+  // Prepare demonstrator mapped images and indices  
+  const demonstratorMappedImages = [
+    mapDemonstratorImage(demonstrator1.demonstrator_global_index),
+    mapDemonstratorImage(demonstrator2.demonstrator_global_index)
   ];
   
-  const demonstratorIndices = [
-    demonstrator1.demonstrator_index || 0,
-    demonstrator2.demonstrator_index || 1
+  const demonstratorSessionIndices = [
+    demonstrator1.demonstrator_session_index,
+    demonstrator2.demonstrator_session_index
   ];
   
-  console.log(`Found ${demonstratorImages.length} demonstrator images:`, demonstratorImages);
+  console.log(`Found ${demonstratorMappedImages.length} demonstrator images:`, demonstratorMappedImages);
   
   // Configuration
-  const numDemonstrators = demonstratorImages.length;
+  const numDemonstrators = demonstratorMappedImages.length;
   const cellWidth = 150;
   const cellHeight = 150;
   const cellPadding = 30;
@@ -1534,7 +1769,10 @@ function setupChoice(stage) {
   
   // Track selection
   let selectedDemonstrator = null;
-  let currentPosition = 0;
+  let choicePosition = 0;
+  
+  // Initialize position tracking for logging  
+  currentPosition = choicePosition;
   
   // Demonstrator cells array
   const cells = [];
@@ -1572,13 +1810,9 @@ function setupChoice(stage) {
     const imageKey = `choice_s${sessionIndex}_demonstrator_${i}`;
     
     // Make sure the image path is correct
-    console.log(`Loading demonstrator image ${i} for session ${sessionIndex}: ${demonstratorImages[i]}`);
+    console.log(`Loading demonstrator image ${i} for session ${sessionIndex}: ${demonstratorMappedImages[i]}`);
     
-    // Get the mapped image filename instead of using the direct filename
-    const mappedImage = getMappedDemonstratorFromFilename(demonstratorImages[i]);
-    console.log(`Mapped ${demonstratorImages[i]} to ${mappedImage}`);
-    
-    this.load.image(imageKey, `assets/demonstrators/${mappedImage}`);
+    this.load.image(imageKey, `assets/demonstrators/${demonstratorMappedImages[i]}`);
     
     // Store cell info
     cells.push({
@@ -1638,17 +1872,28 @@ function setupChoice(stage) {
       
       const clickHandler = () => {
         // Only allow selection if not already selected
-        if (selectedDemonstrator !== null) return;
-        
+      if (selectedDemonstrator !== null) return;
+      
         // If already on this position, select it
-        if (currentPosition === i) {
+        if (choicePosition === i) {
           selectDemonstrator(i);
         } else {
-          // Move to this position
-          currentPosition = i;
-          userX = cells[currentPosition].x;
+          // Move to this position and log the movement
+          const oldPosition = choicePosition;
+          choicePosition = i;
+          currentPosition = choicePosition; // Update global position for logging
+          userX = cells[choicePosition].x;
           userSprite.setPosition(userX, userY);
-          highlightRect.setPosition(cells[currentPosition].x, cells[currentPosition].y);
+          highlightRect.setPosition(cells[choicePosition].x, cells[choicePosition].y);
+          
+          // Log movement action for regular choice
+          const moveAction = choicePosition > oldPosition ? 'right' : 'left';
+          logToMongoDB(moveAction, {
+            reward_generated: false,
+            shot: false,
+            choice_position: choicePosition,
+            choice_letter: cells[choicePosition].letter
+          });
         }
       };
       
@@ -1660,20 +1905,38 @@ function setupChoice(stage) {
     function selectDemonstrator(index) {
       selectedDemonstrator = cells[index].letter;
       
-      // Show selection feedback
-      feedbackText.setText(`You selected Partner ${selectedDemonstrator}`);
-      feedbackText.setVisible(true);
+      // Set global choice variables for logging
+      if (index === 0) {
+        choiceDemonstratorId = mapDemonstratorImage(demonstrator1.demonstrator_global_index);
+        choiceDemonstratorType = demonstrator1.demonstrator_type;
+      } else if (index === 1) {
+        choiceDemonstratorId = mapDemonstratorImage(demonstrator2.demonstrator_global_index);
+        choiceDemonstratorType = demonstrator2.demonstrator_type;
+      }
       
-      // Highlight selected with stronger border
-      highlightRect.setStrokeStyle(4, parseInt(zoneColor.replace('#', '0x')) || 0x888888);
-      highlightRect.setAlpha(0.6);
-      
+      // Log the selection action
+      logToMongoDB('shoot', {
+        reward_generated: false,
+        shot: true,
+        choice_position: index,
+        choice_letter: selectedDemonstrator,
+        selected_demonstrator: selectedDemonstrator
+      });
+        
+        // Show selection feedback
+        feedbackText.setText(`You selected Partner ${selectedDemonstrator}`);
+        feedbackText.setVisible(true);
+        
+        // Highlight selected with stronger border
+        highlightRect.setStrokeStyle(4, parseInt(zoneColor.replace('#', '0x')) || 0x888888);
+        highlightRect.setAlpha(0.6);
+        
       // Add the selected demonstrator to summary bar - now pass the choice letter
-      addChoiceSelectionToSummary(cells[index].imageKey, stage.zone ? stage.zone.color : "#888888", selectedDemonstrator);
+      addChoiceSelectionToSummary(cells[index].imageKey, stage.zone ? generateZoneColor(stage.zone.zone_global_index) : "#888888", selectedDemonstrator);
       
       // Add next button - properly bind currentScene
       makeNextButton.call(currentScene, "Next", () => {
-        console.log(`Selected Partner ${selectedDemonstrator}`);
+          console.log(`Selected Partner ${selectedDemonstrator}`);
         // Restore normal controls display before moving to next stage
         updateControlsDisplay("default");
         nextStage.call(currentScene);
@@ -1685,25 +1948,35 @@ function setupChoice(stage) {
       // Only allow movement if not already selected
       if (selectedDemonstrator !== null) return;
       
-      let oldPosition = currentPosition;
+      let oldPosition = choicePosition;
       
       if (evt.code === 'ArrowLeft') {
-        currentPosition = Math.max(0, currentPosition - 1);
+        choicePosition = Math.max(0, choicePosition - 1);
       }
       if (evt.code === 'ArrowRight') {
-        currentPosition = Math.min(cells.length - 1, currentPosition + 1);
+        choicePosition = Math.min(cells.length - 1, choicePosition + 1);
       }
       
       // If position changed, update user sprite and highlight
-      if (oldPosition !== currentPosition) {
-        userX = cells[currentPosition].x;
+      if (oldPosition !== choicePosition) {
+        currentPosition = choicePosition; // Update global position for logging
+        userX = cells[choicePosition].x;
         userSprite.setPosition(userX, userY);
-        highlightRect.setPosition(cells[currentPosition].x, cells[currentPosition].y);
+        highlightRect.setPosition(cells[choicePosition].x, cells[choicePosition].y);
+        
+        // Log keyboard movement action
+        const moveAction = choicePosition > oldPosition ? 'right' : 'left';
+        logToMongoDB(moveAction, {
+          reward_generated: false,
+          shot: false,
+          choice_position: choicePosition,
+          choice_letter: cells[choicePosition].letter
+        });
       }
       
       // Space to select
       if (evt.code === 'Space') {
-        selectDemonstrator.call(currentScene, currentPosition);
+        selectDemonstrator.call(currentScene, choicePosition);
       }
     });
   });
@@ -1761,9 +2034,9 @@ function addChoiceSelectionToSummary(imageKey, zoneColor, choiceLetter) {
     if (summaryIcons[i].zone === 'Choice') {
       choiceIconIndex = i;
       break;
-    }
   }
-  
+}
+
   // If we found a choice icon, update it with the selected demonstrator
   if (choiceIconIndex >= 0) {
     // For choice_demonstrator keys, we need to properly extract the demonstrator image path
@@ -1787,10 +2060,12 @@ function addChoiceSelectionToSummary(imageKey, zoneColor, choiceLetter) {
     
     if (stage && stage.demonstrator1 && stage.demonstrator2) {
       // Determine which demonstrator was selected based on the demoIndex
-      if (demoIndex === '0' && stage.demonstrator1.demonstrator_image) {
-        demoImage = stage.demonstrator1.demonstrator_image.replace('.png', '');
-      } else if (demoIndex === '1' && stage.demonstrator2.demonstrator_image) {
-        demoImage = stage.demonstrator2.demonstrator_image.replace('.png', '');
+      if (demoIndex === '0' && stage.demonstrator1.demonstrator_global_index !== undefined) {
+        const mappedImage = mapDemonstratorImage(stage.demonstrator1.demonstrator_global_index);
+        demoImage = mappedImage.replace('.png', '');
+      } else if (demoIndex === '1' && stage.demonstrator2.demonstrator_global_index !== undefined) {
+        const mappedImage = mapDemonstratorImage(stage.demonstrator2.demonstrator_global_index);
+        demoImage = mappedImage.replace('.png', '');
       }
     }
     
@@ -1845,7 +2120,7 @@ function setupOnlineChoicePhaseChoice(stage) {
   resetGameTracking('choice', 0);
   
   const currentScene = this;
-  const zoneColor = stage.zone && stage.zone.zone_color ? stage.zone.zone_color : "#888888";
+  const zoneColor = stage.zone && stage.zone.zone_global_index ? generateZoneColor(stage.zone.zone_global_index) : "#888888";
   
   // Create demonstrator data from stage
   const demonstrators = [
@@ -1945,11 +2220,8 @@ function setupOnlineChoicePhaseChoice(stage) {
     
     // Load demonstrator image
     const imageKey = `online_choice_${demo.key}`;
-    const imagePath = demo.data.demonstrator_image;
-    
-    // Get the mapped image filename
-    const mappedImage = getMappedDemonstratorFromFilename(imagePath);
-    this.load.image(imageKey, `assets/demonstrators/${mappedImage}`);
+    const mappedDemonstratorImage = mapDemonstratorImage(demo.data.demonstrator_global_index);
+    this.load.image(imageKey, `assets/demonstrators/${mappedDemonstratorImage}`);
     
     cells.push({
       key: demo.key,
@@ -1992,8 +2264,11 @@ function setupOnlineChoicePhaseChoice(stage) {
     // Position for user sprite (below the cells, same as regular choice game)
     const userY = gridY + cellHeight + 40;
     let userX = cells[0].x;
-    let currentPosition = 0;
+    let onlineChoicePosition = 0;
     let selectedDemonstrator = null;
+    
+    // Initialize position tracking for logging
+    currentPosition = onlineChoicePosition;
     
     // Add user sprite
     const userSprite = currentScene.add.image(userX, userY, 'user')
@@ -2021,17 +2296,28 @@ function setupOnlineChoicePhaseChoice(stage) {
       
       const clickHandler = () => {
         // Only allow selection if not already selected
-        if (selectedDemonstrator !== null) return;
-        
+      if (selectedDemonstrator !== null) return;
+      
         // If already on this position, select it
-        if (currentPosition === i) {
+        if (onlineChoicePosition === i) {
           selectDemonstrator(i);
         } else {
-          // Move to this position
-          currentPosition = i;
-          userX = cells[currentPosition].x;
+          // Move to this position and log the movement
+          const oldPosition = onlineChoicePosition;
+          onlineChoicePosition = i;
+          currentPosition = onlineChoicePosition; // Update global position for logging
+          userX = cells[onlineChoicePosition].x;
           userSprite.setPosition(userX, userY);
-          highlightRect.setPosition(cells[currentPosition].x, cells[currentPosition].y);
+          highlightRect.setPosition(cells[onlineChoicePosition].x, cells[onlineChoicePosition].y);
+          
+          // Log movement action for online-choice
+          const moveAction = onlineChoicePosition > oldPosition ? 'right' : 'left';
+          logToMongoDB(moveAction, {
+            reward_generated: false,
+            shot: false,
+            choice_position: onlineChoicePosition,
+            choice_letter: cells[onlineChoicePosition].letter
+          });
         }
       };
       
@@ -2044,19 +2330,32 @@ function setupOnlineChoicePhaseChoice(stage) {
       const selectedCell = cells[index];
       selectedDemonstrator = selectedCell;
       
+      // Set global choice variables for logging  
+      choiceDemonstratorId = mapDemonstratorImage(selectedCell.data.demonstrator_global_index);
+      choiceDemonstratorType = selectedCell.data.demonstrator_type;
+      
+      // Log the selection action
+      logToMongoDB('shoot', {
+        reward_generated: false,
+        shot: true,
+        choice_position: index,
+        choice_letter: selectedCell.letter,
+        selected_demonstrator: selectedCell.letter
+      });
+      
       // Store the selection globally
       window.onlineChoiceSelectedDemo = selectedCell;
       
       // Show selection feedback
       feedbackText.setText(`You selected Partner ${selectedCell.letter}`);
-      feedbackText.setVisible(true);
-      
-      // Highlight selected with stronger border
-      highlightRect.setStrokeStyle(4, parseInt(zoneColor.replace('#', '0x')) || 0x888888);
-      highlightRect.setAlpha(0.6);
-      
+        feedbackText.setVisible(true);
+        
+        // Highlight selected with stronger border
+        highlightRect.setStrokeStyle(4, parseInt(zoneColor.replace('#', '0x')) || 0x888888);
+        highlightRect.setAlpha(0.6);
+        
       // Update summary icon with selected demonstrator
-      updateOnlineChoiceSummaryIcon(selectedCell.imageKey, stage.zone.zone_color, selectedCell.letter);
+      updateOnlineChoiceSummaryIcon(selectedCell.imageKey, generateZoneColor(stage.zone.zone_global_index), selectedCell.letter);
       
       // Add next button (same as regular choice game)
       makeNextButton.call(currentScene, "Next", () => {
@@ -2074,25 +2373,35 @@ function setupOnlineChoicePhaseChoice(stage) {
       // Only allow movement if not already selected
       if (selectedDemonstrator !== null) return;
       
-      let oldPosition = currentPosition;
+      let oldPosition = onlineChoicePosition;
       
       if (evt.code === 'ArrowLeft') {
-        currentPosition = Math.max(0, currentPosition - 1);
+        onlineChoicePosition = Math.max(0, onlineChoicePosition - 1);
       }
       if (evt.code === 'ArrowRight') {
-        currentPosition = Math.min(cells.length - 1, currentPosition + 1);
+        onlineChoicePosition = Math.min(cells.length - 1, onlineChoicePosition + 1);
       }
       
       // If position changed, update user sprite and highlight
-      if (oldPosition !== currentPosition) {
-        userX = cells[currentPosition].x;
+      if (oldPosition !== onlineChoicePosition) {
+        currentPosition = onlineChoicePosition; // Update global position for logging
+        userX = cells[onlineChoicePosition].x;
         userSprite.setPosition(userX, userY);
-        highlightRect.setPosition(cells[currentPosition].x, cells[currentPosition].y);
+        highlightRect.setPosition(cells[onlineChoicePosition].x, cells[onlineChoicePosition].y);
+        
+        // Log keyboard movement action for online-choice
+        const moveAction = onlineChoicePosition > oldPosition ? 'right' : 'left';
+        logToMongoDB(moveAction, {
+          reward_generated: false,
+          shot: false,
+          choice_position: onlineChoicePosition,
+          choice_letter: cells[onlineChoicePosition].letter
+        });
       }
       
       // Space to select
       if (evt.code === 'Space') {
-        selectDemonstrator(currentPosition);
+        selectDemonstrator(onlineChoicePosition);
       }
     });
   });
@@ -2132,7 +2441,7 @@ function setupOnlineChoicePhaseWatch(stage) {
   const zoneText = this.add.text(
     this.sys.game.config.width / 2,
     30,
-    `Zone ${stage.zone.zone_index}`,
+    `Zone ${stage.zone.zone_global_index}`,
     { font: '20px Arial', fill: '#ffffff' }
   ).setOrigin(0.5);
   
@@ -2158,7 +2467,7 @@ function setupOnlineChoicePhaseWatch(stage) {
   const gridBottomY = gridOriginY + totalGridHeight;
 
   // Add zone labels
-  addZoneLabels(this, stage.zone.zone_index);
+  addZoneLabels(this, stage.zone.zone_global_index);
   
   // zone background
   createZoneBackgroundMask.call(this, stage, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
@@ -2178,15 +2487,15 @@ function setupOnlineChoicePhaseWatch(stage) {
   let currentR = Math.floor(currentLinearIndex / numCols);
   let currentC = currentLinearIndex % numCols;
   
+  // Initialize position tracking for logging
+  currentPosition = currentLinearIndex;
+  
   // Load demonstrator image
   const demoImageKey = `online_watch_${selectedDemo.key}`;
-  const demoImagePath = demoData.demonstrator_image;
-  
-  // Get the mapped image filename
-  const mappedImage = getMappedDemonstratorFromFilename(demoImagePath);
+  const mappedDemonstratorImage = mapDemonstratorImage(demoData.demonstrator_global_index);
   
   if (!this.textures.exists(demoImageKey)) {
-    this.load.image(demoImageKey, `assets/demonstrators/${mappedImage}`);
+    this.load.image(demoImageKey, `assets/demonstrators/${mappedDemonstratorImage}`);
     this.load.once('complete', () => {
       startDemonstration.call(this);
     });
@@ -2238,6 +2547,31 @@ function setupOnlineChoicePhaseWatch(stage) {
           dSprite.setPosition(pos.x, pos.y);
           highlightCurrentCell(highlightRect, cell.r, cell.c, gridOriginX, gridOriginY, cellWidth, cellHeight);
 
+          // Log movement actions during watch (except for the first position)
+          if (index > 0) {
+            const prevCell = pathCells[index - 1];
+            const currentCellPosition = cell.r * numCols + cell.c;
+            const prevCellPosition = prevCell.r * numCols + prevCell.c;
+            
+            let moveAction;
+            if (currentCellPosition > prevCellPosition) {
+              moveAction = cell.r > prevCell.r ? 'down' : 'right';
+            } else {
+              moveAction = cell.r < prevCell.r ? 'up' : 'left';
+            }
+            
+            // Log the movement action from the PREVIOUS position (where action was taken from)
+            currentShotsRemaining = totalSteps - currentStep;
+            logToMongoDB(moveAction, {
+              reward_generated: false,
+              shot: false
+            });
+            
+            // Update position and step AFTER logging
+            currentPosition = currentCellPosition;
+            currentGameStep++;
+          }
+
           index++;
           if (index >= pathCells.length) {
             pathTimer.remove();
@@ -2247,6 +2581,22 @@ function setupOnlineChoicePhaseWatch(stage) {
             // Calculate outcome
             let payoff = bandit[currentR][currentC];
             let outcome = (Math.random() < payoff) ? 1 : 0;
+            
+            // Log the shoot action from current position (where shot was taken from)
+            currentShotsRemaining = totalSteps - currentStep - 1;
+            logToMongoDB('shoot', {
+              reward_generated: outcome === 1,
+              shot: true
+            });
+            
+            // Update tracking AFTER logging
+            currentPosition = currentR * numCols + currentC;
+            currentGameStep++;
+            
+            if (outcome === 1) {
+              currentGameReward++;
+              userTotalReward++;
+            }
             
             // Create a simple flash effect
             let g = currentScene.add.graphics();
@@ -2298,8 +2648,9 @@ function updateOnlineChoiceSummaryIcon(imageKey, zoneColor, choiceLetter) {
   if (onlineChoiceIconIndex >= 0) {
     // Extract demonstrator image from the selected demonstrator
     const selectedDemo = window.onlineChoiceSelectedDemo;
-    if (selectedDemo && selectedDemo.data) {
-      const demoImage = selectedDemo.data.demonstrator_image.replace('.png', '');
+    if (selectedDemo && selectedDemo.data && selectedDemo.data.demonstrator_global_index !== undefined) {
+      const mappedImage = mapDemonstratorImage(selectedDemo.data.demonstrator_global_index);
+      const demoImage = mappedImage.replace('.png', '');
       summaryIcons[onlineChoiceIconIndex].imageKey = demoImage;
       summaryIcons[onlineChoiceIconIndex].choiceLetter = choiceLetter;
       
@@ -2376,14 +2727,14 @@ function nextStage() {
     isLastStageInSession = (currentStageIndex === currentSession.length - 1);
     
     // Increment stage index
-    currentStageIndex++;
-    
+  currentStageIndex++;
+  
     // Check if we need to move to the next session
     if (currentStageIndex >= currentSession.length) {
       console.log("End of simple session reached, moving to next session");
-      currentSessionIndex++;
-      currentStageIndex = 0;
-      
+    currentSessionIndex++;
+    currentStageIndex = 0;
+    
       // Clear summary icons when starting a new session
       summaryIcons = [];
       redrawSummaryBarDOM();
@@ -2420,7 +2771,7 @@ function nextStage() {
     });
   } else {
     // For non-gameplay stages, just load directly
-    loadStage.call(this);
+  loadStage.call(this);
   }
 }
 
@@ -2529,143 +2880,69 @@ function showEndOfGameMessage() {
 function createZoneBackgroundMask(stage, gridX, gridY, numRows, numCols, cellWidth, cellHeight) {
   if (!stage.zone) return;
 
-  // Check for a custom background in the zone
-  let bgColor = 0x000000; // Default black
-  let hasBackgroundImage = false;
-  let backgroundImageKey = null;
+  // Always use background images now based on zone_global_index
+  const mappedBackground = mapZoneBackground(stage.zone.zone_global_index);
+  const backgroundImageKey = `zone_bg_${stage.zone.zone_global_index}`;
   
-  if (stage.zone.background || stage.zone.zone_background) {
-    const background = stage.zone.background || stage.zone.zone_background;
+  // Check if image is already loaded
+  if (!this.textures.exists(backgroundImageKey)) {
+    // Load the background image from zone_backgrounds folder
+    console.log(`Loading zone background image: ${mappedBackground}`);
     
-    // If background ends with .png, it's an image file
-    if (background.endsWith('.png')) {
-      hasBackgroundImage = true;
-      backgroundImageKey = `zone_bg_${stage.zone.zone_index}`;
-      
-      // Check if image is already loaded
-      if (!this.textures.exists(backgroundImageKey)) {
-        // Load the background image from zone_backgrounds folder
-        console.log(`Loading zone background image: ${background}`);
-        
-        // Get the mapped image filename instead of using the direct filename
-        const mappedBackground = getMappedZoneBackgroundFromFilename(background);
-        console.log(`Mapped ${background} to ${mappedBackground}`);
-        
-        this.load.image(backgroundImageKey, `assets/zone_backgrounds/${mappedBackground}`);
-        this.load.once('complete', () => {
-          applyBackground.call(this);
-        });
-        this.load.start();
-        return; // Wait for image to load
-      }
-    } else {
-      // It's a color name, convert to hex
-      const colorMap = {
-        'red': 0xFF0000,
-        'green': 0x00FF00,
-        'blue': 0x0000FF,
-        'yellow': 0xFFFF00,
-        'purple': 0x800080,
-        'orange': 0xFFA500,
-        'black': 0x000000,
-        'white': 0xFFFFFF,
-        'gray': 0x808080,
-        'grey': 0x808080
-      };
-      
-      // If it's a hex code, convert it
-      if (background.startsWith('#')) {
-        bgColor = parseInt(background.replace('#', '0x'));
-      } else {
-        // Otherwise look it up in our color map
-        bgColor = colorMap[background.toLowerCase()] || 0x000000;
-      }
-    }
+    this.load.image(backgroundImageKey, `assets/zone_backgrounds/${mappedBackground}`);
+    this.load.once('complete', () => {
+      applyBackground.call(this);
+    });
+    this.load.start();
+    return; // Wait for image to load
   }
   
-  // If we aren't waiting for an image to load, proceed with the background
-  if (!hasBackgroundImage || this.textures.exists(backgroundImageKey)) {
-    applyBackground.call(this);
-  }
+  // If image is already loaded, proceed with the background
+  applyBackground.call(this);
   
   function applyBackground() {
     // Create background for the ENTIRE game container, not just the grid
     const gameWidth = this.sys.game.config.width;
     const gameHeight = this.sys.game.config.height;
     
-    // Create background - either color or image
-    if (hasBackgroundImage) {
-      // Add the background image to cover the entire game container
-      let zoneBg = this.add.image(0, 0, backgroundImageKey)
-        .setOrigin(0, 0)
-        .setDisplaySize(gameWidth, gameHeight)
-        .setDepth(-1000); // Set to very low depth to ensure it's behind everything
-    } else {
-      // Add a colored rectangle for the entire game container
-      let bgRect = this.add.rectangle(
-        0, 
-        0, 
-        gameWidth, 
-        gameHeight, 
-        bgColor
-      ).setOrigin(0, 0).setDepth(-1000); // Set to very low depth to ensure it's behind everything
-    }
+    // Add the background image to cover the entire game container
+    let zoneBg = this.add.image(0, 0, backgroundImageKey)
+      .setOrigin(0, 0)
+      .setDisplaySize(gameWidth, gameHeight)
+      .setDepth(-1000); // Set to very low depth to ensure it's behind everything
     
     // Calculate grid dimensions for the cell content
     const totalGridWidth = (numCols * cellWidth) + ((numCols - 1) * CELL_PADDING);
     const totalGridHeight = (numRows * cellHeight) + ((numRows - 1) * CELL_PADDING);
     
-    // Continue with the cells (either asteroid or landscape)
-    const zoneMode = stage.zone.mode || stage.zone.zone_mode || "landscape";
+    // Continue with the cells (asteroid mode only now)
+    const zoneMode = stage.zone.zone_mode || "asteroid";
 
-    if (zoneMode === "landscape") {
-      // LANDSCAPE MODE: one background for all cells
-      // Make sure we've loaded the landscape image
-      const landscapeImage = stage.zone.images || stage.zone.zone_images;
-      if (!landscapeImage || landscapeImage.length === 0) {
-        console.error("Missing landscape images");
-        return;
-      }
-      
-      const landscapeKey = `landscape_${stage.zone.zone_index}`;
-      
-      if (!this.textures.exists(landscapeKey)) {
-        // Get the mapped image filename instead of using the direct filename
-        const mappedLandscape = getMappedLandscapeFromFilename(landscapeImage[0]);
-        console.log(`Mapped ${landscapeImage[0]} to ${mappedLandscape}`);
-        
-        this.load.image(landscapeKey, `assets/landscapes/${mappedLandscape}`);
-        this.load.once('complete', () => {
-          createLandscapeBackground.call(this, landscapeKey, gridX, gridY, numRows, numCols, cellWidth, cellHeight);
-        });
-        this.load.start();
-      } else {
-        createLandscapeBackground.call(this, landscapeKey, gridX, gridY, numRows, numCols, cellWidth, cellHeight);
-      }
-    } 
-    else if (zoneMode === "asteroid") {
+    if (zoneMode === "asteroid") {
       // ASTEROID MODE: each cell gets its own asteroid
-      // Make sure we've loaded all the asteroid images
-      const asteroidImages = stage.zone.images || stage.zone.zone_images;
-      if (!asteroidImages || asteroidImages.length === 0) {
-        console.error("Missing asteroid images");
+      // Get the mapped asteroid image filenames
+      const asteroidImageIndexes = stage.zone.zone_bandit_arm_image_indexes;
+      if (!asteroidImageIndexes || asteroidImageIndexes.length === 0) {
+        console.error("Missing asteroid image indexes");
         return;
       }
       
+      // Map the indexes to actual filenames
+      const mappedAsteroidImages = mapZoneBanditArmImages(stage.zone.zone_global_index, asteroidImageIndexes);
       const imageKeys = [];
 
       // Create a loader for all asteroid images
       let loadingRequired = false;
-      for (let i = 0; i < asteroidImages.length; i++) {
-        const asteroidKey = `asteroid_${stage.zone.zone_index}_${i}`;
+      for (let i = 0; i < mappedAsteroidImages.length; i++) {
+        const asteroidKey = `asteroid_${stage.zone.zone_global_index}_${i}`;
         imageKeys.push(asteroidKey);
         
         if (!this.textures.exists(asteroidKey)) {
-          this.load.image(asteroidKey, `assets/asteroids/${asteroidImages[i]}`);
+          this.load.image(asteroidKey, `assets/asteroids/${mappedAsteroidImages[i]}`);
           loadingRequired = true;
         }
       }
-    
+
       if (loadingRequired) {
         this.load.once('complete', () => {
           createAsteroidBackgrounds.call(this, imageKeys, gridX, gridY, numRows, numCols, cellWidth, cellHeight);
@@ -2961,8 +3238,8 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
              "Choose the starship you would watch before playing again to achieve higher rewards.";
   } else {
     message = nextStage["overlay-message"] || 
-             (nextStage.zone && nextStage.zone["overlay-message"]) || 
-             `Get ready to ${buttonText.toLowerCase()}!`;
+                 (nextStage.zone && nextStage.zone["overlay-message"]) || 
+                 `Get ready to ${buttonText.toLowerCase()}!`;
   }
   
   // Add the message text
@@ -2980,7 +3257,7 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   
   // Update the game container border color immediately to match the next stage's zone
   if (nextStage.zone) {
-    const zoneColor = nextStage.zone.zone_color || nextStage.zone.color || "#ffffff";
+    const zoneColor = generateZoneColor(nextStage.zone.zone_global_index);
     const gameContainer = document.getElementById('game-container');
     if (gameContainer) {
       gameContainer.style.border = `10px solid ${zoneColor}`;
@@ -2994,10 +3271,10 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   // Get zone info
   const zone = nextStage.zone;
   if (zone) {
-    // Always use zone_color from timeline.json rather than color property
-    const zoneColor = zone.zone_color || zone.color || '#ffffff';
-    console.log(`Transition overlay using zone_color: ${zoneColor}`);
-    const zoneIndex = zone.zone_index;
+    // Generate zone color based on zone_global_index
+    const zoneColor = generateZoneColor(zone.zone_global_index);
+    console.log(`Transition overlay using generated zone_color: ${zoneColor}`);
+    const zoneIndex = zone.zone_global_index;
     
     // For choice game, use a special zone display
     if (stageType === 'choice') {
@@ -3135,22 +3412,18 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
         playerImageKey = 'user';
         addPlayerImageToContainer(playerImageKey);
     } else if (stageType === 'watch' || stageType === 'indicate') {
-        if (nextStage.demonstrator && nextStage.demonstrator.demonstrator_image) {
+        if (nextStage.demonstrator && nextStage.demonstrator.demonstrator_global_index !== undefined) {
             // Create a unique key for this demonstrator that includes session info
-            const demoIndex = nextStage.demonstrator.demonstrator_index || 0;
+            const demoSessionIndex = nextStage.demonstrator.demonstrator_session_index || 0;
             const sessionIndex = nextStage.session_index || 0;
             const gameIndex = nextStage.game_index || 0;
-            playerImageKey = `overlay_demo_s${sessionIndex}_g${gameIndex}_${demoIndex}`;
+            playerImageKey = `overlay_demo_s${sessionIndex}_g${gameIndex}_${demoSessionIndex}`;
             
-            // Always load a fresh copy of the image to avoid caching issues
-            const demoImage = nextStage.demonstrator.demonstrator_image;
-            console.log(`Loading transition overlay demonstrator image: ${demoImage} for session ${sessionIndex}, game ${gameIndex}`);
+            // Get the mapped demonstrator image
+            const mappedDemonstratorImage = mapDemonstratorImage(nextStage.demonstrator.demonstrator_global_index);
+            console.log(`Loading transition overlay demonstrator: global_index=${nextStage.demonstrator.demonstrator_global_index}, mapped to ${mappedDemonstratorImage}`);
             
-            // Get the mapped image filename instead of using the direct filename
-            const mappedImage = getMappedDemonstratorFromFilename(demoImage);
-            console.log(`Mapped transition overlay ${demoImage} to ${mappedImage}`);
-            
-            scene.load.image(playerImageKey, `assets/demonstrators/${mappedImage}`);
+            scene.load.image(playerImageKey, `assets/demonstrators/${mappedDemonstratorImage}`);
             scene.load.once('complete', () => {
                 addPlayerImageToContainer(playerImageKey);
             });
@@ -3195,10 +3468,10 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
         playerImage.setScale(scale);
         container.add(playerImage);
     }
-}
-
-// Special function to create the choice zone icon
-function createChoiceZoneIcon(scene, zoneColor) {
+  }
+  
+  // Special function to create the choice zone icon
+  function createChoiceZoneIcon(scene, zoneColor) {
     console.log(`Creating choice zone icon with color: ${zoneColor}`);
     
     // Convert color string to hex number - handle both named colors and hex codes
@@ -3309,8 +3582,8 @@ function createChoiceZoneIcon(scene, zoneColor) {
         ).setOrigin(0.5);
         container.add(zoneText);
     }
-}
-
+  }
+  
 // Special function for online-choice zone icon
 function createOnlineChoiceZoneIcon(scene, zoneColor, zoneIndex) {
     console.log("Creating online-choice zone icon");
@@ -3423,4 +3696,13 @@ function createOnlineChoiceZoneIcon(scene, zoneColor, zoneIndex) {
         ).setOrigin(0.5);
         container.add(zoneText);
     }
+  }
+
+function getMappedAsteroidImage(index) {
+  const imageName = asteroidImageMapping[index];
+  if (!imageName) {
+    console.warn(`No asteroid image mapped for index ${index}, using default`);
+    return `asteroid_${index.toString().padStart(2, '0')}.png`;
+  }
+  return imageName;
 }
