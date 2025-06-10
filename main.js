@@ -46,7 +46,8 @@ let experimentConfigPath = null; // Will be fetched from server
 let currentGameStep = 0; // Reset for each game
 let userTotalReward = 0; // Cumulative across all games
 let currentGameReward = 0; // Reset for each game
-let refreshCount = 0;
+let refreshCount = parseInt(localStorage.getItem('refreshCount') || '0', 10);
+console.log('Loaded refresh count from localStorage:', refreshCount);
 let currentGameSequence = []; // Track sequence of games in session
 let currentGameType = null;
 let currentShotsRemaining = 0;
@@ -156,6 +157,7 @@ async function logToMongoDB(action, additionalData = {}) {
 // Function to log page refresh
 async function logPageRefresh() {
   refreshCount++;
+  localStorage.setItem('refreshCount', refreshCount.toString());
   try {
     const response = await fetch('/api/log-refresh', {
       method: 'POST',
@@ -1588,63 +1590,302 @@ function setupWatch(stage) {
             currentGameStep++;
           }
 
-        index++;
-        if (index >= pathCells.length) {
-          pathTimer.remove();
+                  index++;
+          if (index >= pathCells.length) {
+            pathTimer.remove();
             currentR = targetR;
             currentC = targetC;
             
-            // Calculate outcome
-            let payoff = bandit[currentR][currentC];
-            let outcome = (Math.random() < payoff) ? 1 : 0;
-            
-            // Log the shoot action from current position (where shot was taken from)
-            currentShotsRemaining = totalSteps - currentStep - 1;
-            logToMongoDB('shoot', {
-              reward_generated: outcome === 1,
-              shot: true
-            });
-            
-            // Update tracking AFTER logging
-            currentPosition = currentR * numCols + currentC;
-            currentGameStep++;
-            
-            if (outcome === 1) {
-              currentGameReward++;
-              userTotalReward++;
-            }
-            
-            // Create a simple flash effect
-      let g = this.add.graphics();
-      g.fillStyle(HIGHLIGHT_COLOR, 1);
-      g.fillRect(
-              gridOriginX + currentC*(cellWidth + CELL_PADDING),
-              gridOriginY + currentR*(cellHeight + CELL_PADDING),
-        cellWidth, cellHeight
-      );
-      
-            // Fade out only
-      this.tweens.add({
-        targets: g,
-        alpha: 0,
-              duration: 200,
-        onComplete: () => {
-          g.destroy();
-          
-                // Record outcome and update tank
-                watchOutcomes.push(outcome);
-                drawMarkerDot.call(this, gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC, outcome);
-                drawRewardTank.call(this, rewardTankContainer, totalSteps, watchOutcomes);
-
-                currentStep++;
-                moveAlongTrajectoryStep.call(this);
+            // Define the shooting action function
+            const performShootingAction = () => {
+              // Calculate outcome
+              let payoff = bandit[currentR][currentC];
+              let outcome = (Math.random() < payoff) ? 1 : 0;
+              
+              // Log the shoot action from current position (where shot was taken from)
+              currentShotsRemaining = totalSteps - currentStep - 1;
+              logToMongoDB('shoot', {
+                reward_generated: outcome === 1,
+                shot: true
+              });
+              
+              // Update tracking AFTER logging
+              currentPosition = currentR * numCols + currentC;
+              currentGameStep++;
+              
+              if (outcome === 1) {
+                currentGameReward++;
+                userTotalReward++;
               }
-            });
+              
+              // Create a simple flash effect
+              let g = this.add.graphics();
+              g.fillStyle(HIGHLIGHT_COLOR, 1);
+              g.fillRect(
+                gridOriginX + currentC*(cellWidth + CELL_PADDING),
+                gridOriginY + currentR*(cellHeight + CELL_PADDING),
+                cellWidth, cellHeight
+              );
+              
+              // Fade out only
+              this.tweens.add({
+                targets: g,
+                alpha: 0,
+                duration: 200,
+                onComplete: () => {
+                  g.destroy();
+                  
+                  // Record outcome and update tank
+                  watchOutcomes.push(outcome);
+                  drawMarkerDot.call(this, gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC, outcome);
+                  drawRewardTank.call(this, rewardTankContainer, totalSteps, watchOutcomes);
+
+                  currentStep++;
+                  moveAlongTrajectoryStep.call(this);
+                }
+              });
+            };
+            
+            // Add a brief pause before shooting if there was movement
+            if (pathCells.length > 1) {
+              // There was movement, add a pause before shooting
+              this.time.delayedCall(400, performShootingAction);
+            } else {
+              // No movement, shoot immediately
+              performShootingAction();
+            }
           }
         }
       });
     }
     }
+}
+
+/**
+ * INDICATE Stage - similar to watch but for indication games
+ */
+function setupIndicate(stage) {
+  if (!stage.zone) {
+    console.error("Missing zone data");
+    return;
+  }
+  
+  // Use indicate-overlay-message if available, otherwise use default
+  const overlayMessage = stage["indicate-overlay-message"] || 
+    "You will now watch the demonstrator indicate their strategy.";
+  
+  // Get demonstrator data and trajectory
+  const demoData = stage.demonstrator;
+  const trajectory = demoData.demonstrator_trajectory;
+  
+  // Reset game tracking for indicate phase
+  resetGameTracking('indicate', trajectory.length);
+  
+  const bandit = stage.zone.zone_bandit;
+  const numRows = bandit.length;
+  const numCols = bandit[0].length;
+  
+  // Show zone information
+  const zoneText = this.add.text(
+    this.sys.game.config.width / 2,
+    30,
+    `Zone ${stage.zone.zone_global_index}`,
+    { font: '20px Arial', fill: '#ffffff' }
+  ).setOrigin(0.5);
+  
+  // Show which demonstrator is being watched
+  const demoText = this.add.text(
+    this.sys.game.config.width / 2,
+    70,
+    `Watching Partner ${stage.demonstrator.demonstrator_name || 'Demonstrator'}`,
+    { font: '22px Arial', fill: '#ffffff' }
+  ).setOrigin(0.5);
+  
+  // Use the larger fixed cell size
+  let cellWidth = BASE_CELL_SIZE;
+  let cellHeight = BASE_CELL_SIZE;
+  
+  // Calculate total grid size based on fixed cell size
+  const totalGridWidth = numCols * cellWidth + (numCols - 1) * CELL_PADDING;
+  const totalGridHeight = numRows * cellHeight + (numRows - 1) * CELL_PADDING;
+  
+  // Center the grid in the full container width
+  const gridOriginX = (this.sys.game.config.width - totalGridWidth) / 2;
+  const gridOriginY = 100 + (400 - totalGridHeight) / 2;
+  const gridBottomY = gridOriginY + totalGridHeight;
+
+  // Add zone labels
+  addZoneLabels(this, stage.zone.zone_global_index);
+  
+  // zone background
+  createZoneBackgroundMask.call(this, stage, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
+
+  // Keep reward tank for indicate stages to show mining outcomes
+  let indicateOutcomes = [];
+  const tankX = gridOriginX + (totalGridWidth / 2);
+  const tankY = gridBottomY + TANK_MARGIN_TOP;
+  const rewardTankContainer = this.add.container(tankX, tankY);
+  rewardTankContainer.setDepth(100);
+  drawRewardTank.call(this, rewardTankContainer, trajectory.length, indicateOutcomes);
+
+  let highlightRect = createHighlightRect.call(this, cellWidth, cellHeight);
+
+  // Convert first linear index to row,col
+  let currentLinearIndex = trajectory[0];
+  let currentR = Math.floor(currentLinearIndex / numCols);
+  let currentC = currentLinearIndex % numCols;
+  
+  // Initialize position tracking for logging
+  currentPosition = currentLinearIndex;
+  
+  // Load demonstrator image
+  const demoImageKey = `indicate_${stage.demonstrator.demonstrator_global_index}`;
+  const mappedDemonstratorImage = mapDemonstratorImage(stage.demonstrator.demonstrator_global_index);
+  
+  if (!this.textures.exists(demoImageKey)) {
+    this.load.image(demoImageKey, `assets/demonstrators/${mappedDemonstratorImage}`);
+    this.load.once('complete', () => {
+      startDemonstration.call(this);
+    });
+    this.load.start();
+  } else {
+    startDemonstration.call(this);
+  }
+  
+  function startDemonstration() {
+    let startPos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC);
+    let dSprite = this.add.image(startPos.x, startPos.y, demoImageKey)
+    .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
+    .setDepth(9999)
+    .setOrigin(0.5);
+
+    let currentStep = 0;
+    let totalSteps = trajectory.length;
+
+    // Add a delay before starting the trajectory
+    this.time.delayedCall(WATCH_START_DELAY, () => {
+      moveAlongTrajectoryStep.call(this);
+    });
+
+    function moveAlongTrajectoryStep() {
+      if (currentStep >= totalSteps) {
+        // When demonstration is complete, show next button
+        makeNextButton.call(this, "Next", () => {
+          nextStage.call(this);
+        });
+        return;
+      }
+
+      let targetLinearIndex = trajectory[currentStep];
+      let targetR = Math.floor(targetLinearIndex / numCols);
+      let targetC = targetLinearIndex % numCols;
+      
+      let pathCells = getManhattanPath(currentR, currentC, targetR, targetC);
+
+      let index = 0;
+      let pathTimer = this.time.addEvent({
+        delay: 600,
+        repeat: pathCells.length - 1,
+        callback: () => {
+          let cell = pathCells[index];
+          let pos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cell.r, cell.c);
+          dSprite.setPosition(pos.x, pos.y);
+          highlightCurrentCell(highlightRect, cell.r, cell.c, gridOriginX, gridOriginY, cellWidth, cellHeight);
+
+          // Log movement actions during indicate (except for the first position)
+          if (index > 0) {
+            const prevCell = pathCells[index - 1];
+            const currentCellPosition = cell.r * numCols + cell.c;
+            const prevCellPosition = prevCell.r * numCols + prevCell.c;
+            
+            let moveAction;
+            if (currentCellPosition > prevCellPosition) {
+              moveAction = cell.r > prevCell.r ? 'down' : 'right';
+            } else {
+              moveAction = cell.r < prevCell.r ? 'up' : 'left';
+            }
+            
+            // Log the movement action from the PREVIOUS position (where action was taken from)
+            currentShotsRemaining = totalSteps - currentStep;
+            logToMongoDB(moveAction, {
+              reward_generated: false,
+              shot: false
+            });
+            
+            // Update position and step AFTER logging
+            currentPosition = currentCellPosition;
+            currentGameStep++;
+          }
+
+          index++;
+          if (index >= pathCells.length) {
+            pathTimer.remove();
+            currentR = targetR;
+            currentC = targetC;
+            
+            // Define the shooting action function
+            const performShootingAction = () => {
+              // Calculate outcome
+              let payoff = bandit[currentR][currentC];
+              let outcome = (Math.random() < payoff) ? 1 : 0;
+              
+              // Log the shoot action from current position (where shot was taken from)
+              currentShotsRemaining = totalSteps - currentStep - 1;
+              logToMongoDB('shoot', {
+                reward_generated: outcome === 1,
+                shot: true
+              });
+              
+              // Update tracking AFTER logging
+              currentPosition = currentR * numCols + currentC;
+              currentGameStep++;
+              
+              if (outcome === 1) {
+                currentGameReward++;
+                userTotalReward++;
+              }
+              
+              // Create a simple flash effect
+              let g = this.add.graphics();
+              g.fillStyle(HIGHLIGHT_COLOR, 1);
+              g.fillRect(
+                gridOriginX + currentC*(cellWidth + CELL_PADDING),
+                gridOriginY + currentR*(cellHeight + CELL_PADDING),
+                cellWidth, cellHeight
+              );
+              
+              // Fade out only
+              this.tweens.add({
+                targets: g,
+                alpha: 0,
+                duration: 200,
+                onComplete: () => {
+                  g.destroy();
+                  
+                  // Record outcome and update tank
+                  indicateOutcomes.push(outcome);
+                  drawMarkerDot.call(this, gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC, outcome);
+                  drawRewardTank.call(this, rewardTankContainer, totalSteps, indicateOutcomes);
+
+                  currentStep++;
+                  moveAlongTrajectoryStep.call(this);
+                }
+              });
+            };
+            
+            // Add a brief pause before shooting if there was movement
+            if (pathCells.length > 1) {
+              // There was movement, add a pause before shooting
+              this.time.delayedCall(400, performShootingAction);
+            } else {
+              // No movement, shoot immediately
+              performShootingAction();
+            }
+          }
+        }
+      });
+    }
+  }
 }
 
 /**
@@ -2578,52 +2819,64 @@ function setupOnlineChoicePhaseWatch(stage) {
             currentR = targetR;
             currentC = targetC;
 
-            // Calculate outcome
-            let payoff = bandit[currentR][currentC];
-            let outcome = (Math.random() < payoff) ? 1 : 0;
-            
-            // Log the shoot action from current position (where shot was taken from)
-            currentShotsRemaining = totalSteps - currentStep - 1;
-            logToMongoDB('shoot', {
-              reward_generated: outcome === 1,
-              shot: true
-            });
-            
-            // Update tracking AFTER logging
-            currentPosition = currentR * numCols + currentC;
-            currentGameStep++;
-            
-            if (outcome === 1) {
-              currentGameReward++;
-              userTotalReward++;
-            }
-            
-            // Create a simple flash effect
-            let g = currentScene.add.graphics();
-            g.fillStyle(HIGHLIGHT_COLOR, 1);
-            g.fillRect(
-              gridOriginX + currentC*(cellWidth + CELL_PADDING),
-              gridOriginY + currentR*(cellHeight + CELL_PADDING),
-              cellWidth, cellHeight
-            );
-            
-            // Fade out only
-            currentScene.tweens.add({
-              targets: g,
-              alpha: 0,
-              duration: 200,
-              onComplete: () => {
-                g.destroy();
-                
-                // Record outcome and update tank
-                watchOutcomes.push(outcome);
-                drawMarkerDot.call(currentScene, gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC, outcome);
-                drawRewardTank.call(currentScene, rewardTankContainer, totalSteps, watchOutcomes);
-
-                currentStep++;
-                moveAlongTrajectoryStep.call(currentScene);
+            // Define the shooting action function
+            const performShootingAction = () => {
+              // Calculate outcome
+              let payoff = bandit[currentR][currentC];
+              let outcome = (Math.random() < payoff) ? 1 : 0;
+              
+              // Log the shoot action from current position (where shot was taken from)
+              currentShotsRemaining = totalSteps - currentStep - 1;
+              logToMongoDB('shoot', {
+                reward_generated: outcome === 1,
+                shot: true
+              });
+              
+              // Update tracking AFTER logging
+              currentPosition = currentR * numCols + currentC;
+              currentGameStep++;
+              
+              if (outcome === 1) {
+                currentGameReward++;
+                userTotalReward++;
               }
-            });
+              
+              // Create a simple flash effect
+              let g = currentScene.add.graphics();
+              g.fillStyle(HIGHLIGHT_COLOR, 1);
+              g.fillRect(
+                gridOriginX + currentC*(cellWidth + CELL_PADDING),
+                gridOriginY + currentR*(cellHeight + CELL_PADDING),
+                cellWidth, cellHeight
+              );
+              
+              // Fade out only
+              currentScene.tweens.add({
+                targets: g,
+                alpha: 0,
+                duration: 200,
+                onComplete: () => {
+                  g.destroy();
+                  
+                  // Record outcome and update tank
+                  watchOutcomes.push(outcome);
+                  drawMarkerDot.call(currentScene, gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC, outcome);
+                  drawRewardTank.call(currentScene, rewardTankContainer, totalSteps, watchOutcomes);
+
+                  currentStep++;
+                  moveAlongTrajectoryStep.call(currentScene);
+                }
+              });
+            };
+            
+            // Add a brief pause before shooting if there was movement
+            if (pathCells.length > 1) {
+              // There was movement, add a pause before shooting
+              currentScene.time.delayedCall(400, performShootingAction);
+            } else {
+              // No movement, shoot immediately
+              performShootingAction();
+            }
           }
         }
       });
