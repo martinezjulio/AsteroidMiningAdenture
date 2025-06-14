@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const { spawn } = require('child_process');
 const mongoose = require('mongoose');
 const GameLog = require('./models/gameLog'); // Import the model
 const app = express();
@@ -46,6 +47,284 @@ app.get('/api/config', (req, res) => {
     res.json({ 
         experiment_id,
         experiment_config_path 
+    });
+});
+
+// Concurrency management for timeline generation
+const MAX_CONCURRENT_GENERATIONS = 3; // Limit concurrent Python processes
+const GENERATION_QUEUE = [];
+let activeGenerations = 0;
+
+// Cleanup old timeline backup files on startup
+function cleanupOldBackupFiles() {
+    const configsDir = path.join(__dirname, 'configs');
+    const oneHourAgo = Date.now() - (60 * 60 * 1000); // 1 hour ago
+    
+    try {
+        const files = fs.readdirSync(configsDir);
+        let cleanedCount = 0;
+        
+        files.forEach(file => {
+            if (file.startsWith('timeline_') && file.endsWith('.json') && file !== 'timeline.json') {
+                const filePath = path.join(configsDir, file);
+                const stats = fs.statSync(filePath);
+                
+                if (stats.mtime.getTime() < oneHourAgo) {
+                    fs.unlinkSync(filePath);
+                    cleanedCount++;
+                }
+            }
+        });
+        
+        if (cleanedCount > 0) {
+            console.log(`🧹 Cleaned up ${cleanedCount} old timeline backup files`);
+        }
+    } catch (error) {
+        console.warn('⚠️ Warning: Could not cleanup old backup files:', error.message);
+    }
+}
+
+// Run cleanup on startup
+cleanupOldBackupFiles();
+
+// Run cleanup every hour
+setInterval(cleanupOldBackupFiles, 60 * 60 * 1000);
+
+// Endpoint to generate a fresh timeline for each user
+app.get('/api/timeline', (req, res) => {
+    console.log('🎲 Generating fresh timeline for new user...');
+    
+    // Add to queue if we're at capacity
+    if (activeGenerations >= MAX_CONCURRENT_GENERATIONS) {
+        console.log(`📋 Queue timeline generation (${GENERATION_QUEUE.length + 1} in queue)`);
+        GENERATION_QUEUE.push({ req, res });
+        return;
+    }
+    
+    processTimelineGeneration(req, res);
+});
+
+function processTimelineGeneration(req, res) {
+    activeGenerations++;
+    console.log(`🔄 Processing timeline generation (${activeGenerations}/${MAX_CONCURRENT_GENERATIONS} active)`);
+    
+    // Generate unique identifier for this request
+    const requestId = `timeline_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Set a reasonable timeout for timeline generation
+    const timeout = setTimeout(() => {
+        console.error('⏰ Timeline generation timed out for request:', requestId);
+        finishGeneration();
+        res.status(500).json({ 
+            error: 'Timeline generation timed out',
+            details: 'The Python script took too long to execute',
+            requestId: requestId
+        });
+    }, 30000); // 30 second timeout
+    
+    // Auto-detect working Python command
+    const pythonCommands = ['python3', 'python', 'py'];
+    
+    const findWorkingPython = (commands, index = 0) => {
+        if (index >= commands.length) {
+            clearTimeout(timeout);
+            finishGeneration();
+            return res.status(500).json({
+                error: 'No working Python installation found',
+                tested: commands,
+                suggestion: 'Install Python and ensure it\'s in your PATH',
+                requestId: requestId
+            });
+        }
+        
+        const cmd = commands[index];
+        const testProcess = spawn(cmd, ['--version']);
+        
+        testProcess.on('close', (code) => {
+            if (code === 0) {
+                console.log(`🐍 Using Python command: ${cmd} for request: ${requestId}`);
+                generateWithPython(cmd);
+            } else {
+                findWorkingPython(commands, index + 1);
+            }
+        });
+        
+        testProcess.on('error', (error) => {
+            findWorkingPython(commands, index + 1);
+        });
+    };
+    
+    const generateWithPython = (pythonCommand) => {
+        // Run the Python script to generate a new timeline
+        const pythonProcess = spawn(pythonCommand, ['models.py', requestId], {
+            cwd: path.join(__dirname, 'timeline_models'),
+            stdio: ['pipe', 'pipe', 'pipe']
+        });
+    
+        let timelineData = '';
+        let errorData = '';
+        
+        pythonProcess.stdout.on('data', (data) => {
+            timelineData += data.toString();
+        });
+        
+        pythonProcess.stderr.on('data', (data) => {
+            errorData += data.toString();
+        });
+        
+        pythonProcess.on('close', (code) => {
+            clearTimeout(timeout);
+            finishGeneration();
+            
+            if (code !== 0) {
+                console.error(`❌ Python script failed with code: ${code} for request: ${requestId}`);
+                console.error('Error output:', errorData);
+                return res.status(500).json({ 
+                    error: 'Failed to generate timeline', 
+                    details: errorData,
+                    exitCode: code,
+                    requestId: requestId
+                });
+            }
+            
+            try {
+                // Parse the timeline JSON from the Python output
+                const timeline = JSON.parse(timelineData);
+                console.log(`✅ Successfully generated fresh timeline for ${requestId} with`, timeline.length, 'sessions');
+                
+                // Log some stats about the generated timeline
+                let totalStages = 0;
+                timeline.forEach(session => {
+                    if (Array.isArray(session[0])) {
+                        // Nested session
+                        session.forEach(container => totalStages += container.length);
+                    } else {
+                        // Simple session
+                        totalStages += session.length;
+                    }
+                });
+                console.log(` Timeline stats for ${requestId}: ${timeline.length} sessions, ${totalStages} total stages`);
+                
+                res.json(timeline);
+            } catch (parseError) {
+                console.error(`❌ Failed to parse timeline JSON for ${requestId}:`, parseError);
+                console.error('Raw output was:', timelineData.substring(0, 500), '...');
+                res.status(500).json({ 
+                    error: 'Failed to parse generated timeline',
+                    details: parseError.message,
+                    rawOutput: timelineData.substring(0, 200),
+                    requestId: requestId
+                });
+            }
+        });
+        
+        pythonProcess.on('error', (error) => {
+            clearTimeout(timeout);
+            finishGeneration();
+            console.error(`❌ Failed to start Python process for ${requestId}:`, error);
+            res.status(500).json({ 
+                error: 'Failed to start timeline generation',
+                details: error.message,
+                suggestion: 'Make sure Python is installed and accessible in PATH',
+                requestId: requestId
+            });
+        });
+    };
+    
+    function finishGeneration() {
+        activeGenerations--;
+        console.log(`✅ Finished generation (${activeGenerations}/${MAX_CONCURRENT_GENERATIONS} active, ${GENERATION_QUEUE.length} queued)`);
+        
+        // Process next item in queue
+        if (GENERATION_QUEUE.length > 0) {
+            const next = GENERATION_QUEUE.shift();
+            console.log(`🚀 Processing queued timeline generation (${GENERATION_QUEUE.length} remaining)`);
+            setImmediate(() => processTimelineGeneration(next.req, next.res));
+        }
+    }
+    
+    // Start the process by finding working Python
+    findWorkingPython(pythonCommands);
+}
+
+// Test endpoint to verify Python setup
+app.get('/api/test-python', (req, res) => {
+    console.log('🧪 Testing Python setup...');
+    
+    const pythonCommands = ['python3', 'python', 'py'];
+    
+    const testCommand = (commands, index = 0) => {
+        if (index >= commands.length) {
+            return res.status(500).json({
+                error: 'No working Python installation found',
+                tested: commands,
+                suggestion: 'Install Python and ensure it\'s in your PATH'
+            });
+        }
+        
+        const cmd = commands[index];
+        const testProcess = spawn(cmd, ['--version']);
+        
+        let output = '';
+        let errorOutput = '';
+        
+        testProcess.stdout.on('data', (data) => {
+            output += data.toString();
+        });
+        
+        testProcess.stderr.on('data', (data) => {
+            errorOutput += data.toString();
+        });
+        
+        testProcess.on('close', (code) => {
+            if (code === 0) {
+                console.log(`✅ Found working Python: ${cmd} - ${output.trim()}`);
+                res.json({
+                    success: true,
+                    command: cmd,
+                    version: output.trim() || errorOutput.trim(),
+                    message: 'Python is working correctly'
+                });
+            } else {
+                console.log(`❌ Python command '${cmd}' failed, trying next...`);
+                testCommand(commands, index + 1);
+            }
+        });
+        
+        testProcess.on('error', (error) => {
+            console.log(`❌ Python command '${cmd}' not found, trying next...`);
+            testCommand(commands, index + 1);
+        });
+    };
+    
+    testCommand(pythonCommands);
+});
+
+// Timeline generation status endpoint for monitoring
+app.get('/api/timeline-status', (req, res) => {
+    res.json({
+        active_generations: activeGenerations,
+        max_concurrent: MAX_CONCURRENT_GENERATIONS,
+        queue_length: GENERATION_QUEUE.length,
+        capacity_available: MAX_CONCURRENT_GENERATIONS - activeGenerations,
+        server_time: new Date(),
+        uptime_seconds: process.uptime()
+    });
+});
+
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+    res.json({
+        status: 'healthy',
+        timeline_system: {
+            active: activeGenerations,
+            queued: GENERATION_QUEUE.length,
+            capacity: MAX_CONCURRENT_GENERATIONS
+        },
+        mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        timestamp: new Date()
     });
 });
 

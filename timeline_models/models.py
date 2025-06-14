@@ -216,7 +216,7 @@ def generate_timeline(
         {"stage_type": "prolific_id_form", "message": "Please enter your Prolific ID below:"},
         {
             "stage_type": "introduction",
-            "message": "Welcome to fortune frontier the asteroid mining adventure.\n\nPlayers navigate the Asteroid Belt of Fortune, piloting the ship *Prospector One* to mine asteroids, each with unknown rewards. The game combines strategy and luck, as players decide which asteroids to mine. Players guide their starship through the different zones of the asteroid belt, making strategic choices to strike asteroids with potential for high payoffs. Each zone introduces your starship to new asteroids with different payoffs than the zones before it. Success fills the mining tank with celestial wealth. Throughout the game you will observe and learn from other starships to improve your chances of becoming the galaxy's greatest miner.\n\nWelcome to \"Asteroid Fortune Frontier\" – where the universe is yours to mine.\n\n[RED_BOLD]Note: please refrain from refreshing/reloading your web browser for the remainder of this game! Also please do not go back to previous pages. This will corrupt results. Thank you![/RED_BOLD]",
+            "message": "Welcome to \"Asteroid Fortune Frontier\" the asteroid mining adventure.\n\n PLEASE READ CAREFULLY: \n\n  As a player you will pilot a starship to mine ASTEROIDS with by shooting them. Some asteroids yield rewards more often than others. These reward rates are unknown to you. \n\nYOUR GOAL IS FIND THE ASTEROID THAT YIELDS REWARD MOST OFTEN AND MINE FROM IT AS MUCH AS POSSIBLE!  \n\n You will also encounter several asteroid ZONES. The zone number will be displayed on the screen to tell you what zone you are in. Sometimes you will repeat the same zone and will experience the same unknown reward payoffs as before giving you more opportunity to mine from the same asteroids. However when you move into new zones the asteroids will change and so will their unknown reward payoffs requiring you to explore again to discover the best asteroids to mine from.\n\n You will also have starship PARTNERS to watch and learn from. Pay close attention as you might learn something valuable that may ultimately help you find the most rewarding asteroids to mine from.  \n\nWelcome to \"Asteroid Fortune Frontier\" – where the universe is yours to mine.\n\n[RED_BOLD]DO NOT RELOAD PAGE AT ANY TIME DURING GAME![/RED_BOLD]",
             "instructions": {
                 "instruction1": "move left with left arrow",
                 "instruction1_image": "move_left.gif",
@@ -228,7 +228,7 @@ def generate_timeline(
                 "instruction4_image": "successful_mine.png",
                 "instruction5": "red indicates unsuccessful mining\n(no reward)",
                 "instruction5_image": "unsuccessful_mine.png",
-                "instruction6": "Rewards are probabilistic meaning that mining from any asteroid will sometimes yield reward and sometimes yield no reward. Your goal is to find and mine from the asteroids that yield reward most often as much as you can!"
+                "instruction6": "You mine rewards from asteroids by shooting them. Some asteroids yield reward more often than others. Get optimal rewards by finding the asteroids that yield reward often!"
             }
         },
         {
@@ -245,7 +245,7 @@ def generate_timeline(
                 "instruction4_image": "successful_mine.png",
                 "instruction5": "red indicates unsuccessful mining\n(no reward)",
                 "instruction5_image": "unsuccessful_mine.png",
-                "instruction6": "Rewards are probabilistic meaning that mining from any asteroid will sometimes yield reward and sometimes yield no reward. Your goal is to find and mine from the asteroids that yield reward most often as much as you can!"
+                "instruction6": "You mine rewards from asteroids by shooting them. Some asteroids yield reward more often than others. To get optimal rewards find the asteroids that yield rewards most often and mine from them as much as you can!"
             }
         },
         {
@@ -267,8 +267,33 @@ def generate_timeline(
 
 if __name__ == "__main__":
     import json
+    import sys
+
+    # Get request ID from command line arguments for unique file naming
+    request_id = None
+    if len(sys.argv) > 1:
+        request_id = sys.argv[1]
+    else:
+        # Fallback to timestamp if no request_id provided
+        import time
+        request_id = f"timeline_{int(time.time())}"
 
     # e.g. 1 round, 24 pulls for play, 48 pulls for watch
     tl = generate_timeline(rounds=2, num_play_arm_pulls=6, num_watch_arm_pulls=6)
-    print(json.dumps(tl, indent=4))
-    with open('../data/timeline.json', 'w') as f: json.dump(tl, f, indent=4)
+    
+    # Output JSON to stdout for the Node.js server to capture
+    print(json.dumps(tl))
+    
+    # Also save to file for backup/debugging with unique filename
+    try:
+        backup_filename = f'../configs/timeline_{request_id}.json'
+        with open(backup_filename, 'w') as f: 
+            json.dump(tl, f, indent=4)
+        # Also update the main timeline.json for backward compatibility
+        with open('../configs/timeline.json', 'w') as f: 
+            json.dump(tl, f, indent=4)
+    except Exception as e:
+        # Don't fail if we can't write to file, just continue
+        # Write to stderr so it doesn't interfere with stdout JSON
+        print(f"Warning: Could not write backup file: {e}", file=sys.stderr)
+        pass

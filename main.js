@@ -605,14 +605,32 @@ function create() {
   // Fetch experiment config first, then initialize image mappings and load timeline
   fetchExperimentConfig().then(() => {
     initializeImageMappings().then(() => {
-      // Load timeline after experiment config and image mappings are ready
-      fetch(experimentConfigPath)
-    .then(r => r.json())
+      // Generate and load a fresh timeline from the server
+      console.log('Requesting fresh timeline generation...');
+      fetch('/api/timeline')
+    .then(r => {
+      if (!r.ok) {
+        throw new Error(`Timeline generation failed: ${r.status} ${r.statusText}`);
+      }
+      return r.json();
+    })
     .then(jsonData => {
+      console.log('Successfully loaded fresh timeline');
       timelineData = jsonData;
       loadStage.call(this);
     })
-    .catch(err => console.error("Error loading timeline JSON:", err));
+    .catch(err => {
+      console.error("Error generating/loading timeline:", err);
+      // Fallback to static file if dynamic generation fails
+      console.log("Falling back to static timeline file...");
+      fetch(experimentConfigPath)
+        .then(r => r.json())
+        .then(jsonData => {
+          timelineData = jsonData;
+          loadStage.call(this);
+        })
+        .catch(fallbackErr => console.error("Fallback timeline loading also failed:", fallbackErr));
+    });
     });
   });
 }
@@ -1003,7 +1021,7 @@ function setupIntroduction(stage) {
     // Display red bold note below main message
     this.add.text(
       this.sys.game.config.width/2,
-      this.sys.game.config.height/2 + 120,
+      this.sys.game.config.height/2 + 200,
       redBoldNote,
       { 
         font: 'bold 16px Arial', 
@@ -1432,7 +1450,7 @@ function setupPlayOrPractice(stage, isPractice) {
       if (pullsRemaining <= 0) {
           makeNextButton.call(scene, "Next", () => {
             nextStage.call(scene);
-        });
+        }, "overlay");
       }
         }
       });
@@ -1607,7 +1625,7 @@ function setupWatch(stage) {
           window.onlineChoicePhase = null;
           window.onlineChoiceSelectedDemo = null;
           nextStage.call(this);
-        });
+        }, "overlay");
       return;
     }
 
@@ -1843,7 +1861,7 @@ function setupIndicate(stage) {
         // When demonstration is complete, show next button
         makeNextButton.call(this, "Next", () => {
           nextStage.call(this);
-        });
+        }, "overlay");
         return;
       }
 
@@ -2252,7 +2270,7 @@ function setupChoice(stage) {
         // Restore normal controls display before moving to next stage
         updateControlsDisplay("default");
         nextStage.call(currentScene);
-      });
+      }, "overlay");
     }
     
     // Keyboard input
@@ -2699,7 +2717,7 @@ function setupOnlineChoicePhaseChoice(stage) {
         // Move to watch phase
         window.onlineChoicePhase = 'watch';
         loadStage.call(currentScene);
-      });
+      }, "overlay");
     }
     
     // Listen for arrow keys and spacebar (same as regular choice game)
@@ -2870,7 +2888,7 @@ function setupOnlineChoicePhaseWatch(stage) {
           window.onlineChoicePhase = null;
           window.onlineChoiceSelectedDemo = null;
           nextStage.call(currentScene);
-        });
+        }, "overlay");
         return;
       }
 
@@ -3501,18 +3519,45 @@ function getManhattanPath(r1, c1, r2, c2) {
 }
 
 /**
- * Creates a Phaser text button in the lower-right corner 
+ * Creates a Phaser text button centered horizontally at the bottom 
  * that, when clicked, runs the given callback.
  */
-function makeNextButton(label, callback) {
-    // Adjust these positions if you prefer
+function makeNextButton(label, callback, position = "default") {
+    // Determine Y position based on context
+    let yPosition;
+    if (position === "overlay") {
+      // Match the transition overlay button position (PRACTICE, WATCH, PLAY buttons)
+      yPosition = this.sys.game.config.height - 100;
+    } else {
+      // Default position for intro/tutorial stages
+      yPosition = this.sys.game.config.height - 30;
+    }
+    
+    // Create a larger, more prominent button centered horizontally
     const btn = this.add.text(
-      this.sys.game.config.width - 100, // near right edge
-      this.sys.game.config.height - 40, // near bottom
-      label,
-      { font: '18px Arial', fill: '#00ff00', backgroundColor: '#333', padding: 5 }
+      this.sys.game.config.width / 2, // centered horizontally
+      yPosition, // position based on context
+      label.toUpperCase(), // Convert to all caps
+      { 
+        font: 'bold 24px Arial', // Larger, bold font
+        fill: '#ffffff', // White text
+        backgroundColor: '#4CAF50', // Green background
+        padding: { x: 20, y: 12 }, // More padding for bigger button
+        borderRadius: 8 // Rounded corners
+      }
     ).setOrigin(0.5).setInteractive();
   
+    // Add hover effects to make it more interactive
+    btn.on('pointerover', () => {
+      btn.setStyle({ backgroundColor: '#45a049' }); // Darker green on hover
+      this.game.canvas.style.cursor = 'pointer';
+    });
+    
+    btn.on('pointerout', () => {
+      btn.setStyle({ backgroundColor: '#4CAF50' }); // Original green
+      this.game.canvas.style.cursor = 'default';
+    });
+    
     btn.on('pointerdown', () => {
       if (callback) callback();
     });
