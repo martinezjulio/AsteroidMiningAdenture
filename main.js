@@ -1404,7 +1404,15 @@ function setupPlayOrPractice(stage, isPractice) {
   // Function to handle pulling the arm
   function pullArm(row, col) {
     const scene = this; // Capture the scene context
-      pullsRemaining--;
+    
+    // Prevent multiple rapid shots (debounce protection)
+    if (scene.lastShotTime && Date.now() - scene.lastShotTime < 200) {
+      console.log('Shot ignored - too rapid');
+      return;
+    }
+    scene.lastShotTime = Date.now();
+    
+    pullsRemaining--;
     
     // Don't try to update remainingText - it doesn't exist in this context!
     
@@ -1456,6 +1464,10 @@ function setupPlayOrPractice(stage, isPractice) {
       });
   }
 
+  // Clean up any existing keyboard listeners to prevent multiple handlers
+  this.input.keyboard.removeAllListeners('keydown');
+  
+  // Add keyboard event handler
   this.input.keyboard.on('keydown', (evt) => {
     if (pullsRemaining <= 0) return;
 
@@ -2273,6 +2285,9 @@ function setupChoice(stage) {
       }, "overlay");
     }
     
+    // Clean up any existing keyboard listeners to prevent multiple handlers
+    currentScene.input.keyboard.removeAllListeners('keydown');
+    
     // Keyboard input
     currentScene.input.keyboard.on('keydown', (evt) => {
       // Only allow movement if not already selected
@@ -2719,6 +2734,9 @@ function setupOnlineChoicePhaseChoice(stage) {
         loadStage.call(currentScene);
       }, "overlay");
     }
+    
+    // Clean up any existing keyboard listeners to prevent multiple handlers
+    currentScene.input.keyboard.removeAllListeners('keydown');
     
     // Listen for arrow keys and spacebar (same as regular choice game)
     currentScene.input.keyboard.on('keydown', (evt) => {
