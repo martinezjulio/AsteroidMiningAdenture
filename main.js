@@ -1488,7 +1488,7 @@ function setupWatch(stage) {
   const demoText = this.add.text(
     this.sys.game.config.width / 2,
     70,
-    `Watching Partner ${stage.demonstrator.demonstrator_name}`,
+    "Watching Partner",
     { font: '22px Arial', fill: '#ffffff' }
   ).setOrigin(0.5);
   
@@ -1718,7 +1718,7 @@ function setupIndicate(stage) {
   const demoText = this.add.text(
     this.sys.game.config.width / 2,
     70,
-    `Watching Partner ${stage.demonstrator.demonstrator_name || 'Demonstrator'}`,
+    "Watching Partner",
     { font: '22px Arial', fill: '#ffffff' }
   ).setOrigin(0.5);
   
