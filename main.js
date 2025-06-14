@@ -67,6 +67,23 @@ function generateSessionID() {
   return 'sid_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
 }
 
+// Request fullscreen mode with cross-browser compatibility
+function requestFullscreen() {
+  const element = document.documentElement; // Use the entire document
+  
+  if (element.requestFullscreen) {
+    element.requestFullscreen();
+  } else if (element.webkitRequestFullscreen) {
+    element.webkitRequestFullscreen();
+  } else if (element.mozRequestFullScreen) {
+    element.mozRequestFullScreen();
+  } else if (element.msRequestFullscreen) {
+    element.msRequestFullscreen();
+  } else {
+    console.warn('Fullscreen API is not supported in this browser');
+  }
+}
+
 // Fetch experiment config from server
 async function fetchExperimentConfig() {
   try {
@@ -930,6 +947,10 @@ function setupProlificIdForm(stage) {
       alert("Please enter a valid Prolific ID.");
       return;
     }
+    
+    // Request fullscreen mode before proceeding to the game
+    requestFullscreen();
+    
     nextStage.call(this);
   };
 }
