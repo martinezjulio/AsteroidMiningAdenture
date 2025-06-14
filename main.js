@@ -804,6 +804,20 @@ function maybeAddSummaryIcon(stage) {
   if (!stage.zone && stageType !== 'choice' && stageType !== 'online-choice') return;  
   if (!['practice','play','watch','indicate','blind','choice','online-choice'].includes(stageType)) return;
 
+  // Duplicate prevention: check if we already have an icon for this exact stage
+  const stageKey = `${currentSessionIndex}_${currentStageIndex}_${stageType}`;
+  if (!window.addedSummaryIcons) {
+    window.addedSummaryIcons = new Set();
+  }
+  
+  if (window.addedSummaryIcons.has(stageKey)) {
+    console.log(`Duplicate summary icon prevented for ${stageKey}`);
+    return; // Don't add duplicate icon
+  }
+  
+  // Mark this stage as having an icon added
+  window.addedSummaryIcons.add(stageKey);
+
   // For choice games, just create a placeholder in the summaryIcons array
   // The actual image will be updated when user selects
   if (stageType === 'choice') {
@@ -935,6 +949,9 @@ function redrawSummaryBarDOM() {
 function setupProlificIdForm(stage) {
   alert("Prolific ID Form - type ID, then click Submit.");
 
+  // Hide controls during prolific ID form
+  updateControlsDisplay("hidden");
+
   document.getElementById('prolific-form-overlay').style.visibility = 'visible';
   const msgEl = document.getElementById('prolific-form-message');
   msgEl.innerText = stage.message || "Please enter your Prolific ID:";
@@ -957,6 +974,9 @@ function setupProlificIdForm(stage) {
 
 function setupIntroduction(stage) {
   const message = stage.message || "Introduction";
+  
+  // Hide controls during introduction
+  updateControlsDisplay("hidden");
   
   // Check if message contains red bold formatting
   const redBoldRegex = /\[RED_BOLD\](.*?)\[\/RED_BOLD\]/s;
@@ -1016,6 +1036,9 @@ function setupInstructions(stage) {
   }
 
   const instructions = stage.instructions;
+  
+  // Update controls display for single-row mode since all games appear to be asteroid mode
+  updateControlsDisplay("single-row");
   
   // Display title
   this.add.text(
@@ -1249,6 +1272,15 @@ function setupPlayOrPractice(stage, isPractice) {
   // Debug log to check dimensions
   console.log(`Loading ${isPractice ? 'PRACTICE' : 'PLAY'} with grid: ${numRows}x${numCols}`);
   
+  // Update controls display based on number of rows
+  if (numRows === 1) {
+    // Single row game (asteroid mode) - hide up/down controls
+    updateControlsDisplay("single-row");
+  } else {
+    // Multi-row game - show all controls
+    updateControlsDisplay("default");
+  }
+  
   // Use the larger fixed cell size 
   let cellWidth = BASE_CELL_SIZE;
   let cellHeight = BASE_CELL_SIZE;
@@ -1475,6 +1507,15 @@ function setupWatch(stage) {
   const bandit = stage.zone.zone_bandit;
   const numRows = bandit.length;
   const numCols = bandit[0].length;
+  
+  // Update controls display based on number of rows
+  if (numRows === 1) {
+    // Single row game (asteroid mode) - hide up/down controls
+    updateControlsDisplay("single-row");
+  } else {
+    // Multi-row game - show all controls
+    updateControlsDisplay("default");
+  }
   
   // Show zone information
   const zoneText = this.add.text(
@@ -1705,6 +1746,15 @@ function setupIndicate(stage) {
   const bandit = stage.zone.zone_bandit;
   const numRows = bandit.length;
   const numCols = bandit[0].length;
+  
+  // Update controls display based on number of rows
+  if (numRows === 1) {
+    // Single row game (asteroid mode) - hide up/down controls
+    updateControlsDisplay("single-row");
+  } else {
+    // Multi-row game - show all controls
+    updateControlsDisplay("default");
+  }
   
   // Show zone information
   const zoneText = this.add.text(
@@ -2278,6 +2328,28 @@ function updateControlsDisplay(type = "default") {
         <div>Select Partner</div>
       </div>
     `;
+  } else if (type === "single-row") {
+    // Controls for single-row games (asteroid mode) - no up/down arrows
+    controlsDisplay.innerHTML = `
+      <!-- Arrow Left -->
+      <div class="control-key">
+        <div class="control-icon">←</div>
+        <div>Left</div>
+      </div>
+      <!-- Arrow Right -->
+      <div class="control-key">
+        <div class="control-icon">→</div>
+        <div>Right</div>
+      </div>
+      <!-- Spacebar -->
+      <div class="control-key">
+        <div class="control-icon space">Spacebar</div>
+        <div>Mine for Minerals</div>
+      </div>
+    `;
+  } else if (type === "hidden") {
+    // Hide controls completely
+    controlsDisplay.innerHTML = "";
   } else {
     // Restore default controls
     if (window.originalControlsHTML) {
@@ -2699,6 +2771,15 @@ function setupOnlineChoicePhaseWatch(stage) {
   const numRows = bandit.length;
   const numCols = bandit[0].length;
   
+  // Update controls display based on number of rows
+  if (numRows === 1) {
+    // Single row game (asteroid mode) - hide up/down controls
+    updateControlsDisplay("single-row");
+  } else {
+    // Multi-row game - show all controls
+    updateControlsDisplay("default");
+  }
+  
   // Show zone information
   const zoneText = this.add.text(
     this.sys.game.config.width / 2,
@@ -2993,6 +3074,9 @@ function nextStage() {
       
       // Clear summary icons when starting a new session
       summaryIcons = [];
+      if (window.addedSummaryIcons) {
+        window.addedSummaryIcons.clear();
+      }
       redrawSummaryBarDOM();
       console.log("Cleared summary bar for new session");
     }
@@ -3011,6 +3095,9 @@ function nextStage() {
     
       // Clear summary icons when starting a new session
       summaryIcons = [];
+      if (window.addedSummaryIcons) {
+        window.addedSummaryIcons.clear();
+      }
       redrawSummaryBarDOM();
       console.log("Cleared summary bar for new session");
     }
