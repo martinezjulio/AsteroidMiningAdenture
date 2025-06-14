@@ -289,9 +289,6 @@ if __name__ == "__main__":
         backup_filename = f'../configs/timeline_{request_id}.json'
         with open(backup_filename, 'w') as f: 
             json.dump(tl, f, indent=4)
-        # Also update the main timeline.json for backward compatibility
-        with open('../configs/timeline.json', 'w') as f: 
-            json.dump(tl, f, indent=4)
     except Exception as e:
         # Don't fail if we can't write to file, just continue
         # Write to stderr so it doesn't interfere with stdout JSON
