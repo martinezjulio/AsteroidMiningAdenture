@@ -23,7 +23,7 @@ const gameLogSchema = new mongoose.Schema({
     
     // Session configuration
     transfer: { type: Boolean, default: false },
-    game_sequence: [{ type: String }],
+    game_sequence: { type: String, default: "" },
     
     // Stage/game identifiers
     game_index: { type: Number, required: true },
@@ -35,15 +35,15 @@ const gameLogSchema = new mongoose.Schema({
     demonstrator_type: { type: String, default: null },
     demonstrator_global_index: { type: Number, default: null },
     demonstrator_id: { type: String, default: null }, // Now stores the actual image filename
-    demonstrator_trajectory: [{ type: Number }],
+    demonstrator_trajectory: { type: String, default: "" },
     
     // Zone info (updated field names and new fields)
     zone_global_index: { type: Number, required: true },
     zone_color: { type: String, default: null }, // Generated zone color
     zone_background: { type: String, default: null }, // Mapped background image filename
-    zone_bandit: [[{ type: Number }]], // Array of arrays for bandit payoffs
+    zone_bandit: { type: String, default: "" }, // Comma-separated bandit payoffs
     zone_bandit_id: { type: String, default: null },
-    zone_bandit_arm_image_ids: [{ type: String }], // Mapped asteroid image filenames
+    zone_bandit_arm_image_ids: { type: String, default: "" }, // Comma-separated asteroid image filenames
     
     // Choice-specific fields (null for non-choice games)
     choice_demonstrator_id: { type: String, default: null }, // Demonstrator image filename of chosen demonstrator

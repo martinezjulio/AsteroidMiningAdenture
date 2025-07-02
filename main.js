@@ -48,7 +48,7 @@ let userTotalReward = 0; // Cumulative across all games
 let currentGameReward = 0; // Reset for each game
 let refreshCount = parseInt(localStorage.getItem('refreshCount') || '0', 10);
 console.log('Loaded refresh count from localStorage:', refreshCount);
-let currentGameSequence = []; // Track sequence of games in session
+let currentGameSequence = ""; // Track sequence of games in session as string
 let currentGameType = null;
 let currentShotsRemaining = 0;
 let currentPosition = 0;
@@ -137,16 +137,26 @@ async function logToMongoDB(action, additionalData = {}) {
     demonstrator_id: stage.demonstrator ? mapDemonstratorImage(stage.demonstrator.demonstrator_global_index) :
                     (stage.demonstrator1 && window.onlineChoiceSelectedDemo ? 
                      mapDemonstratorImage(window.onlineChoiceSelectedDemo.data.demonstrator_global_index) : null),
-    demonstrator_trajectory: stage.demonstrator ? stage.demonstrator.demonstrator_trajectory :
-                           (stage.demonstrator1 && window.onlineChoiceSelectedDemo ? 
-                            window.onlineChoiceSelectedDemo.data.demonstrator_trajectory : []),
+    demonstrator_trajectory: stage.demonstrator ? (() => {
+                           const trajectory = stage.demonstrator.demonstrator_trajectory;
+                           return Array.isArray(trajectory) ? trajectory.join(',') : "";
+                         })() : (stage.demonstrator1 && window.onlineChoiceSelectedDemo ? (() => {
+                           const trajectory = window.onlineChoiceSelectedDemo.data.demonstrator_trajectory;
+                           return Array.isArray(trajectory) ? trajectory.join(',') : "";
+                         })() : ""),
     zone_global_index: stage.zone ? stage.zone.zone_global_index : 0,
     zone_color: stage.zone ? generateZoneColor(stage.zone.zone_global_index) : null,
     zone_background: stage.zone ? mapZoneBackground(stage.zone.zone_global_index) : null,
-    zone_bandit: stage.zone ? (stage.zone.zone_bandit || stage.zone.bandit) : [],
+    zone_bandit: stage.zone ? (() => {
+      const bandit = stage.zone.zone_bandit || stage.zone.bandit || [];
+      return Array.isArray(bandit) ? bandit.flat().join(',') : "";
+    })() : "",
     zone_bandit_id: stage.zone ? (stage.zone.bandit_id || null) : null,
     zone_bandit_arm_image_ids: stage.zone && stage.zone.zone_bandit_arm_image_indexes ? 
-                               mapZoneBanditArmImages(stage.zone.zone_global_index, stage.zone.zone_bandit_arm_image_indexes) : [],
+                               (() => {
+                                 const images = mapZoneBanditArmImages(stage.zone.zone_global_index, stage.zone.zone_bandit_arm_image_indexes);
+                                 return Array.isArray(images) ? images.join(',') : "";
+                               })() : "",
     choice_demonstrator_id: choiceDemonstratorId,
     choice_demonstrator_type: choiceDemonstratorType,
     refresh_count: refreshCount,
@@ -197,36 +207,50 @@ function initializeGameSequence() {
   if (!timelineData || currentSessionIndex >= timelineData.length) return;
   
   const currentSession = timelineData[currentSessionIndex];
-  currentGameSequence = [];
+  let sequenceParts = [];
   
-  // Build game sequence for current session
+  // Build game sequence for current session - only first round pattern
   if (Array.isArray(currentSession[0])) {
     // Nested array session
-    for (let container of currentSession) {
-      for (let stage of container) {
-        const gameType = stage.stage_type || stage.game;
-        if (gameType === 'online-choice') {
-          // For online-choice, add both choice and watch to the sequence
-          currentGameSequence.push('choice');
-          currentGameSequence.push('watch');
-        } else if (['practice', 'play', 'watch', 'indicate', 'blind', 'choice'].includes(gameType)) {
-          currentGameSequence.push(gameType);
-        }
+    const gamesContainer = currentSession[0]; // First container has the games
+    const choiceContainer = currentSession[1]; // Second container has the choice
+    
+    // Only process first round (stages where round_index = 0)
+    const firstRoundStages = gamesContainer.filter(stage => stage.round_index === 0);
+    
+    for (let stage of firstRoundStages) {
+      const gameType = stage.stage_type || stage.game;
+      if (gameType === 'watch') {
+        // Use demonstrator expertise instead of "watch"
+        const demonstratorType = stage.demonstrator?.demonstrator_type || 'unknown';
+        sequenceParts.push(demonstratorType);
+      } else if (gameType === 'play') {
+        sequenceParts.push('play');
+      } else if (['practice', 'indicate', 'blind'].includes(gameType)) {
+        sequenceParts.push(gameType);
       }
     }
+    
+    // Add choice at the end
+    if (choiceContainer && choiceContainer.length > 0) {
+      sequenceParts.push('choice');
+    }
   } else {
-    // Simple array session
+    // Simple array session (practice session)
     for (let stage of currentSession) {
       const gameType = stage.stage_type || stage.game;
       if (gameType === 'online-choice') {
         // For online-choice, add both choice and watch to the sequence
-        currentGameSequence.push('choice');
-        currentGameSequence.push('watch');
+        sequenceParts.push('choice');
+        sequenceParts.push('watch');
       } else if (['practice', 'play', 'watch', 'indicate', 'blind', 'choice'].includes(gameType)) {
-        currentGameSequence.push(gameType);
+        sequenceParts.push(gameType);
       }
     }
   }
+  
+  // Convert to string with dashes
+  currentGameSequence = sequenceParts.join('-');
 }
 
 // Reset game-specific tracking variables
@@ -3101,88 +3125,40 @@ function updateOnlineChoiceSummaryIcon(imageKey, zoneColor, choiceLetter) {
  * Utility
  ************************************************/
 function nextStage() {
-  // Use the structure discovery from loadStage to handle nested arrays
-  const currentSession = timelineData[currentSessionIndex];
-  
-  console.log(`Current session: ${currentSessionIndex}, stage: ${currentStageIndex}`);
-  
-  // Check if we're at the end of all sessions
-  if (currentSessionIndex >= timelineData.length) {
-    showEndOfGameMessage.call(this);
-    return;
-  }
-  
-  // Check if the current session has nested arrays
-  let isNestedArraySession = Array.isArray(currentSession[0]);
-  let isLastStageInSession = false;
-  
-  if (isNestedArraySession) {
-    // For nested array sessions, we need to find which container we're in
-    let totalStagesSoFar = 0;
-    let currentContainerIndex = -1;
-    let stageIndexInContainer = -1;
-    
-    // Find which container we're in
-    for (let i = 0; i < currentSession.length; i++) {
-      const container = currentSession[i];
-      if (totalStagesSoFar + container.length > currentStageIndex) {
-        // Found our container
-        currentContainerIndex = i;
-        stageIndexInContainer = currentStageIndex - totalStagesSoFar;
-        break;
-      }
-      totalStagesSoFar += container.length;
-    }
-    
-    console.log(`In nested session, container: ${currentContainerIndex}, stage in container: ${stageIndexInContainer}`);
-    
-    // Check if this is the last stage in the current container
-    const isLastInContainer = (stageIndexInContainer === currentSession[currentContainerIndex].length - 1);
-    
-    // Check if this is also the last container in the session
-    const isLastContainer = (currentContainerIndex === currentSession.length - 1);
-    
-    // If it's the last stage in the last container, we're done with this session
-    isLastStageInSession = isLastInContainer && isLastContainer;
-    
-    // Increment stage index
-    currentStageIndex++;
-    
-    // Check if we need to move to the next session
-    if (isLastStageInSession) {
-      console.log("End of nested session reached, moving to next session");
-      currentSessionIndex++;
-      currentStageIndex = 0;
-      
-      // Clear summary icons when starting a new session
-      summaryIcons = [];
-      if (window.addedSummaryIcons) {
-        window.addedSummaryIcons.clear();
-      }
-      redrawSummaryBarDOM();
-      console.log("Cleared summary bar for new session");
-    }
-  } else {
-    // For simple array sessions, the logic is more straightforward
-    isLastStageInSession = (currentStageIndex === currentSession.length - 1);
-    
-    // Increment stage index
+  // Simple approach: increment stage index and let loadStage handle the complex logic
   currentStageIndex++;
   
-    // Check if we need to move to the next session
-    if (currentStageIndex >= currentSession.length) {
-      console.log("End of simple session reached, moving to next session");
+  console.log(`Moving to next stage: session ${currentSessionIndex}, stage ${currentStageIndex}`);
+  
+  // Get total stages in current session for validation
+  let totalStagesInSession = 0;
+  const currentSession = timelineData[currentSessionIndex];
+  
+  if (Array.isArray(currentSession[0])) {
+    // Nested array session - count all stages across all containers
+    for (let container of currentSession) {
+      totalStagesInSession += container.length;
+    }
+  } else {
+    // Simple array session
+    totalStagesInSession = currentSession.length;
+  }
+  
+  console.log(`Total stages in session ${currentSessionIndex}: ${totalStagesInSession}`);
+  
+  // Check if we've exceeded the stages in this session
+  if (currentStageIndex >= totalStagesInSession) {
+    console.log("End of session reached, moving to next session");
     currentSessionIndex++;
     currentStageIndex = 0;
     
-      // Clear summary icons when starting a new session
-      summaryIcons = [];
-      if (window.addedSummaryIcons) {
-        window.addedSummaryIcons.clear();
-      }
-      redrawSummaryBarDOM();
-      console.log("Cleared summary bar for new session");
+    // Clear summary icons when starting a new session
+    summaryIcons = [];
+    if (window.addedSummaryIcons) {
+      window.addedSummaryIcons.clear();
     }
+    redrawSummaryBarDOM();
+    console.log("Cleared summary bar for new session");
   }
   
   // Check if we're at the end of all sessions
@@ -3191,11 +3167,13 @@ function nextStage() {
     return;
   }
   
-  // Get the next stage
+  // Get the next stage using the robust getCurrentStageObject function
   const nextStageObj = getCurrentStageObject();
   
   if (!nextStageObj) {
     console.error("Could not find next stage object!");
+    console.error(`Session: ${currentSessionIndex}, Stage: ${currentStageIndex}`);
+    console.error("Current session structure:", currentSession);
     return;
   }
   
@@ -3214,13 +3192,14 @@ function nextStage() {
     });
   } else {
     // For non-gameplay stages, just load directly
-  loadStage.call(this);
+    loadStage.call(this);
   }
 }
 
 // Helper function to get the current stage object based on indices
 function getCurrentStageObject() {
   if (!timelineData || currentSessionIndex >= timelineData.length) {
+    console.error(`getCurrentStageObject: Invalid session index ${currentSessionIndex}, total sessions: ${timelineData ? timelineData.length : 'undefined'}`);
     return null;
   }
   
@@ -3230,21 +3209,44 @@ function getCurrentStageObject() {
   if (Array.isArray(currentSession[0])) {
     let totalStagesSoFar = 0;
     
+    console.log(`getCurrentStageObject: Looking for stage ${currentStageIndex} in nested session ${currentSessionIndex}`);
+    
     for (let i = 0; i < currentSession.length; i++) {
-      if (currentStageIndex < totalStagesSoFar + currentSession[i].length) {
+      const container = currentSession[i];
+      console.log(`  Container ${i}: ${totalStagesSoFar} to ${totalStagesSoFar + container.length - 1} (${container.length} stages)`);
+      
+      if (currentStageIndex >= totalStagesSoFar && currentStageIndex < totalStagesSoFar + container.length) {
         // This container has our stage
         const effectiveIndex = currentStageIndex - totalStagesSoFar;
-        return currentSession[i][effectiveIndex];
+        console.log(`  Found stage in container ${i}, effective index: ${effectiveIndex}`);
+        
+        const stage = container[effectiveIndex];
+        if (!stage) {
+          console.error(`  ERROR: Stage at effective index ${effectiveIndex} is null/undefined`);
+          return null;
+        }
+        
+        return stage;
       }
-      totalStagesSoFar += currentSession[i].length;
+      totalStagesSoFar += container.length;
     }
     
+    console.error(`getCurrentStageObject: Stage ${currentStageIndex} not found in any container. Total stages: ${totalStagesSoFar}`);
     return null; // Stage not found
   } else {
     // Simple array session
-    if (currentStageIndex < currentSession.length) {
-      return currentSession[currentStageIndex];
+    console.log(`getCurrentStageObject: Looking for stage ${currentStageIndex} in simple session ${currentSessionIndex} (${currentSession.length} stages)`);
+    
+    if (currentStageIndex >= 0 && currentStageIndex < currentSession.length) {
+      const stage = currentSession[currentStageIndex];
+      if (!stage) {
+        console.error(`getCurrentStageObject: Stage at index ${currentStageIndex} is null/undefined`);
+        return null;
+      }
+      return stage;
     }
+    
+    console.error(`getCurrentStageObject: Stage index ${currentStageIndex} out of bounds for session with ${currentSession.length} stages`);
     return null;
   }
 }

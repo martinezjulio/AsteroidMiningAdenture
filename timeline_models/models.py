@@ -48,6 +48,7 @@ def generate_timeline(
                         "transfer": None,
                         "stage_index": 0,
                         "round_index": round_idx,
+                        "session_total_rounds": rounds,
                     })
                     idx += 1
 
@@ -60,6 +61,7 @@ def generate_timeline(
                 "transfer": xfer,
                 "stage_index": 1,
                 "round_index": None,
+                "session_total_rounds": rounds,
             }
             raw_sessions.append([games, [choice]])
 
@@ -286,6 +288,7 @@ def generate_timeline(
             "stage_index": 0,
             "round_index": 0,
             "session_index": 0,
+            "session_total_rounds": 0,
             "zone": practice_zone
         }
     ]
