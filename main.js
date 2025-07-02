@@ -672,7 +672,7 @@ function loadStage() {
     console.log(`Generated new session_id: ${oldSessionID} → ${sessionID}`);
     
     // Session verification logs (print once per session):
-    console.log("Current session:", timelineData[currentSessionIndex]);
+    // console.log("Current session:", timelineData[currentSessionIndex]);
   }
   
   const currentSession = timelineData[currentSessionIndex];
@@ -2054,8 +2054,8 @@ function setupIndicate(stage) {
  */
 function setupChoice(stage) {
   // Stage verification logs (uncomment for debugging):
-  console.log("Loading CHOICE stage");
-  console.log("Full stage data:", stage);
+  // console.log("Loading CHOICE stage");
+  // console.log("Full stage data:", stage);
   
   // Reset game tracking for choice phase
   resetGameTracking('choice', 0);
