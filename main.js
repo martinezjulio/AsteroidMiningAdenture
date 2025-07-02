@@ -973,8 +973,6 @@ function redrawSummaryBarDOM() {
  * Setup Functions for Each Stage Type
  *******************************************************/
 function setupProlificIdForm(stage) {
-  alert("Prolific ID Form - type ID, then click Submit.");
-
   // Hide controls during prolific ID form
   updateControlsDisplay("hidden");
 
