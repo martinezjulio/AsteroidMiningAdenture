@@ -22,7 +22,7 @@ def generate_timeline(
     choice_name = "choice"
     num_watch_slots = repeat_block.count("watch")
     patterns = list(product(["expert", "novice"], repeat=num_watch_slots))
-    transfer_options = [True, False]
+    transfer_options = [True]  # , False]  # Commented out "same zone" option
 
     raw_sessions: List[List[List[Dict[str, Any]]]] = []
     for pat in patterns:
@@ -65,8 +65,11 @@ def generate_timeline(
             }
             raw_sessions.append([games, [choice]])
 
-    # 2) shuffle & assign session_index, zone_index starting at 1
+    # 2) shuffle & select half of sessions, then assign session_index, zone_index starting at 1
     random.shuffle(raw_sessions)
+    # Select only half the sessions for each player
+    half_count = len(raw_sessions) // 2
+    raw_sessions = raw_sessions[:half_count]
     zone_idx = 1
     for sess_i, (games, [choice]) in enumerate(raw_sessions, start=1):
         for e in games:
@@ -310,8 +313,8 @@ if __name__ == "__main__":
         import time
         request_id = f"timeline_{int(time.time())}"
 
-    # e.g. 1 round, 24 pulls for play, 48 pulls for watch
-    tl = generate_timeline(rounds=2, num_play_arm_pulls=6, num_watch_arm_pulls=6)
+    # e.g. 3 rounds, 6 pulls for play, 6 pulls for watch
+    tl = generate_timeline(rounds=3, num_play_arm_pulls=6, num_watch_arm_pulls=6)
     
     # Output JSON to stdout for the Node.js server to capture
     print(json.dumps(tl))
