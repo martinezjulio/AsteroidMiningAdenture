@@ -3288,7 +3288,7 @@ function showEndOfGameMessage() {
   ).setOrigin(0.5);
 
   // Create a button to return to Prolific
-  const returnUrl = timelineData.return_url || "https://www.google.com";
+  const returnUrl = timelineData.return_url || "https://app.prolific.com/submissions/complete?cc=CTVM94DF";
   const buttonWidth = 250;
   const buttonHeight = 50;
   
