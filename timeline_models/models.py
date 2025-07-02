@@ -166,13 +166,13 @@ def generate_timeline(
                 if did in seen_demonstrators:
                     # Previously seen demonstrator
                     parts.append(
-                        "You will watch one of the starship partners you have seen before play again. "
+                        "You will watch the starship partner shown below play again. "
                         "Pay close attention to your partner's choices."
                     )
                 else:
                     # New demonstrator
                     parts.append(
-                        "In this game you will watch a new starship partner play the game. "
+                        "In this game you will watch a new starship partner (shown below) play the game. "
                         "Pay close attention to your partner's choices."
                     )
                     seen_demonstrators.add(did)
@@ -200,14 +200,18 @@ def generate_timeline(
             del choice[key]
 
         # choice overlay-message with updated format
-        parts = ["You will now choose between one of the starships you watched during this session."]
+        parts = [
+            "You will now choose between one of the starships you watched during this session."
+        ]
         last_zone = games[-1]["zone"]["zone_global_index"]
         if cz == last_zone:
             transfer_text = "in the same zone"
         else:
             transfer_text = "in a new zone you've never been to before"
         
-        parts.append(f"Choose the starship you would watch before playing again to achieve higher rewards {transfer_text}.")
+        parts.append(
+            f"Choose the starship you would watch before playing again to achieve higher rewards {transfer_text}."
+        )
         choice["overlay-message"] = " ".join(parts)
 
     # 9) fixed practice session
@@ -216,7 +220,20 @@ def generate_timeline(
         {"stage_type": "prolific_id_form", "message": "Please enter your Prolific ID below:"},
         {
             "stage_type": "introduction",
-            "message": "Welcome to \"Asteroid Fortune Frontier\" the asteroid mining adventure.\n\n PLEASE READ CAREFULLY: \n\n  As a player you will pilot a starship to mine ASTEROIDS with by shooting them. Some asteroids yield rewards more often than others. These reward rates are unknown to you. \n\nYOUR GOAL IS FIND THE ASTEROID THAT YIELDS REWARD MOST OFTEN AND MINE FROM IT AS MUCH AS POSSIBLE!  \n\n You will also encounter several asteroid ZONES. The zone number will be displayed on the screen to tell you what zone you are in. Sometimes you will repeat the same zone and will experience the same unknown reward payoffs as before giving you more opportunity to mine from the same asteroids. However when you move into new zones the asteroids will change and so will their unknown reward payoffs requiring you to explore again to discover the best asteroids to mine from.\n\n You will also have starship PARTNERS to watch and learn from. Pay close attention as you might learn something valuable that may ultimately help you find the most rewarding asteroids to mine from.  \n\nWelcome to \"Asteroid Fortune Frontier\" – where the universe is yours to mine.\n\n[RED_BOLD]DO NOT RELOAD PAGE AT ANY TIME DURING GAME![/RED_BOLD]",
+            "message": (
+                "Welcome to \"Asteroid Fortune Frontier\" the asteroid mining adventure.\n\n"
+                "[BOLD]PLEASE READ CAREFULLY:[/BOLD]\n\n"
+                "As a player you will pilot a starship to mine ASTEROIDS by shooting them. "
+                "Some asteroids yield rewards more often than others. These reward rates are unknown to you. \n\n"
+                "YOUR GOAL IS FIND THE ASTEROID THAT YIELDS REWARD MOST OFTEN AND MINE FROM IT AS MUCH AS POSSIBLE!  \n\n "
+                "You will encounter multiple asteroid ZONES each indicated by a zone number. "
+                "Sometimes you will repeat the same zone with the same reward payoffs. "
+                "Sometimes you will move into new zones with new asteroids and new unknown reward payoffs.\n\n "
+                "You will also have starship PARTNERS to learn from. Some starship partners have some experience in every zone while the others have none. "
+                "You will not be told your partners experience level so pay close attention and try to learn from their choices. \n\n"
+                "Welcome to \"Asteroid Fortune Frontier\" – where the universe is yours to mine.\n\n"
+                "[RED_BOLD]DO NOT RELOAD PAGE AT ANY TIME DURING GAME![/RED_BOLD]"
+            ),
             "instructions": {
                 "instruction1": "move left with left arrow",
                 "instruction1_image": "move_left.gif",
@@ -228,7 +245,11 @@ def generate_timeline(
                 "instruction4_image": "successful_mine.png",
                 "instruction5": "red indicates unsuccessful mining\n(no reward)",
                 "instruction5_image": "unsuccessful_mine.png",
-                "instruction6": "You mine rewards from asteroids by shooting them. Some asteroids yield reward more often than others. Get optimal rewards by finding the asteroids that yield reward often!"
+                "instruction6": (
+                    "You mine rewards from asteroids by shooting them. "
+                    "Some asteroids yield reward more often than others. "
+                    "Get optimal rewards by finding the asteroids that yield reward often!"
+                )
             }
         },
         {
@@ -245,7 +266,11 @@ def generate_timeline(
                 "instruction4_image": "successful_mine.png",
                 "instruction5": "red indicates unsuccessful mining\n(no reward)",
                 "instruction5_image": "unsuccessful_mine.png",
-                "instruction6": "You mine rewards from asteroids by shooting them. Some asteroids yield reward more often than others. To get optimal rewards find the asteroids that yield rewards most often and mine from them as much as you can!"
+                "instruction6": (
+                    "You mine rewards from asteroids by shooting them. "
+                    "Some asteroids yield reward more often than others. "
+                    "To get optimal rewards find the asteroid in each zone that yields rewards most often and mine from it as much as you can!"
+                )
             }
         },
         {

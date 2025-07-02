@@ -264,15 +264,15 @@ window.addEventListener('beforeunload', () => {
 });
 
 // Adjust these as you wish:
-const DEMO_SPRITE_SIZE = 40;       // user/demonstrator sprite size
+const DEMO_SPRITE_SIZE = 55;       // user/demonstrator sprite size
 const HIGHLIGHT_COLOR = 0xffffff;  // Lighter highlight => 0xffffff
 const HIGHLIGHT_ALPHA = 0.25;      // Lighter alpha
-const MARKER_DOT_RADIUS = 2;
-const TANK_SLOT_SIZE = 12;         // Size of each slot in the reward tank
+const MARKER_DOT_RADIUS = 4;
+const TANK_SLOT_SIZE = 24;         // Size of each slot in the reward tank
 const TANK_SLOT_PADDING = 2;       // Padding between tank slots
-const TANK_MARGIN_TOP = 100;       // Space between grid bottom and tank
-const CELL_PADDING = 5;            // Spacing between cells (in pixels)
-const BASE_CELL_SIZE = (400 / 12) * 1.5; // ~50% larger than before
+const TANK_MARGIN_TOP = 130;       // Space between grid bottom and tank
+const CELL_PADDING = 10;           // Spacing between cells (in pixels)
+const BASE_CELL_SIZE = (400 / 12) * 1.85; // ~85% larger than before
 const WATCH_START_DELAY = 500;     // Delay before starting watch demonstrations (ms)
 
 // Function to test if an image exists (with error suppression)
@@ -996,50 +996,114 @@ function setupIntroduction(stage) {
   // Hide controls during introduction
   updateControlsDisplay("hidden");
   
-  // Check if message contains red bold formatting
+  // Parse the message into distinct sections
   const redBoldRegex = /\[RED_BOLD\](.*?)\[\/RED_BOLD\]/s;
-  const match = message.match(redBoldRegex);
+  const boldRegex = /\[BOLD\](.*?)\[\/BOLD\]/s;
   
-  if (match) {
-    // Split message into main content and red bold note
-    const mainMessage = message.replace(redBoldRegex, '').trim();
-    const redBoldNote = match[1].trim();
+  const redBoldMatch = message.match(redBoldRegex);
+  const boldMatch = message.match(boldRegex);
+  
+  if (redBoldMatch || boldMatch) {
+    // Split message into sections more carefully
+    let sections = [];
     
-    // Display main message
-    this.add.text(
-      this.sys.game.config.width/2,
-      this.sys.game.config.height/2 - 50,
-      mainMessage,
-      { 
-        font: '18px Arial', 
-        fill: '#ffffff', 
-        align: 'center', 
-        wordWrap: { width: 700 } 
-      }
-    ).setOrigin(0.5);
+    // Parse the structured message
+    let messageParts = message.split('[BOLD]');
     
-    // Display red bold note below main message
-    this.add.text(
-      this.sys.game.config.width/2,
-      this.sys.game.config.height/2 + 200,
-      redBoldNote,
-      { 
-        font: 'bold 16px Arial', 
-        fill: '#ff0000', 
-        align: 'center', 
-        wordWrap: { width: 600 },
-        backgroundColor: '#000000',
-        padding: { x: 10, y: 5 }
+    // Welcome section (before [BOLD])
+    if (messageParts[0] && messageParts[0].trim()) {
+      sections.push({
+        text: messageParts[0].trim(),
+        type: 'welcome',
+        y: 40,  // Top of screen
+        font: '22px Courier New',
+        color: '#ffffff'
+      });
+    }
+    
+    // Bold section and main content (after [BOLD])
+    if (messageParts[1]) {
+      let afterBold = messageParts[1];
+      
+      // Extract bold text (between [BOLD] and [/BOLD])
+      if (boldMatch) {
+        const boldText = boldMatch[1].trim();
+        sections.push({
+          text: boldText,
+          type: 'bold',
+          y: 100,  // Below welcome with good spacing
+          font: 'bold 20px Courier New',
+          color: '#ffffff'
+        });
+        
+        // Remove the bold tags and content to get main content
+        afterBold = afterBold.replace(/.*?\[\/BOLD\]/, '').trim();
       }
-    ).setOrigin(0.5);
+      
+      // Handle red bold section
+      if (redBoldMatch) {
+        const redBoldText = redBoldMatch[1].trim();
+        sections.push({
+          text: redBoldText,
+          type: 'redBold',
+          y: this.sys.game.config.height - 80,  // Moved up from bottom
+          font: 'bold 18px Courier New',
+          color: '#ff0000',
+          background: true
+        });
+        
+        // Remove red bold section from main content
+        afterBold = afterBold.replace(redBoldRegex, '').trim();
+      }
+      
+      // Main content (everything that's left)
+      if (afterBold) {
+        sections.push({
+          text: afterBold,
+          type: 'main',
+          y: 320,  // Moved down further from bold section
+          font: '20px Courier New',
+          color: '#ffffff'
+        });
+      }
+    }
+    
+    // Display all sections
+    sections.forEach(section => {
+      const textStyle = {
+        font: section.font,
+        fill: section.color,
+        align: 'center',
+        wordWrap: { width: section.type === 'main' ? 750 : 700 },
+        lineSpacing: 1  // Just a tiny bit of extra line spacing
+      };
+      
+      if (section.background) {
+        textStyle.backgroundColor = '#000000';
+        textStyle.padding = { x: 10, y: 5 };
+      }
+      
+      // Special handling for main content - just slightly more line spacing
+      if (section.type === 'main') {
+        textStyle.lineSpacing = 2; // Very small increase for main content
+      }
+      
+      this.add.text(
+        this.sys.game.config.width/2,
+        section.y,
+        section.text,
+        textStyle
+      ).setOrigin(0.5);
+    });
+    
   } else {
     // Original behavior for messages without special formatting
-  this.add.text(
-    this.sys.game.config.width/2,
-    this.sys.game.config.height/2,
+    this.add.text(
+      this.sys.game.config.width/2,
+      this.sys.game.config.height/2,
       message,
-    { font: '20px Arial', fill: '#ffffff', align: 'center', wordWrap: { width: 600 } }
-  ).setOrigin(0.5);
+      { font: '20px Courier New', fill: '#ffffff', align: 'center', wordWrap: { width: 600 } }
+    ).setOrigin(0.5);
   }
 
   makeNextButton.call(this, "Next", () => {
@@ -1063,7 +1127,7 @@ function setupInstructions(stage) {
     this.sys.game.config.width / 2,
     50,
     stage.message || "Game Instructions",
-    { font: 'bold 28px Arial', fill: '#ffffff', align: 'center' }
+    { font: 'bold 28px Courier New', fill: '#ffffff', align: 'center' }
   ).setOrigin(0.5);
 
   // Store reference for loading images
@@ -1174,7 +1238,7 @@ function displayInstructionLayout(instructions, gifImages) {
       textY, // Position text much closer to images
       instructionText,
       { 
-        font: '16px Arial', 
+        font: '16px Courier New', 
         fill: '#ffffff', 
         align: 'center',
         wordWrap: { width: maxImageSize + 20 },
@@ -1228,7 +1292,7 @@ function displayInstructionLayout(instructions, gifImages) {
       textY2, // Position text below images with small gap
       instructionText,
       { 
-        font: '16px Arial', 
+        font: '16px Courier New', 
         fill: '#ffffff', 
         align: 'center',
         wordWrap: { width: maxImageSize + 40 },
@@ -1247,7 +1311,7 @@ function displayInstructionLayout(instructions, gifImages) {
       finalTextY, // Position below second section text with spacing
       instructions.instruction6,
       { 
-        font: '18px Arial', 
+        font: '18px Courier New', 
         fill: '#ffffff', 
         align: 'center',
         wordWrap: { width: 800 },
@@ -1552,7 +1616,7 @@ function setupWatch(stage) {
     this.sys.game.config.width / 2,
     30,
     `Zone ${stage.zone.zone_global_index}`,
-    { font: '20px Arial', fill: '#ffffff' }
+    { font: 'bold 20px Courier New', fill: '#ffffff' }
   ).setOrigin(0.5);
   
   // Show which demonstrator is being watched
@@ -1560,7 +1624,7 @@ function setupWatch(stage) {
     this.sys.game.config.width / 2,
     70,
     "Watching Partner",
-    { font: '22px Arial', fill: '#ffffff' }
+    { font: 'bold 22px Courier New', fill: '#ffffff' }
   ).setOrigin(0.5);
   
   // Use the larger fixed cell size
@@ -1791,7 +1855,7 @@ function setupIndicate(stage) {
     this.sys.game.config.width / 2,
     30,
     `Zone ${stage.zone.zone_global_index}`,
-    { font: '20px Arial', fill: '#ffffff' }
+    { font: 'bold 20px Courier New', fill: '#ffffff' }
   ).setOrigin(0.5);
   
   // Show which demonstrator is being watched
@@ -1799,7 +1863,7 @@ function setupIndicate(stage) {
     this.sys.game.config.width / 2,
     70,
     "Watching Partner",
-    { font: '22px Arial', fill: '#ffffff' }
+    { font: 'bold 22px Courier New', fill: '#ffffff' }
   ).setOrigin(0.5);
   
   // Use the larger fixed cell size
@@ -2821,7 +2885,7 @@ function setupOnlineChoicePhaseWatch(stage) {
     this.sys.game.config.width / 2,
     30,
     `Zone ${stage.zone.zone_global_index}`,
-    { font: '20px Arial', fill: '#ffffff' }
+    { font: 'bold 20px Courier New', fill: '#ffffff' }
   ).setOrigin(0.5);
   
   // Show which demonstrator is being watched
@@ -2829,7 +2893,7 @@ function setupOnlineChoicePhaseWatch(stage) {
     this.sys.game.config.width / 2,
     70,
     `Watching Partner ${selectedDemo.letter}`,
-    { font: '22px Arial', fill: '#ffffff' }
+    { font: 'bold 22px Courier New', fill: '#ffffff' }
   ).setOrigin(0.5);
   
   // Use the larger fixed cell size
@@ -3432,14 +3496,15 @@ function drawRewardTank(container, totalSlots, outcomes) {
 
   // Add a border/background for the tank
   const totalWidth = totalSlots * (TANK_SLOT_SIZE + TANK_SLOT_PADDING) - TANK_SLOT_PADDING;
-  const tankBg = this.add.rectangle(0, 0, totalWidth + 4, TANK_SLOT_SIZE + 4, 0x333333);
+  const slotHeight = TANK_SLOT_SIZE * 0.6; // Match the rectangle height
+  const tankBg = this.add.rectangle(0, 0, totalWidth + 4, slotHeight + 4, 0x333333);
   tankBg.setOrigin(0.5, 0.5);  // Center the background
   tankBg.setDepth(1); // Ensure it's above any background but below other elements
   container.add(tankBg);
   
   // Add a title above the tank
-  const tankTitle = this.add.text(0, -15, "Mining Reward Tank", { 
-    font: '14px Arial', 
+  const tankTitle = this.add.text(0, -40, "Mining Reward Tank", { 
+    font: 'bold 22px Courier New', 
     fill: '#ffffff' 
   });
   tankTitle.setOrigin(0.5, 0.5);  // Center the title
@@ -3455,7 +3520,9 @@ function drawRewardTank(container, totalSlots, outcomes) {
     
     // Position slots horizontally, left to right, centered around the origin
     let slotX = (i * (TANK_SLOT_SIZE + TANK_SLOT_PADDING)) - (totalWidth / 2) + (TANK_SLOT_SIZE / 2);
-    let slotRect = this.add.rectangle(slotX, 0, TANK_SLOT_SIZE, TANK_SLOT_SIZE, color);
+    let slotHeight = TANK_SLOT_SIZE * 0.6; // Make rectangles shorter than they are wide
+    let slotRect = this.add.rectangle(slotX, 0, TANK_SLOT_SIZE, slotHeight, color);
+    slotRect.setStrokeStyle(2, 0x00CCFF); // Bright blue border, 2px thick
     slotRect.setOrigin(0.5, 0.5);  // Center each slot
     slotRect.setDepth(1);  // Same depth as the background
     container.add(slotRect);
@@ -3470,7 +3537,7 @@ function drawMarkerDot(gridX, gridY, cellWidth, cellHeight, row, col, outcome) {
   let color = (outcome === 1) ? 0x00ff00 : 0xff0000;
 
   // First draw a slightly larger black circle for the border
-  let border = this.add.circle(x + offsetX, y + offsetY, MARKER_DOT_RADIUS + 1, 0x000000);
+  let border = this.add.circle(x + offsetX, y + offsetY, MARKER_DOT_RADIUS + 1.5, 0x000000);
   border.setDepth(99998);
   
   // Then draw the colored dot on top
@@ -3479,13 +3546,13 @@ function drawMarkerDot(gridX, gridY, cellWidth, cellHeight, row, col, outcome) {
 }
 
 /** 
- * place the sprite ~20px below the bottom edge of the cell
+ * place the sprite ~30px below the bottom edge of the cell
  */
 function getCellBelow(gridX, gridY, cellWidth, cellHeight, row, col) {
   // Calculate position with padding
   const x = gridX + col * (cellWidth + CELL_PADDING) + (cellWidth/2);
   const cellBottom = gridY + row * (cellHeight + CELL_PADDING) + cellHeight;
-  const y = cellBottom + 20;
+  const y = cellBottom + 30;
   return { x, y };
 }
 
@@ -3551,16 +3618,16 @@ function makeNextButton(label, callback, position = "default") {
       yPosition = this.sys.game.config.height - 30;
     }
     
-    // Create a larger, more prominent button centered horizontally
+    // Create a prominent button centered horizontally
     const btn = this.add.text(
       this.sys.game.config.width / 2, // centered horizontally
       yPosition, // position based on context
       label.toUpperCase(), // Convert to all caps
       { 
-        font: 'bold 24px Arial', // Larger, bold font
+        font: 'bold 20px Arial', // Smaller, bold font
         fill: '#ffffff', // White text
         backgroundColor: '#4CAF50', // Green background
-        padding: { x: 20, y: 12 }, // More padding for bigger button
+        padding: { x: 16, y: 10 }, // Less padding for smaller button
         borderRadius: 8 // Rounded corners
       }
     ).setOrigin(0.5).setInteractive();
@@ -3596,28 +3663,28 @@ function addZoneLabels(scene, zoneIndex) {
   scene.add.text(
     10, 10, 
     labelText, 
-    { font: '16px Arial', fill: '#ffffff', backgroundColor: '#000000', padding: { x: 5, y: 2 } }
+    { font: 'bold 16px Courier New', fill: '#ffffff', backgroundColor: '#000000', padding: { x: 5, y: 2 } }
   ).setDepth(10000);
   
   // Top right
   scene.add.text(
     scene.sys.game.config.width - 10, 10, 
     labelText, 
-    { font: '16px Arial', fill: '#ffffff', backgroundColor: '#000000', padding: { x: 5, y: 2 } }
+    { font: 'bold 16px Courier New', fill: '#ffffff', backgroundColor: '#000000', padding: { x: 5, y: 2 } }
   ).setOrigin(1, 0).setDepth(10000);
   
   // Bottom left
   scene.add.text(
     10, scene.sys.game.config.height - 10, 
     labelText, 
-    { font: '16px Arial', fill: '#ffffff', backgroundColor: '#000000', padding: { x: 5, y: 2 } }
+    { font: 'bold 16px Courier New', fill: '#ffffff', backgroundColor: '#000000', padding: { x: 5, y: 2 } }
   ).setOrigin(0, 1).setDepth(10000);
   
   // Bottom right
   scene.add.text(
     scene.sys.game.config.width - 10, scene.sys.game.config.height - 10, 
     labelText, 
-    { font: '16px Arial', fill: '#ffffff', backgroundColor: '#000000', padding: { x: 5, y: 2 } }
+    { font: 'bold 16px Courier New', fill: '#ffffff', backgroundColor: '#000000', padding: { x: 5, y: 2 } }
   ).setOrigin(1, 1).setDepth(10000);
 }
 
