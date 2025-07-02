@@ -624,11 +624,11 @@ function create() {
       // Fallback to static file if dynamic generation fails
       console.log("Falling back to static timeline file...");
       fetch(experimentConfigPath)
-        .then(r => r.json())
-        .then(jsonData => {
-          timelineData = jsonData;
-          loadStage.call(this);
-        })
+    .then(r => r.json())
+    .then(jsonData => {
+      timelineData = jsonData;
+      loadStage.call(this);
+    })
         .catch(fallbackErr => console.error("Fallback timeline loading also failed:", fallbackErr));
     });
     });
@@ -1073,7 +1073,7 @@ function setupIntroduction(stage) {
       const textStyle = {
         font: section.font,
         fill: section.color,
-        align: 'center',
+        align: 'center', 
         wordWrap: { width: section.type === 'main' ? 750 : 700 },
         lineSpacing: 1  // Just a tiny bit of extra line spacing
       };
@@ -1088,22 +1088,22 @@ function setupIntroduction(stage) {
         textStyle.lineSpacing = 2; // Very small increase for main content
       }
       
-      this.add.text(
-        this.sys.game.config.width/2,
+    this.add.text(
+      this.sys.game.config.width/2,
         section.y,
         section.text,
         textStyle
-      ).setOrigin(0.5);
+    ).setOrigin(0.5);
     });
     
   } else {
     // Original behavior for messages without special formatting
-    this.add.text(
-      this.sys.game.config.width/2,
-      this.sys.game.config.height/2,
+  this.add.text(
+    this.sys.game.config.width/2,
+    this.sys.game.config.height/2,
       message,
       { font: '20px Courier New', fill: '#ffffff', align: 'center', wordWrap: { width: 600 } }
-    ).setOrigin(0.5);
+  ).setOrigin(0.5);
   }
 
   makeNextButton.call(this, "Next", () => {
@@ -1476,7 +1476,7 @@ function setupPlayOrPractice(stage, isPractice) {
     }
     scene.lastShotTime = Date.now();
     
-    pullsRemaining--;
+      pullsRemaining--;
     
     // Don't try to update remainingText - it doesn't exist in this context!
     
@@ -1602,14 +1602,8 @@ function setupWatch(stage) {
   const numRows = bandit.length;
   const numCols = bandit[0].length;
   
-  // Update controls display based on number of rows
-  if (numRows === 1) {
-    // Single row game (asteroid mode) - hide up/down controls
-    updateControlsDisplay("single-row");
-  } else {
-    // Multi-row game - show all controls
-    updateControlsDisplay("default");
-  }
+  // Hide controls during watch games - user is not actively playing
+  updateControlsDisplay("hidden");
   
   // Show zone information
   const zoneText = this.add.text(
@@ -1841,14 +1835,8 @@ function setupIndicate(stage) {
   const numRows = bandit.length;
   const numCols = bandit[0].length;
   
-  // Update controls display based on number of rows
-  if (numRows === 1) {
-    // Single row game (asteroid mode) - hide up/down controls
-    updateControlsDisplay("single-row");
-  } else {
-    // Multi-row game - show all controls
-    updateControlsDisplay("default");
-  }
+  // Hide controls during indicate games - user is not actively playing
+  updateControlsDisplay("hidden");
   
   // Show zone information
   const zoneText = this.add.text(
@@ -2871,14 +2859,8 @@ function setupOnlineChoicePhaseWatch(stage) {
   const numRows = bandit.length;
   const numCols = bandit[0].length;
   
-  // Update controls display based on number of rows
-  if (numRows === 1) {
-    // Single row game (asteroid mode) - hide up/down controls
-    updateControlsDisplay("single-row");
-  } else {
-    // Multi-row game - show all controls
-    updateControlsDisplay("default");
-  }
+  // Hide controls during online-choice watch phase - user is not actively playing
+  updateControlsDisplay("hidden");
   
   // Show zone information
   const zoneText = this.add.text(
@@ -3642,7 +3624,7 @@ function makeNextButton(label, callback, position = "default") {
       btn.setStyle({ backgroundColor: '#4CAF50' }); // Original green
       this.game.canvas.style.cursor = 'default';
     });
-    
+  
     btn.on('pointerdown', () => {
       if (callback) callback();
     });
@@ -3698,6 +3680,9 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   // Clear existing scene elements
   scene.children.removeAll();
   
+  // Hide controls during transition overlays
+  updateControlsDisplay("hidden");
+  
   // Add a semi-transparent overlay background
   const overlay = scene.add.rectangle(
     0, 0, 
@@ -3746,6 +3731,13 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
     }
   ).setOrigin(0.5);
   
+  // Add secondary message if it exists (for watch games)
+  let secondaryMessage = null;
+  if (stageType === 'watch' || stageType === 'indicate') {
+    secondaryMessage = nextStage["secondary-overlay-message"] || 
+      "Remember: Some starship partners have experience in every zone while the other starships have no experience in any zone.";
+  }
+  
   // Update the game container border color immediately to match the next stage's zone
   if (nextStage.zone) {
     const zoneColor = generateZoneColor(nextStage.zone.zone_global_index);
@@ -3775,7 +3767,7 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
       createOnlineChoiceZoneIcon(scene, zoneColor || '#888888', zoneIndex);
     } else {
       // Create a single icon similar to the summary bar items
-      createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneIndex);
+      createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneIndex, secondaryMessage);
     }
   } else if (stageType === 'choice') {
     // Fallback for choice with no zone - use a default color
@@ -3826,7 +3818,7 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
 }
 
 // Create a summary-style icon (similar to the summary bar)
-function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneIndex) {
+function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneIndex, secondaryMessage = null) {
     console.log(`Creating summary icon with zone color: ${zoneColor}`);
     
     // Convert color string to hex number - handle both named colors and hex codes
@@ -3940,6 +3932,22 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
         }
     ).setOrigin(0.5);
     container.add(zoneText);
+    
+    // Add secondary message below the zone text if it exists
+    if (secondaryMessage) {
+        const secondaryText = scene.add.text(
+            0,
+            iconHeight/2 + 80,
+            secondaryMessage,
+            { 
+                font: '24px Arial', 
+                fill: '#ffffff',
+                align: 'center',
+                wordWrap: { width: 600 }
+            }
+        ).setOrigin(0.5);
+        container.add(secondaryText);
+    }
     
     function addPlayerImageToContainer(imageKey) {
         // Add player image centered and slightly above center

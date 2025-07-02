@@ -177,6 +177,11 @@ def generate_timeline(
                     )
                     seen_demonstrators.add(did)
                 
+                # Add secondary overlay message for all watch games
+                e["secondary-overlay-message"] = (
+                    "Remember: Some starship partners have experience in every zone while the other starships have no experience in any zone."
+                )
+                
             elif e["game"] == "play":
                 parts.append(
                     "In this game you will get to play and mine for rewards. "
@@ -229,8 +234,8 @@ def generate_timeline(
                 "You will encounter multiple asteroid ZONES each indicated by a zone number. "
                 "Sometimes you will repeat the same zone with the same reward payoffs. "
                 "Sometimes you will move into new zones with new asteroids and new unknown reward payoffs.\n\n "
-                "You will also have starship PARTNERS to learn from. Some starship partners have some experience in every zone while the others have none. "
-                "You will not be told your partners experience level so pay close attention and try to learn from their choices. \n\n"
+                "You will also have starship PARTNERS to learn from. Some starship partners have experience in every zone while the others have none. "
+                "You will not be told your partners experience level but pay close attention and try to learn from their choices. \n\n"
                 "Welcome to \"Asteroid Fortune Frontier\" – where the universe is yours to mine.\n\n"
                 "[RED_BOLD]DO NOT RELOAD PAGE AT ANY TIME DURING GAME![/RED_BOLD]"
             ),
@@ -239,7 +244,7 @@ def generate_timeline(
                 "instruction1_image": "move_left.gif",
                 "instruction2": "move right with right arrow",
                 "instruction2_image": "move_right.gif",
-                "instruction3": "mine rewards with spacebar",
+                "instruction3": "mine rewards by shooting with spacebar",
                 "instruction3_image": "mine.gif",
                 "instruction4": "green indicates successful mining\n(increases reward)",
                 "instruction4_image": "successful_mine.png",
@@ -256,19 +261,18 @@ def generate_timeline(
             "stage_type": "instructions",
             "message": "Game Instructions",
             "instructions": {
-                "instruction1": "move left with left arrow",
+                "instruction1": "← move left key",
                 "instruction1_image": "move_left.gif",
-                "instruction2": "move right with right arrow",
+                "instruction2": "→ move right key",
                 "instruction2_image": "move_right.gif",
-                "instruction3": "mine rewards with spacebar",
+                "instruction3": "shoot asteroids with spacebar",
                 "instruction3_image": "mine.gif",
-                "instruction4": "green indicates successful mining\n(increases reward)",
+                "instruction4": "green\nindicates reward",
                 "instruction4_image": "successful_mine.png",
-                "instruction5": "red indicates unsuccessful mining\n(no reward)",
+                "instruction5": "red\nindicates no reward",
                 "instruction5_image": "unsuccessful_mine.png",
                 "instruction6": (
                     "You mine rewards from asteroids by shooting them. "
-                    "Some asteroids yield reward more often than others. "
                     "To get optimal rewards find the asteroid in each zone that yields rewards most often and mine from it as much as you can!"
                 )
             }
