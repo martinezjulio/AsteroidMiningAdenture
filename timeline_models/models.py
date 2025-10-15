@@ -8,7 +8,8 @@ def generate_timeline(
     rounds: int,
     num_play_arm_pulls: int,
     num_watch_arm_pulls: int,
-    bandits_json_path: str = "bandits_data.json"
+    bandits_json_path: str = "bandits_data.json",
+    bandit_assignment_mode: str = "session_fixed"
 ) -> List[Any]:
     # 0) load bandit data
     with open(bandits_json_path, "r") as f:
@@ -71,10 +72,32 @@ def generate_timeline(
     half_count = len(raw_sessions) // 2
     raw_sessions = raw_sessions[:half_count]
     zone_idx = 1
+    
     for sess_i, (games, [choice]) in enumerate(raw_sessions, start=1):
-        for e in games:
-            e["session_index"] = sess_i
-            e["zone"] = {"zone_global_index": zone_idx}
+        if bandit_assignment_mode == "session_fixed":
+            # Current behavior: same zone for entire session
+            for e in games:
+                e["session_index"] = sess_i
+                e["zone"] = {"zone_global_index": zone_idx}
+        elif bandit_assignment_mode == "round_changing":
+            # New behavior: different zone for each round
+            current_round = -1
+            round_zone_idx = zone_idx
+            for e in games:
+                e["session_index"] = sess_i
+                if e["round_index"] != current_round:
+                    current_round = e["round_index"]
+                    # Each new round gets a new zone
+                    e["zone"] = {"zone_global_index": round_zone_idx}
+                    round_zone_idx += 1
+                else:
+                    # Same round, same zone
+                    e["zone"] = {"zone_global_index": round_zone_idx - 1}
+            # Update zone_idx to account for all rounds used
+            zone_idx = round_zone_idx
+        else:
+            raise ValueError(f"Invalid bandit_assignment_mode: {bandit_assignment_mode}")
+            
         if choice["transfer"]:
             zone_idx += 1
         choice["session_index"] = sess_i
@@ -304,6 +327,16 @@ if __name__ == "__main__":
     import json
     import sys
 
+    # Read config to determine bandit assignment mode
+    try:
+        with open('../config.json', 'r') as f:
+            config = json.load(f)
+        bandit_mode = config.get('bandit_assignment_mode', 'session_fixed')
+    except Exception as e:
+        # Write to stderr so it doesn't interfere with stdout JSON
+        print(f"Warning: Could not read config.json, using default mode: {e}", file=sys.stderr)
+        bandit_mode = 'session_fixed'  # fallback
+
     # Get request ID from command line arguments for unique file naming
     request_id = None
     if len(sys.argv) > 1:
@@ -314,7 +347,12 @@ if __name__ == "__main__":
         request_id = f"timeline_{int(time.time())}"
 
     # e.g. 3 rounds, 6 pulls for play, 6 pulls for watch
-    tl = generate_timeline(rounds=3, num_play_arm_pulls=6, num_watch_arm_pulls=6)
+    tl = generate_timeline(
+        rounds=3, 
+        num_play_arm_pulls=6, 
+        num_watch_arm_pulls=6,
+        bandit_assignment_mode=bandit_mode
+    )
     
     # Output JSON to stdout for the Node.js server to capture
     print(json.dumps(tl))

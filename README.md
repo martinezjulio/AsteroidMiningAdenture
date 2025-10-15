@@ -80,6 +80,68 @@ net start MongoDB
    ```
 2. Ensure MongoDB is running with authentication enabled
 
+## Game Configuration
+
+The game behavior is controlled through the `config.json` file in the root directory. This file allows you to customize experimental parameters without modifying the code.
+
+### Configuration Options
+
+#### `experiment_config`
+- **Type**: `string`
+- **Default**: `"configs/timeline.json"`
+- **Description**: Path to the timeline configuration file (currently used for fallback scenarios)
+
+#### `bandit_assignment_mode`
+- **Type**: `string`
+- **Default**: `"session_fixed"`
+- **Options**:
+  - `"session_fixed"`: All rounds within a session use the same bandit (same reward structure)
+  - `"round_changing"`: Each round within a session uses a different bandit (different reward structure)
+
+### Example Configuration
+
+```json
+{
+    "experiment_config": "configs/timeline.json",
+    "bandit_assignment_mode": "session_fixed"
+}
+```
+
+### Bandit Assignment Modes Explained
+
+#### Session Fixed Mode (`"session_fixed"`)
+- **Default behavior**
+- All rounds within a session share the same bandit/zone
+- Example: Session 1 has 3 rounds, all using Zone 1 with the same asteroid reward rates
+- Different sessions use different bandits/zones
+
+#### Round Changing Mode (`"round_changing"`)
+- Each round within a session uses a different bandit/zone
+- Example: Session 1 has 3 rounds using Zone 1, Zone 2, and Zone 3 respectively
+- Provides more variety within each session
+- Useful for studying adaptation to changing environments
+
+### Switching Between Modes
+
+To change the experimental condition:
+
+1. **Edit `config.json`**:
+   ```json
+   {
+       "experiment_config": "configs/timeline.json",
+       "bandit_assignment_mode": "round_changing"
+   }
+   ```
+
+2. **Restart the server** to apply changes:
+   ```bash
+   npm start
+   ```
+
+3. **New users** will automatically receive timelines generated with the new mode
+
+**Note**: Existing users who already have generated timelines will continue with their original assignment mode until they start a new session.
+
 ## Timeline.json Structure
 
 The `data/timeline.json` file defines the entire game experience. It's structured as an array of **sessions**, where each session contains **stages**.

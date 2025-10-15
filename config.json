@@ -1,3 +1,4 @@
 {
-    "experiment_config": "configs/timeline.json"
+    "experiment_config": "configs/timeline.json",
+    "bandit_assignment_mode": "round_changing"
 } 
