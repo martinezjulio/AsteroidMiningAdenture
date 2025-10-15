@@ -447,19 +447,16 @@ The game automatically logs all user actions to MongoDB:
 - **Watch phase** → logged as `game: "watch"`
 
 ### Feedback Data Collection
-When `textbox_feedback: true` is enabled, additional feedback data is collected:
+When `textbox_feedback: true` is enabled, feedback data is collected in the main `GameLog` collection:
 
-- **Collection**: Separate `FeedbackLog` collection in MongoDB
+- **Collection**: Main `GameLog` collection (same as all other user actions)
+- **Action Type**: `action: "feedback"` and `game: "feedback"`
 - **Data Stored**:
   - User identification: `prolific_id`, `uid`, `session_id`
-  - Feedback text: User's response to "Why did you choose this partner?"
-  - Choice context: Chosen demonstrator details (ID, type, global index)
-  - Session context: Final session index completed
-  - Metadata: Experiment ID, timestamp
-
-### API Endpoints for Feedback
-- `POST /api/feedback` - Save feedback responses
-- `GET /api/feedback/:prolific_id` - Retrieve feedback for debugging
+  - Feedback text: `feedback_text` field with user's response
+  - Choice context: `choice_demonstrator_id`, `choice_demonstrator_type`
+  - Session context: `session_index`, zone information
+  - Standard fields: All other GameLog fields for consistency
 
 ## Asset Structure
 

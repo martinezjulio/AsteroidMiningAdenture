@@ -4,7 +4,6 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const mongoose = require('mongoose');
 const GameLog = require('./models/gameLog'); // Import the model
-const FeedbackLog = require('./models/feedbackLog'); // Import the feedback model
 const app = express();
 const PORT = process.env.PORT || 8080;
 const isProduction = process.env.NODE_ENV === 'production';
@@ -375,30 +374,6 @@ app.get('/api/logs/:prolific_id', async (req, res) => {
         res.json(logs);
     } catch (error) {
         console.error('Error fetching logs:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Endpoint to save feedback data
-app.post('/api/feedback', async (req, res) => {
-    try {
-        const feedbackLog = new FeedbackLog(req.body);
-        await feedbackLog.save();
-        console.log(`💬 Feedback saved for user ${req.body.prolific_id}, session ${req.body.session_index}`);
-        res.status(200).json({ success: true });
-    } catch (error) {
-        console.error('Error saving feedback:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// Endpoint to get feedback data (for debugging)
-app.get('/api/feedback/:prolific_id', async (req, res) => {
-    try {
-        const feedback = await FeedbackLog.find({ prolific_id: req.params.prolific_id }).sort({ timestamp: 1 });
-        res.json(feedback);
-    } catch (error) {
-        console.error('Error fetching feedback:', error);
         res.status(500).json({ error: error.message });
     }
 });

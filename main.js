@@ -1055,8 +1055,10 @@ function setupFeedback(stage) {
   const textInput = document.getElementById('feedback-text-input');
   textInput.value = '';
   
-  // Set up submit handler
+  // Reset submit button state
   const submitBtn = document.getElementById('feedback-submit-btn');
+  submitBtn.disabled = false;
+  submitBtn.innerText = 'Submit';
   submitBtn.onclick = async () => {
     const feedbackText = textInput.value.trim();
     if (!feedbackText) {
@@ -1069,49 +1071,12 @@ function setupFeedback(stage) {
     submitBtn.innerText = 'Submitting...';
     
     try {
-      // Prepare feedback data
-      const feedbackData = {
-        prolific_id: prolificID,
-        uid: userUID,
-        session_id: sessionID,
-        session_index: currentSessionIndex,
-        feedback_text: feedbackText,
-        chosen_demonstrator_id: choiceDemonstratorId || 'unknown',
-        chosen_demonstrator_type: choiceDemonstratorType || 'unknown',
-        chosen_demonstrator_global_index: chosenDemonstratorData ? chosenDemonstratorData.demonstrator_global_index : -1,
-        chosen_demonstrator_session_index: chosenDemonstratorData ? chosenDemonstratorData.demonstrator_session_index : -1,
-        demonstrator1_id: stage.demonstrator1 ? `demonstrator_${stage.demonstrator1.demonstrator_global_index.toString().padStart(2, '0')}` : 'unknown',
-        demonstrator1_type: stage.demonstrator1 ? stage.demonstrator1.demonstrator_type : 'unknown',
-        demonstrator1_global_index: stage.demonstrator1 ? stage.demonstrator1.demonstrator_global_index : -1,
-        demonstrator2_id: stage.demonstrator2 ? `demonstrator_${stage.demonstrator2.demonstrator_global_index.toString().padStart(2, '0')}` : 'unknown',
-        demonstrator2_type: stage.demonstrator2 ? stage.demonstrator2.demonstrator_type : 'unknown',
-        demonstrator2_global_index: stage.demonstrator2 ? stage.demonstrator2.demonstrator_global_index : -1,
-        zone_global_index: stage.zone ? stage.zone.zone_global_index : -1,
-        zone_bandit_id: stage.zone ? stage.zone.bandit_id : null,
-        experiment_id: experimentID
-      };
-      
-      // Send feedback to server
-      const response = await fetch('/api/feedback', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(feedbackData)
+      // Log feedback to main gamelogs collection only
+      await logToMongoDB('feedback', {
+        feedback_text: feedbackText
       });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
       
       console.log('Feedback submitted successfully');
-      
-      // Also log feedback to main gamelogs collection for consistency
-      await logToMongoDB('feedback', {
-        feedback_text: feedbackText,
-        chosen_demonstrator_id: choiceDemonstratorId || 'unknown',
-        chosen_demonstrator_type: choiceDemonstratorType || 'unknown'
-      });
       
       // Hide the feedback overlay
       document.getElementById('feedback-form-overlay').style.visibility = 'hidden';
