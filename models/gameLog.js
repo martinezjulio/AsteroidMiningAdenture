@@ -10,12 +10,12 @@ const gameLogSchema = new mongoose.Schema({
     session_index: { type: Number, required: true },
     step: { type: Number, required: true },
     position: { type: Number, required: true },
-    action: { type: String, enum: ['left', 'right', 'up', 'down', 'shoot'], required: true },
+    action: { type: String, enum: ['left', 'right', 'up', 'down', 'shoot', 'feedback'], required: true },
     timestamp: { type: Date, default: Date.now },
     
     // Game state
     shots_remaining: { type: Number, required: true },
-    game: { type: String, enum: ['watch', 'choice', 'play', 'blind', 'indicate', 'practice'], required: true },
+    game: { type: String, enum: ['watch', 'choice', 'play', 'blind', 'indicate', 'practice', 'feedback'], required: true },
     game_total_reward: { type: Number, default: 0 },
     user_total_reward: { type: Number, default: 0 },
     reward_generated: { type: Boolean, default: false },
@@ -48,6 +48,9 @@ const gameLogSchema = new mongoose.Schema({
     // Choice-specific fields (null for non-choice games)
     choice_demonstrator_id: { type: String, default: null }, // Demonstrator image filename of chosen demonstrator
     choice_demonstrator_type: { type: String, default: null }, // Type of chosen demonstrator
+    
+    // Feedback-specific fields (null for non-feedback actions)
+    feedback_text: { type: String, default: null }, // User's feedback response
     
     // Tracking
     refresh_count: { type: Number, default: 0 },

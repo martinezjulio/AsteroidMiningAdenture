@@ -274,8 +274,8 @@ function resetGameTracking(gameType, numArmPulls = 0) {
   currentShotsRemaining = numArmPulls;
   currentPosition = 0;
   
-  // Reset choice-specific variables for non-choice games
-  if (gameType !== 'choice' && currentGameType !== 'choice') {
+  // Reset choice-specific variables for non-choice games (but preserve for feedback)
+  if (gameType !== 'choice' && currentGameType !== 'choice' && gameType !== 'feedback') {
     choiceDemonstratorId = null;
     choiceDemonstratorType = null;
   }
@@ -809,6 +809,9 @@ function loadStage() {
     case 'indicate':
       setupIndicate.call(this, stage);
       break;
+    case 'feedback':
+      setupFeedback.call(this, stage);
+      break;
     default:
       console.warn("Unknown stage type:", stageType);
       nextStage.call(this);
@@ -993,6 +996,145 @@ function setupProlificIdForm(stage) {
     requestFullscreen();
     
     nextStage.call(this);
+  };
+}
+
+function setupFeedback(stage) {
+  // Hide controls during feedback form
+  updateControlsDisplay("hidden");
+
+  // Show the feedback overlay
+  document.getElementById('feedback-form-overlay').style.visibility = 'visible';
+  
+  // Set the message
+  const msgEl = document.getElementById('feedback-form-message');
+  msgEl.innerText = stage.message || "Please fill the box below with your response to the following question:";
+  
+  // Determine which demonstrator was chosen based on the choice variables
+  let chosenDemonstratorData = null;
+  let chosenDemonstratorImage = null;
+  
+  if (choiceDemonstratorId && choiceDemonstratorType) {
+    // Extract the global index from the filename (e.g., "demonstrator_05.png" -> 5)
+    const match = choiceDemonstratorId.match(/demonstrator_(\d+)\.png/);
+    const chosenGlobalIndex = match ? parseInt(match[1]) : null;
+    
+    // Find the chosen demonstrator from the stage data
+    if (chosenGlobalIndex !== null) {
+      if (stage.demonstrator1 && stage.demonstrator1.demonstrator_global_index === chosenGlobalIndex) {
+        chosenDemonstratorData = stage.demonstrator1;
+        chosenDemonstratorImage = `assets/demonstrators/${choiceDemonstratorId}`;
+      } else if (stage.demonstrator2 && stage.demonstrator2.demonstrator_global_index === chosenGlobalIndex) {
+        chosenDemonstratorData = stage.demonstrator2;
+        chosenDemonstratorImage = `assets/demonstrators/${choiceDemonstratorId}`;
+      } else {
+        // If we can't find a match, still show the image based on the choice ID
+        // This handles cases where there might be a data mismatch
+        chosenDemonstratorImage = `assets/demonstrators/${choiceDemonstratorId}`;
+        // Create a fallback demonstrator data object
+        chosenDemonstratorData = {
+          demonstrator_type: choiceDemonstratorType,
+          demonstrator_global_index: chosenGlobalIndex,
+          demonstrator_session_index: -1 // Unknown
+        };
+      }
+    }
+  }
+  
+  // Set the partner image
+  const partnerImg = document.getElementById('feedback-partner-image');
+  if (chosenDemonstratorImage) {
+    partnerImg.src = chosenDemonstratorImage;
+    partnerImg.style.display = 'block';
+  } else {
+    partnerImg.style.display = 'none';
+    console.warn('Could not determine chosen demonstrator for feedback display');
+  }
+  
+  // Clear previous text
+  const textInput = document.getElementById('feedback-text-input');
+  textInput.value = '';
+  
+  // Set up submit handler
+  const submitBtn = document.getElementById('feedback-submit-btn');
+  submitBtn.onclick = async () => {
+    const feedbackText = textInput.value.trim();
+    if (!feedbackText) {
+      alert("Please enter your feedback before submitting.");
+      return;
+    }
+    
+    // Disable button to prevent double submission
+    submitBtn.disabled = true;
+    submitBtn.innerText = 'Submitting...';
+    
+    try {
+      // Prepare feedback data
+      const feedbackData = {
+        prolific_id: prolificID,
+        uid: userUID,
+        session_id: sessionID,
+        session_index: currentSessionIndex,
+        feedback_text: feedbackText,
+        chosen_demonstrator_id: choiceDemonstratorId || 'unknown',
+        chosen_demonstrator_type: choiceDemonstratorType || 'unknown',
+        chosen_demonstrator_global_index: chosenDemonstratorData ? chosenDemonstratorData.demonstrator_global_index : -1,
+        chosen_demonstrator_session_index: chosenDemonstratorData ? chosenDemonstratorData.demonstrator_session_index : -1,
+        demonstrator1_id: stage.demonstrator1 ? `demonstrator_${stage.demonstrator1.demonstrator_global_index.toString().padStart(2, '0')}` : 'unknown',
+        demonstrator1_type: stage.demonstrator1 ? stage.demonstrator1.demonstrator_type : 'unknown',
+        demonstrator1_global_index: stage.demonstrator1 ? stage.demonstrator1.demonstrator_global_index : -1,
+        demonstrator2_id: stage.demonstrator2 ? `demonstrator_${stage.demonstrator2.demonstrator_global_index.toString().padStart(2, '0')}` : 'unknown',
+        demonstrator2_type: stage.demonstrator2 ? stage.demonstrator2.demonstrator_type : 'unknown',
+        demonstrator2_global_index: stage.demonstrator2 ? stage.demonstrator2.demonstrator_global_index : -1,
+        zone_global_index: stage.zone ? stage.zone.zone_global_index : -1,
+        zone_bandit_id: stage.zone ? stage.zone.bandit_id : null,
+        experiment_id: experimentID
+      };
+      
+      // Send feedback to server
+      const response = await fetch('/api/feedback', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(feedbackData)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      console.log('Feedback submitted successfully');
+      
+      // Also log feedback to main gamelogs collection for consistency
+      await logToMongoDB('feedback', {
+        feedback_text: feedbackText,
+        chosen_demonstrator_id: choiceDemonstratorId || 'unknown',
+        chosen_demonstrator_type: choiceDemonstratorType || 'unknown'
+      });
+      
+      // Hide the feedback overlay
+      document.getElementById('feedback-form-overlay').style.visibility = 'hidden';
+      
+      // Check if this is the last session
+      const isLastSession = currentSessionIndex >= timelineData.length - 1;
+      
+      if (isLastSession) {
+        // Show end of game message with Prolific redirect
+        showEndOfGameMessage.call(this);
+      } else {
+        // Continue to next stage/session
+        nextStage.call(this);
+      }
+      
+    } catch (error) {
+      console.error('Error submitting feedback:', error);
+      alert('Error submitting feedback. Please try again.');
+      
+      // Re-enable button
+      submitBtn.disabled = false;
+      submitBtn.innerText = 'Submit';
+    }
   };
 }
 

@@ -9,7 +9,8 @@ def generate_timeline(
     num_play_arm_pulls: int,
     num_watch_arm_pulls: int,
     bandits_json_path: str = "bandits_data.json",
-    bandit_assignment_mode: str = "session_fixed"
+    bandit_assignment_mode: str = "session_fixed",
+    textbox_feedback: bool = False
 ) -> List[Any]:
     # 0) load bandit data
     with open(bandits_json_path, "r") as f:
@@ -64,7 +65,23 @@ def generate_timeline(
                 "round_index": None,
                 "session_total_rounds": rounds,
             }
-            raw_sessions.append([games, [choice]])
+            
+            # Build choice container - add feedback stage if enabled
+            choice_container = [choice]
+            if textbox_feedback:
+                feedback_stage = {
+                    "stage_type": "feedback",
+                    "game_index": idx + 1,
+                    "stage_index": 2,
+                    "session_total_rounds": rounds,
+                    "message": "Please fill the box below with your response to the following question:",
+                    "demonstrator_1": pat[0],
+                    "demonstrator_2": pat[1],
+                    "transfer": xfer
+                }
+                choice_container.append(feedback_stage)
+            
+            raw_sessions.append([games, choice_container])
 
     # 2) shuffle & select half of sessions, then assign session_index, zone_index starting at 1
     random.shuffle(raw_sessions)
@@ -73,7 +90,7 @@ def generate_timeline(
     raw_sessions = raw_sessions[:half_count]
     zone_idx = 1
     
-    for sess_i, (games, [choice]) in enumerate(raw_sessions, start=1):
+    for sess_i, (games, choice_container) in enumerate(raw_sessions, start=1):
         if bandit_assignment_mode == "session_fixed":
             # Current behavior: same zone for entire session
             for e in games:
@@ -98,10 +115,19 @@ def generate_timeline(
         else:
             raise ValueError(f"Invalid bandit_assignment_mode: {bandit_assignment_mode}")
             
+        # Get the choice (first item in choice_container)
+        choice = choice_container[0]
         if choice["transfer"]:
             zone_idx += 1
         choice["session_index"] = sess_i
         choice["zone"] = {"zone_global_index": zone_idx}
+        
+        # Update session_index for all items in choice_container (including feedback if present)
+        for item in choice_container:
+            item["session_index"] = sess_i
+            if "zone" not in item:  # Don't override zone for choice, but add for feedback
+                item["zone"] = {"zone_global_index": zone_idx}
+        
         zone_idx += 1
 
     # 3) collect all zone_indices (include 0 for practice)
@@ -149,7 +175,7 @@ def generate_timeline(
         session_to_ids[sess_i] = [available_ids.pop(), available_ids.pop()]
 
     # 8) inject zone_meta & demonstrator dicts & overlay-messages
-    for games, [choice] in raw_sessions:
+    for games, choice_container in raw_sessions:
         sess_i = games[0]["session_index"]
         dem_ids = session_to_ids[sess_i]
         payoff_key = zone_to_payoff[games[0]["zone"]["zone_global_index"]]
@@ -219,17 +245,22 @@ def generate_timeline(
             e["overlay-message"] = " ".join(parts)
             prev_zone = z
 
-        # choice entry: nested demonstrators without trajectories
+        # Process choice and feedback entries
+        choice = choice_container[0]  # Get the choice (first item)
         cz = choice["zone"]["zone_global_index"]
         choice["zone"] = zone_meta[cz]
+        
+        # Build demonstrator data for choice
+        demonstrator_data = {}
         for i_key, key in enumerate(("demonstrator_1", "demonstrator_2")):
             typ = choice[key]
             did = dem_ids[i_key]
-            choice[f"demonstrator{i_key+1}"] = {
+            demonstrator_data[f"demonstrator{i_key+1}"] = {
                 "demonstrator_type": typ,
                 "demonstrator_session_index": i_key,
                 "demonstrator_global_index": did
             }
+            choice[f"demonstrator{i_key+1}"] = demonstrator_data[f"demonstrator{i_key+1}"]
             del choice[key]
 
         # choice overlay-message with updated format
@@ -246,6 +277,14 @@ def generate_timeline(
             f"Choose the starship you would watch before playing again to achieve higher rewards {transfer_text}."
         )
         choice["overlay-message"] = " ".join(parts)
+        
+        # Process feedback stage if present
+        if len(choice_container) > 1:
+            feedback = choice_container[1]
+            feedback["zone"] = zone_meta[cz]  # Same zone as choice
+            # Add demonstrator data to feedback stage for display
+            feedback["demonstrator1"] = demonstrator_data["demonstrator1"]
+            feedback["demonstrator2"] = demonstrator_data["demonstrator2"]
 
     # 9) fixed practice session
     practice_zone = zone_meta[0]
@@ -327,15 +366,17 @@ if __name__ == "__main__":
     import json
     import sys
 
-    # Read config to determine bandit assignment mode
+    # Read config to determine bandit assignment mode and feedback settings
     try:
         with open('../config.json', 'r') as f:
             config = json.load(f)
         bandit_mode = config.get('bandit_assignment_mode', 'session_fixed')
+        textbox_feedback = config.get('textbox_feedback', False)
     except Exception as e:
         # Write to stderr so it doesn't interfere with stdout JSON
-        print(f"Warning: Could not read config.json, using default mode: {e}", file=sys.stderr)
+        print(f"Warning: Could not read config.json, using default settings: {e}", file=sys.stderr)
         bandit_mode = 'session_fixed'  # fallback
+        textbox_feedback = False  # fallback
 
     # Get request ID from command line arguments for unique file naming
     request_id = None
@@ -351,7 +392,8 @@ if __name__ == "__main__":
         rounds=3, 
         num_play_arm_pulls=6, 
         num_watch_arm_pulls=6,
-        bandit_assignment_mode=bandit_mode
+        bandit_assignment_mode=bandit_mode,
+        textbox_feedback=textbox_feedback
     )
     
     # Output JSON to stdout for the Node.js server to capture

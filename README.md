@@ -98,12 +98,21 @@ The game behavior is controlled through the `config.json` file in the root direc
   - `"session_fixed"`: All rounds within a session use the same bandit (same reward structure)
   - `"round_changing"`: Each round within a session uses a different bandit (different reward structure)
 
+#### `textbox_feedback`
+- **Type**: `boolean`
+- **Default**: `false`
+- **Description**: Controls the end-game experience
+- **Options**:
+  - `false`: Show direct Prolific redirect button (original behavior)
+  - `true`: Show feedback form asking about partner choice before Prolific redirect
+
 ### Example Configuration
 
 ```json
 {
     "experiment_config": "configs/timeline.json",
-    "bandit_assignment_mode": "session_fixed"
+    "bandit_assignment_mode": "session_fixed",
+    "textbox_feedback": false
 }
 ```
 
@@ -121,6 +130,21 @@ The game behavior is controlled through the `config.json` file in the root direc
 - Provides more variety within each session
 - Useful for studying adaptation to changing environments
 
+### End-Game Feedback System
+
+#### Standard Mode (`textbox_feedback: false`)
+- **Default behavior**
+- Game ends with direct "Return to Prolific" button
+- Immediate redirect to Prolific completion page
+
+#### Feedback Mode (`textbox_feedback: true`)
+- Shows feedback form at game completion
+- Displays image of the partner the user chose in their final choice game
+- Asks: "Why did you choose the following partner?"
+- User must provide text response before proceeding to Prolific
+- Feedback responses are automatically saved to MongoDB
+- After submission, user is redirected to Prolific
+
 ### Switching Between Modes
 
 To change the experimental condition:
@@ -129,7 +153,8 @@ To change the experimental condition:
    ```json
    {
        "experiment_config": "configs/timeline.json",
-       "bandit_assignment_mode": "round_changing"
+       "bandit_assignment_mode": "round_changing",
+       "textbox_feedback": true
    }
    ```
 
@@ -420,6 +445,21 @@ The game automatically logs all user actions to MongoDB:
 ### Special Logging for Online-Choice
 - **Choice phase** → logged as `game: "choice"`
 - **Watch phase** → logged as `game: "watch"`
+
+### Feedback Data Collection
+When `textbox_feedback: true` is enabled, additional feedback data is collected:
+
+- **Collection**: Separate `FeedbackLog` collection in MongoDB
+- **Data Stored**:
+  - User identification: `prolific_id`, `uid`, `session_id`
+  - Feedback text: User's response to "Why did you choose this partner?"
+  - Choice context: Chosen demonstrator details (ID, type, global index)
+  - Session context: Final session index completed
+  - Metadata: Experiment ID, timestamp
+
+### API Endpoints for Feedback
+- `POST /api/feedback` - Save feedback responses
+- `GET /api/feedback/:prolific_id` - Retrieve feedback for debugging
 
 ## Asset Structure
 
