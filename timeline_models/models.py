@@ -10,7 +10,9 @@ def generate_timeline(
     num_watch_arm_pulls: int,
     bandits_json_path: str = "bandits_data.json",
     bandit_assignment_mode: str = "session_fixed",
-    textbox_feedback: bool = False
+    textbox_feedback: bool = False,
+    session_demonstrators: str = "all",
+    prop_of_sessions: float = 0.5
 ) -> List[Any]:
     # 0) load bandit data
     with open(bandits_json_path, "r") as f:
@@ -24,6 +26,19 @@ def generate_timeline(
     choice_name = "choice"
     num_watch_slots = repeat_block.count("watch")
     patterns = list(product(["expert", "novice"], repeat=num_watch_slots))
+    
+    # Filter patterns based on session_demonstrators setting
+    if session_demonstrators == "different":
+        # Only keep patterns where demonstrators are different types
+        # For 2 watch slots: keep (expert, novice) and (novice, expert)
+        # Filter out (expert, expert) and (novice, novice)
+        patterns = [pat for pat in patterns if pat[0] != pat[1]]
+    elif session_demonstrators == "all":
+        # Keep all patterns (default behavior)
+        pass
+    else:
+        raise ValueError(f"Invalid session_demonstrators value: {session_demonstrators}. Must be 'all' or 'different'")
+    
     transfer_options = [True]  # , False]  # Commented out "same zone" option
 
     raw_sessions: List[List[List[Dict[str, Any]]]] = []
@@ -83,11 +98,15 @@ def generate_timeline(
             
             raw_sessions.append([games, choice_container])
 
-    # 2) shuffle & select half of sessions, then assign session_index, zone_index starting at 1
+    # 2) shuffle & select proportion of sessions, then assign session_index, zone_index starting at 1
     random.shuffle(raw_sessions)
-    # Select only half the sessions for each player
-    half_count = len(raw_sessions) // 2
-    raw_sessions = raw_sessions[:half_count]
+    
+    # Select proportion of sessions based on config (1.0 = all, 0.5 = half, etc.)
+    if prop_of_sessions < 1.0:
+        num_sessions = max(1, int(len(raw_sessions) * prop_of_sessions))
+        raw_sessions = raw_sessions[:num_sessions]
+    # If prop_of_sessions >= 1.0, keep all sessions
+    
     zone_idx = 1
     
     for sess_i, (games, choice_container) in enumerate(raw_sessions, start=1):
@@ -438,11 +457,15 @@ if __name__ == "__main__":
             config = json.load(f)
         bandit_mode = config.get('bandit_assignment_mode', 'session_fixed')
         textbox_feedback = config.get('textbox_feedback', False)
+        session_demonstrators = config.get('session_demonstrators', 'all')
+        prop_of_sessions = config.get('prop_of_sessions', 0.5)
     except Exception as e:
         # Write to stderr so it doesn't interfere with stdout JSON
         print(f"Warning: Could not read config.json, using default settings: {e}", file=sys.stderr)
         bandit_mode = 'session_fixed'  # fallback
         textbox_feedback = False  # fallback
+        session_demonstrators = 'all'  # fallback
+        prop_of_sessions = 0.5  # fallback
 
     # Get request ID from command line arguments for unique file naming
     request_id = None
@@ -459,7 +482,9 @@ if __name__ == "__main__":
         num_play_arm_pulls=6, 
         num_watch_arm_pulls=6,
         bandit_assignment_mode=bandit_mode,
-        textbox_feedback=textbox_feedback
+        textbox_feedback=textbox_feedback,
+        session_demonstrators=session_demonstrators,
+        prop_of_sessions=prop_of_sessions
     )
     
     # Output JSON to stdout for the Node.js server to capture

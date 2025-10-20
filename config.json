@@ -1,5 +1,7 @@
 {
     "experiment_config": "configs/timeline.json",
     "bandit_assignment_mode": "round_changing",
-    "textbox_feedback": true
+    "textbox_feedback": true,
+    "session_demonstrators": "different",
+    "prop_of_sessions": 1
 } 
