@@ -30,6 +30,12 @@ let zoneBackgroundImageMapping = {};
 let asteroidImageMapping = {};
 let imageMappingsInitialized = false;
 
+// Demonstrator style+color mapping system
+let demonstratorStyleColorMapping = {}; // Maps demonstrator_global_index -> {style: 'style1', color: 'blue'}
+let usedStyleColorCombos = new Set(); // Track used combos to ensure uniqueness
+const AVAILABLE_STYLES = ['style1', 'style2', 'style3', 'style4', 'style5', 'style6'];
+const AVAILABLE_COLORS = ['red', 'orange', 'blue', 'green', 'yellow', 'purple'];
+
 // Zone color and ID mappings - generated on the fly
 let zoneColorMapping = {}; // Maps zone_global_index -> unique color
 let usedColors = new Set(); // Track used colors to ensure uniqueness
@@ -131,11 +137,11 @@ async function logToMongoDB(action, additionalData = {}) {
                       (stage.demonstrator1 && window.onlineChoiceSelectedDemo ? 
                        window.onlineChoiceSelectedDemo.data.demonstrator_type : null),
     demonstrator_global_index: stage.demonstrator ? stage.demonstrator.demonstrator_global_index :
-                              (stage.demonstrator1 && window.onlineChoiceSelectedDemo ? 
+                               (stage.demonstrator1 && window.onlineChoiceSelectedDemo ? 
                                window.onlineChoiceSelectedDemo.data.demonstrator_global_index : null),
-    demonstrator_id: stage.demonstrator ? mapDemonstratorImage(stage.demonstrator.demonstrator_global_index) :
+    demonstrator_id: stage.demonstrator ? mapDemonstratorImage(stage.demonstrator.demonstrator_global_index, stage.demonstrator.demonstrator_style, stage.demonstrator.demonstrator_color) :
                     (stage.demonstrator1 && window.onlineChoiceSelectedDemo ? 
-                     mapDemonstratorImage(window.onlineChoiceSelectedDemo.data.demonstrator_global_index) : null),
+                     mapDemonstratorImage(window.onlineChoiceSelectedDemo.data.demonstrator_global_index, window.onlineChoiceSelectedDemo.data.demonstrator_style, window.onlineChoiceSelectedDemo.data.demonstrator_color) : null),
     demonstrator_trajectory: stage.demonstrator ? (() => {
                            const trajectory = stage.demonstrator.demonstrator_trajectory;
                            return Array.isArray(trajectory) ? trajectory.join(',') : "";
@@ -287,9 +293,18 @@ window.addEventListener('beforeunload', () => {
 });
 
 // Adjust these as you wish:
-const DEMO_SPRITE_SIZE = 55;       // user/demonstrator sprite size
+const DEMO_SPRITE_SIZE = 55;       // user/demonstrator sprite size (max dimension)
 const HIGHLIGHT_COLOR = 0xffffff;  // Lighter highlight => 0xffffff
 const HIGHLIGHT_ALPHA = 0.25;      // Lighter alpha
+
+// Helper function to set sprite size while maintaining aspect ratio
+function setSpriteDisplaySizeWithAspectRatio(sprite, maxSize) {
+  const width = sprite.width;
+  const height = sprite.height;
+  const scale = Math.min(maxSize / width, maxSize / height);
+  sprite.setScale(scale);
+  return sprite;
+}
 const MARKER_DOT_RADIUS = 4;
 const TANK_SLOT_SIZE = 24;         // Size of each slot in the reward tank
 const TANK_SLOT_PADDING = 2;       // Padding between tank slots
@@ -352,19 +367,281 @@ function createRandomMapping(imageList) {
   return mapping;
 }
 
+// Function to analyze timeline and extract demonstrator constraints
+function analyzeTimelineDemonstrators(timeline) {
+  const allDemonstrators = new Set();
+  const sessionDemonstrators = {}; // Maps session_index -> Set of demonstrator_global_indexes in that session
+  
+  // Iterate through all sessions and stages in the timeline
+  for (const session of timeline) {
+    for (const stage of session) {
+      if (Array.isArray(stage)) {
+        // Handle nested arrays (sessions within sessions)
+        for (const subStage of stage) {
+          const sessionIdx = subStage.session_index;
+          
+          // Initialize session set if needed
+          if (sessionIdx !== undefined && !sessionDemonstrators[sessionIdx]) {
+            sessionDemonstrators[sessionIdx] = new Set();
+          }
+          
+          // Track demonstrators from regular stages
+          if (subStage.demonstrator && subStage.demonstrator.demonstrator_global_index !== undefined) {
+            const demoIdx = subStage.demonstrator.demonstrator_global_index;
+            allDemonstrators.add(demoIdx);
+            if (sessionIdx !== undefined) {
+              sessionDemonstrators[sessionIdx].add(demoIdx);
+            }
+          }
+          
+          // Track demonstrators from choice stages
+          if (subStage.game === 'choice' && subStage.demonstrator1 && subStage.demonstrator2) {
+            const idx1 = subStage.demonstrator1.demonstrator_global_index;
+            const idx2 = subStage.demonstrator2.demonstrator_global_index;
+            if (idx1 !== undefined) {
+              allDemonstrators.add(idx1);
+              if (sessionIdx !== undefined) {
+                sessionDemonstrators[sessionIdx].add(idx1);
+              }
+            }
+            if (idx2 !== undefined) {
+              allDemonstrators.add(idx2);
+              if (sessionIdx !== undefined) {
+                sessionDemonstrators[sessionIdx].add(idx2);
+              }
+            }
+          }
+        }
+      } else {
+        // Handle direct stage objects
+        const sessionIdx = stage.session_index;
+        
+        // Initialize session set if needed
+        if (sessionIdx !== undefined && !sessionDemonstrators[sessionIdx]) {
+          sessionDemonstrators[sessionIdx] = new Set();
+        }
+        
+        // Track demonstrators from regular stages
+        if (stage.demonstrator && stage.demonstrator.demonstrator_global_index !== undefined) {
+          const demoIdx = stage.demonstrator.demonstrator_global_index;
+          allDemonstrators.add(demoIdx);
+          if (sessionIdx !== undefined) {
+            sessionDemonstrators[sessionIdx].add(demoIdx);
+          }
+        }
+        
+        // Track demonstrators from choice stages
+        if (stage.game === 'choice' && stage.demonstrator1 && stage.demonstrator2) {
+          const idx1 = stage.demonstrator1.demonstrator_global_index;
+          const idx2 = stage.demonstrator2.demonstrator_global_index;
+          if (idx1 !== undefined) {
+            allDemonstrators.add(idx1);
+            if (sessionIdx !== undefined) {
+              sessionDemonstrators[sessionIdx].add(idx1);
+            }
+          }
+          if (idx2 !== undefined) {
+            allDemonstrators.add(idx2);
+            if (sessionIdx !== undefined) {
+              sessionDemonstrators[sessionIdx].add(idx2);
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  // Convert Sets to Arrays for easier processing
+  const sessionDemonstratorsArray = {};
+  for (const sessionIdx in sessionDemonstrators) {
+    sessionDemonstratorsArray[sessionIdx] = Array.from(sessionDemonstrators[sessionIdx]);
+  }
+  
+  return {
+    allDemonstrators: Array.from(allDemonstrators),
+    sessionDemonstrators: sessionDemonstratorsArray
+  };
+}
+
+// Function to assign style+color combinations to demonstrators with constraints
+function assignDemonstratorStyleColors(allDemonstrators, sessionDemonstrators) {
+  const assignments = {};
+  const usedCombos = new Set();
+  
+  // Helper function to create combo key
+  const comboKey = (style, color) => `${style}:${color}`;
+  
+  // Helper function to check if a combo is available globally
+  const isComboAvailable = (style, color) => !usedCombos.has(comboKey(style, color));
+  
+  // Helper function to check if style or color conflicts with other demonstrators in the same session
+  const hasConflictInSession = (demoIdx, style, color, sessionIdx) => {
+    const demosInSession = sessionDemonstrators[sessionIdx] || [];
+    
+    for (const otherDemoIdx of demosInSession) {
+      // Skip self
+      if (otherDemoIdx === demoIdx) continue;
+      
+      // Check if other demo is already assigned
+      if (assignments[otherDemoIdx]) {
+        const otherAssignment = assignments[otherDemoIdx];
+        // Conflict if same style OR same color (within the same session)
+        if (otherAssignment.style === style || otherAssignment.color === color) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+  
+  // Build a map of demonstrator -> sessions it appears in
+  const demoToSessions = {};
+  for (const sessionIdx in sessionDemonstrators) {
+    const demosInSession = sessionDemonstrators[sessionIdx];
+    for (const demoIdx of demosInSession) {
+      if (!demoToSessions[demoIdx]) {
+        demoToSessions[demoIdx] = [];
+      }
+      demoToSessions[demoIdx].push(parseInt(sessionIdx));
+    }
+  }
+  
+  // Sort demonstrators: process those in multiple sessions first, then by session order
+  const sortedDemonstrators = allDemonstrators.slice().sort((a, b) => {
+    const aSessionCount = (demoToSessions[a] || []).length;
+    const bSessionCount = (demoToSessions[b] || []).length;
+    
+    // Sort by number of sessions (descending)
+    if (bSessionCount !== aSessionCount) {
+      return bSessionCount - aSessionCount;
+    }
+    
+    // Then by first session appearance (ascending)
+    const aFirstSession = Math.min(...(demoToSessions[a] || [Infinity]));
+    const bFirstSession = Math.min(...(demoToSessions[b] || [Infinity]));
+    return aFirstSession - bFirstSession;
+  });
+  
+  // Assign style+color to each demonstrator
+  for (const demoIdx of sortedDemonstrators) {
+    let assigned = false;
+    const sessionsForDemo = demoToSessions[demoIdx] || [];
+    
+    // Try to find a valid style+color combination
+    for (const style of AVAILABLE_STYLES) {
+      for (const color of AVAILABLE_COLORS) {
+        // Check if combo is globally available
+        if (!isComboAvailable(style, color)) continue;
+        
+        // Check if this style+color conflicts with any demonstrator in any session this demo appears in
+        let hasConflict = false;
+        for (const sessionIdx of sessionsForDemo) {
+          if (hasConflictInSession(demoIdx, style, color, sessionIdx)) {
+            hasConflict = true;
+            break;
+          }
+        }
+        
+        if (!hasConflict) {
+          assignments[demoIdx] = { style, color };
+          usedCombos.add(comboKey(style, color));
+          assigned = true;
+          break;
+        }
+      }
+      if (assigned) break;
+    }
+    
+    if (!assigned) {
+      console.error(`Could not find valid style+color combination for demonstrator ${demoIdx} in sessions ${sessionsForDemo}`);
+      console.error('Current assignments:', assignments);
+      // Fallback: assign first available combo (shouldn't happen with 36 combos and typical timeline)
+      for (const style of AVAILABLE_STYLES) {
+        for (const color of AVAILABLE_COLORS) {
+          if (isComboAvailable(style, color)) {
+            assignments[demoIdx] = { style, color };
+            usedCombos.add(comboKey(style, color));
+            assigned = true;
+            console.warn(`Using fallback assignment for demonstrator ${demoIdx}: ${style}/${color}`);
+            break;
+          }
+        }
+        if (assigned) break;
+      }
+    }
+  }
+  
+  console.log('Demonstrator Style+Color Assignments:', assignments);
+  console.log('Session Demonstrators:', sessionDemonstrators);
+  
+  // Verify constraints
+  console.log('\n=== VERIFYING SESSION CONSTRAINTS ===');
+  let allValid = true;
+  for (const sessionIdx in sessionDemonstrators) {
+    const demosInSession = sessionDemonstrators[sessionIdx];
+    console.log(`Session ${sessionIdx}: ${JSON.stringify(demosInSession)}`);
+    
+    const usedStylesInSession = new Set();
+    const usedColorsInSession = new Set();
+    
+    for (const demoIdx of demosInSession) {
+      const combo = assignments[demoIdx];
+      if (!combo) {
+        console.error(`  ❌ ERROR: Demo ${demoIdx} has no assignment!`);
+        allValid = false;
+        continue;
+      }
+      
+      console.log(`  Demo ${demoIdx}: ${combo.style}/${combo.color}`);
+      
+      // Check for duplicate styles in session
+      if (usedStylesInSession.has(combo.style)) {
+        console.error(`  ❌ CONSTRAINT VIOLATION: Duplicate style ${combo.style} in session ${sessionIdx}`);
+        allValid = false;
+      }
+      usedStylesInSession.add(combo.style);
+      
+      // Check for duplicate colors in session
+      if (usedColorsInSession.has(combo.color)) {
+        console.error(`  ❌ CONSTRAINT VIOLATION: Duplicate color ${combo.color} in session ${sessionIdx}`);
+        allValid = false;
+      }
+      usedColorsInSession.add(combo.color);
+    }
+    
+    if (demosInSession.length === usedStylesInSession.size && demosInSession.length === usedColorsInSession.size) {
+      console.log(`  ✓ Session ${sessionIdx} VALID: All demonstrators have unique styles AND colors`);
+    }
+  }
+  
+  if (allValid) {
+    console.log('\n✅ ALL SESSION CONSTRAINTS SATISFIED\n');
+  } else {
+    console.error('\n❌ SOME SESSION CONSTRAINTS VIOLATED\n');
+  }
+  
+  return assignments;
+}
+
 // Function to initialize all image mappings
 async function initializeImageMappings() {
   if (imageMappingsInitialized) return;
   
   try {
-    // Discover and map demonstrator images
-    const demonstratorImages = await discoverAvailableImages('assets/demonstrators', 'demonstrator_', '.png');
-    if (demonstratorImages.length > 0) {
-      demonstratorImageMapping = createRandomMapping(demonstratorImages);
-    } else {
-      console.warn('No demonstrator images found, using minimal fallback');
-      demonstratorImageMapping = { 0: 'demonstrator_00.png', 1: 'demonstrator_01.png' };
+    // Analyze timeline for demonstrator constraints
+    if (timelineData) {
+      const { allDemonstrators, sessionDemonstrators } = analyzeTimelineDemonstrators(timelineData);
+      demonstratorStyleColorMapping = assignDemonstratorStyleColors(allDemonstrators, sessionDemonstrators);
+      
+      // Store used combos globally
+      for (const demoIdx in demonstratorStyleColorMapping) {
+        const { style, color } = demonstratorStyleColorMapping[demoIdx];
+        usedStyleColorCombos.add(`${style}:${color}`);
+      }
     }
+    
+    // Note: We no longer need to discover demonstrator images from the old location
+    // since we're using the style/color system
     
     // Discover and map landscape images
     const landscapeImages = await discoverAvailableImages('assets/landscapes', 'landscape_', '.png');
@@ -416,7 +693,6 @@ async function initializeImageMappings() {
   } catch (error) {
     console.error('❌ Error initializing image mappings:', error);
     // Fallback to default mappings if discovery fails
-    demonstratorImageMapping = { 0: 'demonstrator_00.png', 1: 'demonstrator_01.png' };
     landscapeImageMapping = { 0: 'landscape_00.png' };
     zoneBackgroundImageMapping = { 0: 'zone_00.png' };
     // Create a fallback mapping for 80 asteroids
@@ -431,18 +707,40 @@ async function initializeImageMappings() {
 }
 
 // Helper functions to get mapped image names
-function getMappedDemonstratorImage(index) {
-  const imageName = demonstratorImageMapping[index];
-  if (!imageName) {
-    console.warn(`No demonstrator image mapped for index ${index}, using default`);
-    return demonstratorImageMapping[0] || 'demonstrator_00.png';
+function getMappedDemonstratorImage(index, styleFromTimeline = null, colorFromTimeline = null) {
+  // If style and color are provided from timeline, use them directly
+  if (styleFromTimeline && colorFromTimeline) {
+    // Cache it for consistency
+    demonstratorStyleColorMapping[index] = { style: styleFromTimeline, color: colorFromTimeline };
+    usedStyleColorCombos.add(`${styleFromTimeline}:${colorFromTimeline}`);
+    return `styles/${styleFromTimeline}/${colorFromTimeline}.png`;
   }
-  return imageName;
+  
+  // Otherwise use the cached mapping
+  const styleColorCombo = demonstratorStyleColorMapping[index];
+  if (!styleColorCombo) {
+    console.warn(`No style+color combo mapped for demonstrator ${index}, using fallback`);
+    // Fallback: assign a random available combo
+    for (const style of AVAILABLE_STYLES) {
+      for (const color of AVAILABLE_COLORS) {
+        const comboKey = `${style}:${color}`;
+        if (!usedStyleColorCombos.has(comboKey)) {
+          demonstratorStyleColorMapping[index] = { style, color };
+          usedStyleColorCombos.add(comboKey);
+          return `styles/${style}/${color}.png`;
+        }
+      }
+    }
+    // Ultimate fallback if all combos exhausted
+    return 'styles/style1/blue.png';
+  }
+  return `styles/${styleColorCombo.style}/${styleColorCombo.color}.png`;
 }
 
 // Helper function to convert demonstrator image filename to mapped image
 function getMappedDemonstratorFromFilename(filename) {
-  // Extract index from filename like "demonstrator_01.png" -> 1
+  // This function is now deprecated with the new style/color system
+  // but we keep it for backward compatibility if needed
   const match = filename.match(/demonstrator_(\d+)\.png/);
   if (match) {
     const index = parseInt(match[1], 10);
@@ -547,13 +845,13 @@ function mapZoneBackground(zoneGlobalIndex) {
 }
 
 // Map demonstrator global index to image
-function mapDemonstratorImage(demonstratorGlobalIndex) {
+function mapDemonstratorImage(demonstratorGlobalIndex, demonstratorStyle = null, demonstratorColor = null) {
   if (demonstratorMappedImages[demonstratorGlobalIndex]) {
     return demonstratorMappedImages[demonstratorGlobalIndex];
   }
   
-  // Use the existing demonstrator mapping system
-  const mappedImage = getMappedDemonstratorImage(demonstratorGlobalIndex);
+  // Use the existing demonstrator mapping system, passing style/color from timeline if available
+  const mappedImage = getMappedDemonstratorImage(demonstratorGlobalIndex, demonstratorStyle, demonstratorColor);
   demonstratorMappedImages[demonstratorGlobalIndex] = mappedImage;
   
 
@@ -875,10 +1173,10 @@ function maybeAddSummaryIcon(stage) {
   if (stageType === 'watch' || stageType === 'indicate') {
     if (stage.demonstrator && stage.demonstrator.demonstrator_global_index !== undefined) {
       // Use the mapped demonstrator image based on global index
-      const mappedImage = mapDemonstratorImage(stage.demonstrator.demonstrator_global_index);
+      const mappedImage = mapDemonstratorImage(stage.demonstrator.demonstrator_global_index, stage.demonstrator.demonstrator_style, stage.demonstrator.demonstrator_color);
       imageKey = mappedImage.replace('.png', '');
     } else {
-      imageKey = 'demonstrator_01'; // fallback
+      imageKey = 'styles/style1/blue'; // fallback to default style+color
     }
   }
 
@@ -919,6 +1217,8 @@ function redrawSummaryBarDOM() {
     cellDiv.style.display = "flex";  // Use flexbox for better centering
     cellDiv.style.flexDirection = "column";
     cellDiv.style.alignItems = "center"; // Center children horizontally
+    cellDiv.style.justifyContent = "flex-start"; // Align to top
+    cellDiv.style.minHeight = "70px"; // Consistent cell height
 
     // Give it a border of the zone color - use zone_color property directly when available
     const borderColor = iconData.zone_color || iconData.color || "#ffffff";
@@ -927,7 +1227,7 @@ function redrawSummaryBarDOM() {
 
     // The image
     const img = document.createElement("img");
-    if (iconData.imageKey.startsWith('demonstrator_')) {
+    if (iconData.imageKey.startsWith('demonstrator_') || iconData.imageKey.startsWith('styles/')) {
       // The imageKey is already a mapped demonstrator filename (without .png)
       // Don't map it again - just use it directly
       img.src = `assets/demonstrators/${iconData.imageKey}.png`;
@@ -939,6 +1239,8 @@ function redrawSummaryBarDOM() {
       img.src = `assets/${iconData.imageKey}.png`;
     }
     img.style.width = "40px";
+    img.style.maxHeight = "40px"; // Limit height to keep cells consistent
+    img.style.objectFit = "contain"; // Maintain aspect ratio
     img.style.display = "block";
     img.style.margin = "0 auto"; // Center horizontally
 
@@ -1508,9 +1810,9 @@ function setupPlayOrPractice(stage, isPractice) {
   let cursorC = Phaser.Math.Between(0, numCols - 1);
   let { x: initX, y: initY } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
   let userSprite = this.add.image(initX, initY, 'user')
-    .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
-    .setDepth(9999)
-    .setOrigin(0.5);
+    .setOrigin(0.5)
+    .setDepth(9999);
+  setSpriteDisplaySizeWithAspectRatio(userSprite, DEMO_SPRITE_SIZE);
 
   // Initialize position tracking for logging
   currentPosition = cursorR * numCols + cursorC;
@@ -1773,7 +2075,7 @@ function setupWatch(stage) {
   
   // Load demonstrator image
   const demoImageKey = `watch_${stage.demonstrator.demonstrator_global_index}`;
-  const mappedDemonstratorImage = mapDemonstratorImage(stage.demonstrator.demonstrator_global_index);
+  const mappedDemonstratorImage = mapDemonstratorImage(stage.demonstrator.demonstrator_global_index, stage.demonstrator.demonstrator_style, stage.demonstrator.demonstrator_color);
   
   if (!this.textures.exists(demoImageKey)) {
     this.load.image(demoImageKey, `assets/demonstrators/${mappedDemonstratorImage}`);
@@ -1788,9 +2090,9 @@ function setupWatch(stage) {
   function startDemonstration() {
     let startPos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC);
     let dSprite = this.add.image(startPos.x, startPos.y, demoImageKey)
-    .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
-    .setDepth(9999)
-    .setOrigin(0.5);
+    .setOrigin(0.5)
+    .setDepth(9999);
+    setSpriteDisplaySizeWithAspectRatio(dSprite, DEMO_SPRITE_SIZE);
 
   let currentStep = 0;
   let totalSteps = trajectory.length;
@@ -2006,7 +2308,7 @@ function setupIndicate(stage) {
   
   // Load demonstrator image
   const demoImageKey = `indicate_${stage.demonstrator.demonstrator_global_index}`;
-  const mappedDemonstratorImage = mapDemonstratorImage(stage.demonstrator.demonstrator_global_index);
+  const mappedDemonstratorImage = mapDemonstratorImage(stage.demonstrator.demonstrator_global_index, stage.demonstrator.demonstrator_style, stage.demonstrator.demonstrator_color);
   
   if (!this.textures.exists(demoImageKey)) {
     this.load.image(demoImageKey, `assets/demonstrators/${mappedDemonstratorImage}`);
@@ -2021,9 +2323,9 @@ function setupIndicate(stage) {
   function startDemonstration() {
     let startPos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC);
     let dSprite = this.add.image(startPos.x, startPos.y, demoImageKey)
-    .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
-    .setDepth(9999)
-    .setOrigin(0.5);
+    .setOrigin(0.5)
+    .setDepth(9999);
+    setSpriteDisplaySizeWithAspectRatio(dSprite, DEMO_SPRITE_SIZE);
 
     let currentStep = 0;
     let totalSteps = trajectory.length;
@@ -2196,8 +2498,8 @@ function setupChoice(stage) {
   
   // Prepare demonstrator mapped images and indices  
   const demonstratorMappedImages = [
-    mapDemonstratorImage(demonstrator1.demonstrator_global_index),
-    mapDemonstratorImage(demonstrator2.demonstrator_global_index)
+    mapDemonstratorImage(demonstrator1.demonstrator_global_index, demonstrator1.demonstrator_style, demonstrator1.demonstrator_color),
+    mapDemonstratorImage(demonstrator2.demonstrator_global_index, demonstrator2.demonstrator_style, demonstrator2.demonstrator_color)
   ];
   
   const demonstratorSessionIndices = [
@@ -2370,9 +2672,9 @@ function setupChoice(stage) {
     
     // Add user sprite
     const userSprite = currentScene.add.image(userX, userY, 'user')
-      .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
-      .setDepth(9999)
-      .setOrigin(0.5);
+      .setOrigin(0.5)
+      .setDepth(9999);
+    setSpriteDisplaySizeWithAspectRatio(userSprite, DEMO_SPRITE_SIZE);
     
     // Add click handlers for all cells
     for (let i = 0; i < cells.length; i++) {
@@ -2428,10 +2730,10 @@ function setupChoice(stage) {
       
       // Set global choice variables for logging
       if (index === 0) {
-        choiceDemonstratorId = mapDemonstratorImage(demonstrator1.demonstrator_global_index);
+        choiceDemonstratorId = mapDemonstratorImage(demonstrator1.demonstrator_global_index, demonstrator1.demonstrator_style, demonstrator1.demonstrator_color);
         choiceDemonstratorType = demonstrator1.demonstrator_type;
       } else if (index === 1) {
-        choiceDemonstratorId = mapDemonstratorImage(demonstrator2.demonstrator_global_index);
+        choiceDemonstratorId = mapDemonstratorImage(demonstrator2.demonstrator_global_index, demonstrator2.demonstrator_style, demonstrator2.demonstrator_color);
         choiceDemonstratorType = demonstrator2.demonstrator_type;
       }
       
@@ -2607,10 +2909,10 @@ function addChoiceSelectionToSummary(imageKey, zoneColor, choiceLetter) {
     if (stage && stage.demonstrator1 && stage.demonstrator2) {
       // Determine which demonstrator was selected based on the demoIndex
       if (demoIndex === '0' && stage.demonstrator1.demonstrator_global_index !== undefined) {
-        const mappedImage = mapDemonstratorImage(stage.demonstrator1.demonstrator_global_index);
+        const mappedImage = mapDemonstratorImage(stage.demonstrator1.demonstrator_global_index, stage.demonstrator1.demonstrator_style, stage.demonstrator1.demonstrator_color);
         demoImage = mappedImage.replace('.png', '');
       } else if (demoIndex === '1' && stage.demonstrator2.demonstrator_global_index !== undefined) {
-        const mappedImage = mapDemonstratorImage(stage.demonstrator2.demonstrator_global_index);
+        const mappedImage = mapDemonstratorImage(stage.demonstrator2.demonstrator_global_index, stage.demonstrator2.demonstrator_style, stage.demonstrator2.demonstrator_color);
         demoImage = mappedImage.replace('.png', '');
       }
     }
@@ -2766,7 +3068,7 @@ function setupOnlineChoicePhaseChoice(stage) {
     
     // Load demonstrator image
     const imageKey = `online_choice_${demo.key}`;
-    const mappedDemonstratorImage = mapDemonstratorImage(demo.data.demonstrator_global_index);
+    const mappedDemonstratorImage = mapDemonstratorImage(demo.data.demonstrator_global_index, demo.data.demonstrator_style, demo.data.demonstrator_color);
     this.load.image(imageKey, `assets/demonstrators/${mappedDemonstratorImage}`);
     
     cells.push({
@@ -2818,9 +3120,9 @@ function setupOnlineChoicePhaseChoice(stage) {
     
     // Add user sprite
     const userSprite = currentScene.add.image(userX, userY, 'user')
-      .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
-      .setDepth(9999)
-      .setOrigin(0.5);
+      .setOrigin(0.5)
+      .setDepth(9999);
+    setSpriteDisplaySizeWithAspectRatio(userSprite, DEMO_SPRITE_SIZE);
     
     // Selection feedback text (initially hidden, same position as regular choice game)
     const feedbackText = currentScene.add.text(
@@ -2890,7 +3192,7 @@ function setupOnlineChoicePhaseChoice(stage) {
       selectedDemonstrator = selectedCell;
       
       // Set global choice variables for logging  
-      choiceDemonstratorId = mapDemonstratorImage(selectedCell.data.demonstrator_global_index);
+      choiceDemonstratorId = mapDemonstratorImage(selectedCell.data.demonstrator_global_index, selectedCell.data.demonstrator_style, selectedCell.data.demonstrator_color);
       choiceDemonstratorType = selectedCell.data.demonstrator_type;
       
       // Log the selection action
@@ -3057,7 +3359,7 @@ function setupOnlineChoicePhaseWatch(stage) {
   
   // Load demonstrator image
   const demoImageKey = `online_watch_${selectedDemo.key}`;
-  const mappedDemonstratorImage = mapDemonstratorImage(demoData.demonstrator_global_index);
+  const mappedDemonstratorImage = mapDemonstratorImage(demoData.demonstrator_global_index, demoData.demonstrator_style, demoData.demonstrator_color);
   
   if (!this.textures.exists(demoImageKey)) {
     this.load.image(demoImageKey, `assets/demonstrators/${mappedDemonstratorImage}`);
@@ -3072,9 +3374,9 @@ function setupOnlineChoicePhaseWatch(stage) {
   function startDemonstration() {
     let startPos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC);
     let dSprite = currentScene.add.image(startPos.x, startPos.y, demoImageKey)
-      .setDisplaySize(DEMO_SPRITE_SIZE, DEMO_SPRITE_SIZE)
-      .setDepth(9999)
-      .setOrigin(0.5);
+      .setOrigin(0.5)
+      .setDepth(9999);
+    setSpriteDisplaySizeWithAspectRatio(dSprite, DEMO_SPRITE_SIZE);
 
     let currentStep = 0;
     let totalSteps = trajectory.length;
@@ -4058,7 +4360,7 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
             playerImageKey = `overlay_demo_s${sessionIndex}_g${gameIndex}_${demoSessionIndex}`;
             
             // Get the mapped demonstrator image
-            const mappedDemonstratorImage = mapDemonstratorImage(nextStage.demonstrator.demonstrator_global_index);
+            const mappedDemonstratorImage = mapDemonstratorImage(nextStage.demonstrator.demonstrator_global_index, nextStage.demonstrator.demonstrator_style, nextStage.demonstrator.demonstrator_color);
       
             
             scene.load.image(playerImageKey, `assets/demonstrators/${mappedDemonstratorImage}`);

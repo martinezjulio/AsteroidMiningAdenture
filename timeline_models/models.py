@@ -167,12 +167,74 @@ def generate_timeline(
             "bandit_id": pk
         }
 
-    # 7) assign demonstrator_ids per session
+    # 7) assign demonstrator_ids per session with style+color constraints
     available_ids = list(range(20))
     random.shuffle(available_ids)
     session_to_ids: Dict[int, List[int]] = {}
     for sess_i in range(1, len(raw_sessions) + 1):
         session_to_ids[sess_i] = [available_ids.pop(), available_ids.pop()]
+    
+    # 7b) assign style+color to each demonstrator with session-level constraints
+    AVAILABLE_STYLES = ['style1', 'style2', 'style3', 'style4', 'style5', 'style6']
+    AVAILABLE_COLORS = ['red', 'orange', 'blue', 'green', 'yellow', 'purple']
+    
+    # Create all possible style+color combinations and shuffle them
+    all_combinations = [(style, color) for style in AVAILABLE_STYLES for color in AVAILABLE_COLORS]
+    random.shuffle(all_combinations)
+    
+    # Collect all unique demonstrator IDs used
+    all_demo_ids = set()
+    for ids in session_to_ids.values():
+        all_demo_ids.update(ids)
+    
+    # Map demonstrator_id -> {style, color}
+    demo_style_color: Dict[int, Dict[str, str]] = {}
+    used_combos = set()
+    
+    # Process each session to ensure its two demonstrators have different styles AND colors
+    for sess_i, demo_ids in session_to_ids.items():
+        # For each demonstrator in the session
+        for demo_id in demo_ids:
+            if demo_id in demo_style_color:
+                # Already assigned (shouldn't happen with current logic, but be safe)
+                continue
+            
+            # Find a style+color that:
+            # 1. Hasn't been used globally
+            # 2. Doesn't conflict with other demonstrators in THIS session
+            # We try combinations in random order (shuffled above)
+            assigned = False
+            for style, color in all_combinations:
+                combo_key = f"{style}:{color}"
+                
+                # Check if combo is available globally
+                if combo_key in used_combos:
+                    continue
+                
+                # Check if this style or color conflicts with other demos in this session
+                has_conflict = False
+                for other_demo_id in demo_ids:
+                    if other_demo_id == demo_id:
+                        continue
+                    if other_demo_id in demo_style_color:
+                        other = demo_style_color[other_demo_id]
+                        # Conflict if same style OR same color
+                        if other['style'] == style or other['color'] == color:
+                            has_conflict = True
+                            break
+                
+                if not has_conflict:
+                    # Found a valid assignment!
+                    demo_style_color[demo_id] = {'style': style, 'color': color}
+                    used_combos.add(combo_key)
+                    assigned = True
+                    break
+            
+            if not assigned:
+                raise RuntimeError(
+                    f"Could not assign style+color for demonstrator {demo_id} in session {sess_i}. "
+                    f"Available combos: {len(AVAILABLE_STYLES) * len(AVAILABLE_COLORS) - len(used_combos)}"
+                )
 
     # 8) inject zone_meta & demonstrator dicts & overlay-messages
     for games, choice_container in raw_sessions:
@@ -213,7 +275,9 @@ def generate_timeline(
                     "demonstrator_type": typ,
                     "demonstrator_session_index": dem_idx,
                     "demonstrator_global_index": did,
-                    "demonstrator_trajectory": traj
+                    "demonstrator_trajectory": traj,
+                    "demonstrator_style": demo_style_color[did]['style'],
+                    "demonstrator_color": demo_style_color[did]['color']
                 }
                 
                 # Check if this demonstrator has been seen before in this session
@@ -258,7 +322,9 @@ def generate_timeline(
             demonstrator_data[f"demonstrator{i_key+1}"] = {
                 "demonstrator_type": typ,
                 "demonstrator_session_index": i_key,
-                "demonstrator_global_index": did
+                "demonstrator_global_index": did,
+                "demonstrator_style": demo_style_color[did]['style'],
+                "demonstrator_color": demo_style_color[did]['color']
             }
             choice[f"demonstrator{i_key+1}"] = demonstrator_data[f"demonstrator{i_key+1}"]
             del choice[key]
