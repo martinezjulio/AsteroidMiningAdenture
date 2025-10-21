@@ -12,7 +12,8 @@ def generate_timeline(
     bandit_assignment_mode: str = "session_fixed",
     textbox_feedback: bool = False,
     session_demonstrators: str = "all",
-    prop_of_sessions: float = 0.5
+    prop_of_sessions: float = 0.5,
+    omit_explicit_experience_transfer_message: bool = False
 ) -> List[Any]:
     # 0) load bandit data
     with open(bandits_json_path, "r") as f:
@@ -314,10 +315,11 @@ def generate_timeline(
                     )
                     seen_demonstrators.add(did)
                 
-                # Add secondary overlay message for all watch games
-                e["secondary-overlay-message"] = (
-                    "Remember: Some starship partners have experience in every zone while the other starships have no experience in any zone."
-                )
+                # Add secondary overlay message for all watch games (only if not omitted)
+                if not omit_explicit_experience_transfer_message:
+                    e["secondary-overlay-message"] = (
+                        "Remember: Some starship partners have experience in every zone while the other starships have no experience in any zone."
+                    )
                 
             elif e["game"] == "play":
                 parts.append(
@@ -373,24 +375,44 @@ def generate_timeline(
 
     # 9) fixed practice session
     practice_zone = zone_meta[0]
+    
+    # Build intro message conditionally based on omit_explicit_experience_transfer_message
+    if omit_explicit_experience_transfer_message:
+        intro_message = (
+            "Welcome to \"Asteroid Fortune Frontier\" the asteroid mining adventure.\n\n"
+            "[BOLD]PLEASE READ CAREFULLY:[/BOLD]\n\n"
+            "As a player you will pilot a starship to mine ASTEROIDS by shooting them. "
+            "Some asteroids yield rewards more often than others. These reward rates are unknown to you. \n\n"
+            "YOUR GOAL IS FIND THE ASTEROID THAT YIELDS REWARD MOST OFTEN AND MINE FROM IT AS MUCH AS POSSIBLE!  \n\n "
+            "You will encounter multiple asteroid ZONES each indicated by a zone number. "
+            "Sometimes you will repeat the same zone with the same reward payoffs. "
+            "Sometimes you will move into new zones with new asteroids and new unknown reward payoffs.\n\n "
+            "You will also have starship PARTNERS to learn from. "
+            "Pay close attention and try to learn from their choices. \n\n"
+            "Welcome to \"Asteroid Fortune Frontier\" – where the universe is yours to mine.\n\n"
+            "[RED_BOLD]DO NOT RELOAD PAGE AT ANY TIME DURING GAME![/RED_BOLD]"
+        )
+    else:
+        intro_message = (
+            "Welcome to \"Asteroid Fortune Frontier\" the asteroid mining adventure.\n\n"
+            "[BOLD]PLEASE READ CAREFULLY:[/BOLD]\n\n"
+            "As a player you will pilot a starship to mine ASTEROIDS by shooting them. "
+            "Some asteroids yield rewards more often than others. These reward rates are unknown to you. \n\n"
+            "YOUR GOAL IS FIND THE ASTEROID THAT YIELDS REWARD MOST OFTEN AND MINE FROM IT AS MUCH AS POSSIBLE!  \n\n "
+            "You will encounter multiple asteroid ZONES each indicated by a zone number. "
+            "Sometimes you will repeat the same zone with the same reward payoffs. "
+            "Sometimes you will move into new zones with new asteroids and new unknown reward payoffs.\n\n "
+            "You will also have starship PARTNERS to learn from. Some starship partners have experience in every zone while the others have none. "
+            "You will not be told your partners experience level but pay close attention and try to learn from their choices. \n\n"
+            "Welcome to \"Asteroid Fortune Frontier\" – where the universe is yours to mine.\n\n"
+            "[RED_BOLD]DO NOT RELOAD PAGE AT ANY TIME DURING GAME![/RED_BOLD]"
+        )
+    
     practice_session = [
         {"stage_type": "prolific_id_form", "message": "Please enter your Prolific ID below:"},
         {
             "stage_type": "introduction",
-            "message": (
-                "Welcome to \"Asteroid Fortune Frontier\" the asteroid mining adventure.\n\n"
-                "[BOLD]PLEASE READ CAREFULLY:[/BOLD]\n\n"
-                "As a player you will pilot a starship to mine ASTEROIDS by shooting them. "
-                "Some asteroids yield rewards more often than others. These reward rates are unknown to you. \n\n"
-                "YOUR GOAL IS FIND THE ASTEROID THAT YIELDS REWARD MOST OFTEN AND MINE FROM IT AS MUCH AS POSSIBLE!  \n\n "
-                "You will encounter multiple asteroid ZONES each indicated by a zone number. "
-                "Sometimes you will repeat the same zone with the same reward payoffs. "
-                "Sometimes you will move into new zones with new asteroids and new unknown reward payoffs.\n\n "
-                "You will also have starship PARTNERS to learn from. Some starship partners have experience in every zone while the others have none. "
-                "You will not be told your partners experience level but pay close attention and try to learn from their choices. \n\n"
-                "Welcome to \"Asteroid Fortune Frontier\" – where the universe is yours to mine.\n\n"
-                "[RED_BOLD]DO NOT RELOAD PAGE AT ANY TIME DURING GAME![/RED_BOLD]"
-            ),
+            "message": intro_message,
             "instructions": {
                 "instruction1": "move left with left arrow",
                 "instruction1_image": "move_left.gif",
@@ -459,6 +481,7 @@ if __name__ == "__main__":
         textbox_feedback = config.get('textbox_feedback', False)
         session_demonstrators = config.get('session_demonstrators', 'all')
         prop_of_sessions = config.get('prop_of_sessions', 0.5)
+        omit_explicit_experience_transfer_message = config.get('omit_explicit_experience_transfer_message', False)
     except Exception as e:
         # Write to stderr so it doesn't interfere with stdout JSON
         print(f"Warning: Could not read config.json, using default settings: {e}", file=sys.stderr)
@@ -466,6 +489,7 @@ if __name__ == "__main__":
         textbox_feedback = False  # fallback
         session_demonstrators = 'all'  # fallback
         prop_of_sessions = 0.5  # fallback
+        omit_explicit_experience_transfer_message = False  # fallback
 
     # Get request ID from command line arguments for unique file naming
     request_id = None
@@ -484,7 +508,8 @@ if __name__ == "__main__":
         bandit_assignment_mode=bandit_mode,
         textbox_feedback=textbox_feedback,
         session_demonstrators=session_demonstrators,
-        prop_of_sessions=prop_of_sessions
+        prop_of_sessions=prop_of_sessions,
+        omit_explicit_experience_transfer_message=omit_explicit_experience_transfer_message
     )
     
     # Output JSON to stdout for the Node.js server to capture

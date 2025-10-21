@@ -1,5 +1,6 @@
 {
     "experiment_config": "configs/timeline.json",
+    "omit_explicit_experience_transfer_message": true,
     "bandit_assignment_mode": "round_changing",
     "textbox_feedback": true,
     "session_demonstrators": "different",

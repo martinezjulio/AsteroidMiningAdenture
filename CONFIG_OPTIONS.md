@@ -47,6 +47,16 @@ The `config.json` file controls various aspects of timeline generation and game 
   - Values ≥ 1.0 will keep all sessions
   - Always keeps at least 1 session minimum
 
+### `omit_explicit_experience_transfer_message` ⭐ NEW
+- **Type**: Boolean
+- **Default**: `false`
+- **Description**: Controls whether to display explicit messages about demonstrators' experience levels
+  - `true`: Omits the following text from the game:
+    - Intro: "Some starship partners have experience in every zone while the others have none."
+    - Watch transitions: "Remember: Some starship partners have experience in every zone while the other starships have no experience in any zone."
+  - `false`: Includes the explicit experience transfer messages (default behavior)
+  - All other text remains unchanged
+
 ## Example Configurations
 
 ### Default (All Session Types, Half Selected)
@@ -56,7 +66,8 @@ The `config.json` file controls various aspects of timeline generation and game 
     "bandit_assignment_mode": "session_fixed",
     "textbox_feedback": false,
     "session_demonstrators": "all",
-    "prop_of_sessions": 0.5
+    "prop_of_sessions": 0.5,
+    "omit_explicit_experience_transfer_message": false
 }
 ```
 
@@ -67,7 +78,20 @@ The `config.json` file controls various aspects of timeline generation and game 
     "bandit_assignment_mode": "round_changing",
     "textbox_feedback": true,
     "session_demonstrators": "different",
-    "prop_of_sessions": 1
+    "prop_of_sessions": 1,
+    "omit_explicit_experience_transfer_message": false
+}
+```
+
+### Omit Experience Messages
+```json
+{
+    "experiment_config": "configs/timeline.json",
+    "bandit_assignment_mode": "session_fixed",
+    "textbox_feedback": false,
+    "session_demonstrators": "all",
+    "prop_of_sessions": 1,
+    "omit_explicit_experience_transfer_message": true
 }
 ```
 

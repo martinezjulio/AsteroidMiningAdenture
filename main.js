@@ -4179,8 +4179,9 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   // Add secondary message if it exists (for watch games)
   let secondaryMessage = null;
   if (stageType === 'watch' || stageType === 'indicate') {
-    secondaryMessage = nextStage["secondary-overlay-message"] || 
-      "Remember: Some starship partners have experience in every zone while the other starships have no experience in any zone.";
+    // Only use secondary-overlay-message if it's explicitly set in the stage data
+    // Don't provide a fallback to respect the omit_explicit_experience_transfer_message config
+    secondaryMessage = nextStage["secondary-overlay-message"] || null;
   }
   
   // Update the game container border color immediately to match the next stage's zone
