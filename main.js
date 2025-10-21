@@ -1317,22 +1317,21 @@ function setupFeedback(stage) {
   let chosenDemonstratorImage = null;
   
   if (choiceDemonstratorId && choiceDemonstratorType) {
-    // Extract the global index from the filename (e.g., "demonstrator_05.png" -> 5)
+    // choiceDemonstratorId is now in the format "styles/style1/blue.png"
+    // Just prepend the assets/demonstrators/ path
+    chosenDemonstratorImage = `assets/demonstrators/${choiceDemonstratorId}`;
+    
+    // Try to extract the global index from the old format for backwards compatibility
     const match = choiceDemonstratorId.match(/demonstrator_(\d+)\.png/);
     const chosenGlobalIndex = match ? parseInt(match[1]) : null;
     
-    // Find the chosen demonstrator from the stage data
+    // Find the chosen demonstrator from the stage data if possible
     if (chosenGlobalIndex !== null) {
       if (stage.demonstrator1 && stage.demonstrator1.demonstrator_global_index === chosenGlobalIndex) {
         chosenDemonstratorData = stage.demonstrator1;
-        chosenDemonstratorImage = `assets/demonstrators/${choiceDemonstratorId}`;
       } else if (stage.demonstrator2 && stage.demonstrator2.demonstrator_global_index === chosenGlobalIndex) {
         chosenDemonstratorData = stage.demonstrator2;
-        chosenDemonstratorImage = `assets/demonstrators/${choiceDemonstratorId}`;
       } else {
-        // If we can't find a match, still show the image based on the choice ID
-        // This handles cases where there might be a data mismatch
-        chosenDemonstratorImage = `assets/demonstrators/${choiceDemonstratorId}`;
         // Create a fallback demonstrator data object
         chosenDemonstratorData = {
           demonstrator_type: choiceDemonstratorType,
@@ -1340,6 +1339,14 @@ function setupFeedback(stage) {
           demonstrator_session_index: -1 // Unknown
         };
       }
+    } else {
+      // For new format, we don't have a global index extracted from filename
+      // Just create a basic data object with the type
+      chosenDemonstratorData = {
+        demonstrator_type: choiceDemonstratorType,
+        demonstrator_global_index: -1, // Unknown from new format
+        demonstrator_session_index: -1 // Unknown
+      };
     }
   }
   
