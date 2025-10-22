@@ -307,13 +307,13 @@ def generate_timeline(
                     # Previously seen demonstrator
                     parts.append(
                         "You will watch the starship partner shown below play again. "
-                        "Pay close attention to your partner's choices."
+                        "Pay close attention to your partner's choices and outcomes."
                     )
                 else:
                     # New demonstrator
                     parts.append(
                         "In this game you will watch a new starship partner (shown below) play the game. "
-                        "Pay close attention to your partner's choices."
+                        "Pay close attention to your partner's choices and outcomes."
                     )
                     seen_demonstrators.add(did)
                 
@@ -390,7 +390,7 @@ def generate_timeline(
             "Sometimes you will repeat the same zone with the same reward payoffs. "
             "Sometimes you will move into new zones with new asteroids and new unknown reward payoffs.\n\n "
             "You will also have starship PARTNERS to learn from. "
-            "Pay close attention and try to learn from their choices. \n\n"
+            "Pay close attention and try to learn from your observations from them. \n\n"
             "Welcome to \"Asteroid Fortune Frontier\" – where the universe is yours to mine.\n\n"
             "[RED_BOLD]DO NOT RELOAD PAGE AT ANY TIME DURING GAME![/RED_BOLD]"
         )
@@ -405,7 +405,7 @@ def generate_timeline(
             "Sometimes you will repeat the same zone with the same reward payoffs. "
             "Sometimes you will move into new zones with new asteroids and new unknown reward payoffs.\n\n "
             "You will also have starship PARTNERS to learn from. Some starship partners have experience in every zone while the others have none. "
-            "You will not be told your partners experience level but pay close attention and try to learn from their choices. \n\n"
+            "You will not be told your partners experience level but pay close attention and try to learn from your observations from them. \n\n"
             "Welcome to \"Asteroid Fortune Frontier\" – where the universe is yours to mine.\n\n"
             "[RED_BOLD]DO NOT RELOAD PAGE AT ANY TIME DURING GAME![/RED_BOLD]"
         )
