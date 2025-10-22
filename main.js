@@ -1064,7 +1064,7 @@ function loadStage() {
     const zoneColor = generateZoneColor(stage.zone.zone_global_index);
     const gameContainer = document.getElementById('game-container');
     if (gameContainer) {
-      gameContainer.style.border = `10px solid ${zoneColor}`;
+      gameContainer.style.border = `20px solid ${zoneColor}`;
 
     }
   }
@@ -1454,7 +1454,7 @@ function setupIntroduction(stage) {
           text: boldText,
           type: 'bold',
           y: 100,  // Below welcome with good spacing
-          font: 'bold 20px Courier New',
+          font: 'bold 40px Courier New',
           color: '#ffffff'
         });
         
@@ -2032,7 +2032,7 @@ function setupWatch(stage) {
     this.sys.game.config.width / 2,
     30,
     `Zone ${stage.zone.zone_global_index}`,
-    { font: 'bold 20px Courier New', fill: '#ffffff' }
+    { font: 'bold 40px Courier New', fill: '#ffffff' }
   ).setOrigin(0.5);
   
   // Show which demonstrator is being watched
@@ -2265,7 +2265,7 @@ function setupIndicate(stage) {
     this.sys.game.config.width / 2,
     30,
     `Zone ${stage.zone.zone_global_index}`,
-    { font: 'bold 20px Courier New', fill: '#ffffff' }
+    { font: 'bold 40px Courier New', fill: '#ffffff' }
   ).setOrigin(0.5);
   
   // Show which demonstrator is being watched
@@ -3316,7 +3316,7 @@ function setupOnlineChoicePhaseWatch(stage) {
     this.sys.game.config.width / 2,
     30,
     `Zone ${stage.zone.zone_global_index}`,
-    { font: 'bold 20px Courier New', fill: '#ffffff' }
+    { font: 'bold 40px Courier New', fill: '#ffffff' }
   ).setOrigin(0.5);
   
   // Show which demonstrator is being watched
@@ -4090,28 +4090,28 @@ function addZoneLabels(scene, zoneIndex) {
   scene.add.text(
     10, 10, 
     labelText, 
-    { font: 'bold 16px Courier New', fill: '#ffffff', backgroundColor: '#000000', padding: { x: 5, y: 2 } }
+    { font: 'bold 32px Courier New', fill: '#ffffff', backgroundColor: '#000000', padding: { x: 5, y: 2 } }
   ).setDepth(10000);
   
   // Top right
   scene.add.text(
     scene.sys.game.config.width - 10, 10, 
     labelText, 
-    { font: 'bold 16px Courier New', fill: '#ffffff', backgroundColor: '#000000', padding: { x: 5, y: 2 } }
+    { font: 'bold 32px Courier New', fill: '#ffffff', backgroundColor: '#000000', padding: { x: 5, y: 2 } }
   ).setOrigin(1, 0).setDepth(10000);
   
   // Bottom left
   scene.add.text(
     10, scene.sys.game.config.height - 10, 
     labelText, 
-    { font: 'bold 16px Courier New', fill: '#ffffff', backgroundColor: '#000000', padding: { x: 5, y: 2 } }
+    { font: 'bold 32px Courier New', fill: '#ffffff', backgroundColor: '#000000', padding: { x: 5, y: 2 } }
   ).setOrigin(0, 1).setDepth(10000);
   
   // Bottom right
   scene.add.text(
     scene.sys.game.config.width - 10, scene.sys.game.config.height - 10, 
     labelText, 
-    { font: 'bold 16px Courier New', fill: '#ffffff', backgroundColor: '#000000', padding: { x: 5, y: 2 } }
+    { font: 'bold 32px Courier New', fill: '#ffffff', backgroundColor: '#000000', padding: { x: 5, y: 2 } }
   ).setOrigin(1, 1).setDepth(10000);
 }
 
@@ -4189,7 +4189,7 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
     const zoneColor = generateZoneColor(nextStage.zone.zone_global_index);
     const gameContainer = document.getElementById('game-container');
     if (gameContainer) {
-      gameContainer.style.border = `10px solid ${zoneColor}`;
+      gameContainer.style.border = `20px solid ${zoneColor}`;
   
     }
   }
@@ -4391,7 +4391,7 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
         iconHeight/2 - 40,
         `Zone ${zoneIndex}`,
         { 
-            font: '20px Arial', 
+            font: '40px Arial', 
             fill: '#ffffff',
             align: 'center' 
         }
@@ -4542,7 +4542,7 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
             0,
             50,
             "Choice Zone",
-            { font: '20px Arial', fill: '#ffffff' }
+            { font: '40px Arial', fill: '#ffffff' }
         ).setOrigin(0.5);
         container.add(zoneText);
     }
@@ -4656,7 +4656,7 @@ function createOnlineChoiceZoneIcon(scene, zoneColor, zoneIndex) {
             0,
             50,
             `Zone ${zoneIndex}`,
-            { font: '20px Arial', fill: '#ffffff' }
+            { font: '40px Arial', fill: '#ffffff' }
         ).setOrigin(0.5);
         container.add(zoneText);
     }
