@@ -286,8 +286,10 @@ def generate_timeline(
                 pos = e["game_index"] % len(repeat_block)
                 dem_idx = 0 if pos < 2 else 1
                 did = dem_ids[dem_idx]
-                full = bandits_data[payoff_key]["policy"]["thompson"][typ][
-                    f"{payoff_key}_{typ}_policy{did}"
+                # Use the game-specific zone's payoff key (important for round_changing mode)
+                game_payoff_key = zone_to_payoff[z]
+                full = bandits_data[game_payoff_key]["policy"]["thompson"][typ][
+                    f"{game_payoff_key}_{typ}_policy{did}"
                 ]
                 start = e["round_index"] * num_watch_arm_pulls
                 traj = full[start : start + num_watch_arm_pulls]
