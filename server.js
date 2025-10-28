@@ -46,7 +46,8 @@ app.get('/', (req, res) => {
 app.get('/api/config', (req, res) => {
     res.json({ 
         experiment_id,
-        experiment_config_path 
+        experiment_config_path,
+        display_running_total_reward: config.display_running_total_reward || false
     });
 });
 

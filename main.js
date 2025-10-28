@@ -49,6 +49,7 @@ let sessionID = generateSessionID(); // Generate unique session ID
 let lastTrackedSessionIndex = -1; // Track session changes to regenerate session_id
 let experimentID = null; // Will be fetched from server
 let experimentConfigPath = null; // Will be fetched from server
+let displayRunningTotalReward = false; // Config flag for displaying total reward
 let currentGameStep = 0; // Reset for each game
 let userTotalReward = 0; // Cumulative across all games
 let currentGameReward = 0; // Reset for each game
@@ -98,11 +99,13 @@ async function fetchExperimentConfig() {
     const config = await response.json();
     experimentID = config.experiment_id;
     experimentConfigPath = config.experiment_config_path;
+    displayRunningTotalReward = config.display_running_total_reward || false;
     
   } catch (error) {
     console.error('Error fetching experiment config:', error);
     experimentID = 'unknown'; // fallback
     experimentConfigPath = 'data/timeline.json'; // fallback
+    displayRunningTotalReward = false; // fallback
   }
 }
 
@@ -1049,6 +1052,8 @@ function loadStage() {
     // Initialize game sequence tracking if this is the first game in a session
     if (currentStageIndex === 0 || lastSessionIndex !== currentSessionIndex) {
       initializeGameSequence();
+      // Reset total reward at start of new session
+      userTotalReward = 0;
       lastSessionIndex = currentSessionIndex;
     }
     
@@ -1967,7 +1972,10 @@ function setupPlayOrPractice(stage, isPractice) {
       currentGameStep++;
       if (outcome === 1) {
         currentGameReward++;
-        userTotalReward++;
+        // Only increment total reward for play games, not practice
+        if (currentGameType === 'play') {
+          userTotalReward++;
+        }
       }
       
       // Create a simple flash effect (just one flash)
@@ -2260,7 +2268,10 @@ function setupWatch(stage) {
               
               if (outcome === 1) {
                 currentGameReward++;
-                userTotalReward++;
+                // Only increment total reward for play games, not practice or watch
+                if (currentGameType === 'play') {
+                  userTotalReward++;
+                }
               }
               
               // Create a simple flash effect
@@ -2511,7 +2522,10 @@ function setupIndicate(stage) {
               
               if (outcome === 1) {
                 currentGameReward++;
-                userTotalReward++;
+                // Only increment total reward for play games, not practice or watch
+                if (currentGameType === 'play') {
+                  userTotalReward++;
+                }
               }
               
               // Create a simple flash effect
@@ -3750,7 +3764,10 @@ function setupOnlineChoicePhaseWatch(stage) {
               
               if (outcome === 1) {
                 currentGameReward++;
-                userTotalReward++;
+                // Only increment total reward for play games, not practice or watch
+                if (currentGameType === 'play') {
+                  userTotalReward++;
+                }
               }
               
               // Create a simple flash effect
@@ -4176,6 +4193,28 @@ function createAsteroidBackgrounds(imageKeys, gridX, gridY, numRows, numCols, ce
 }
 
 /**
+ * Calculate color for total reward display based on value (0 to 36)
+ * Returns a hex color string that goes from grey (0) to bright green (36)
+ */
+function getTotalRewardColor(totalReward) {
+  const maxReward = 36; // Maximum possible reward
+  const ratio = Math.min(totalReward / maxReward, 1.0); // Clamp to [0, 1]
+  
+  // Grey base color: rgb(128, 128, 128)
+  // Bright green target: rgb(0, 255, 0)
+  const r = Math.round(128 * (1 - ratio));
+  const g = Math.round(128 + 127 * ratio); // Goes from 128 to 255
+  const b = Math.round(128 * (1 - ratio));
+  
+  // Convert to hex string
+  const hexR = r.toString(16).padStart(2, '0');
+  const hexG = g.toString(16).padStart(2, '0');
+  const hexB = b.toString(16).padStart(2, '0');
+  
+  return '#' + hexR + hexG + hexB;
+}
+
+/**
  * Draw the horizontal reward tank with smaller slots.
  * 'outcomes': array of 1=success(green), 0=fail(red)
  */
@@ -4214,6 +4253,18 @@ function drawRewardTank(container, totalSlots, outcomes) {
     slotRect.setOrigin(0.5, 0.5);  // Center each slot
     slotRect.setDepth(1);  // Same depth as the background
     container.add(slotRect);
+  }
+  
+  // Add total reward display if enabled (only for play games)
+  if (displayRunningTotalReward && currentGameType === 'play') {
+    const totalRewardColor = getTotalRewardColor(userTotalReward);
+    const totalRewardText = this.add.text(0, 45, `Total Reward Mined: ${userTotalReward}`, {
+      font: 'bold 26px Arial',
+      fill: totalRewardColor
+    });
+    totalRewardText.setOrigin(0.5, 0.5);
+    totalRewardText.setDepth(2);
+    container.add(totalRewardText);
   }
 }
 

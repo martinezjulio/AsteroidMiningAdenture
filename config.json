@@ -6,5 +6,6 @@
     "session_demonstrators": "different",
     "prop_of_sessions": 1,
     "name_demonstrators": true,
-    "present_demonstrators_apriori": true
+    "present_demonstrators_apriori": true,
+    "display_running_total_reward": true
 }
