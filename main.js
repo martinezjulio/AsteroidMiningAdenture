@@ -62,6 +62,7 @@ let currentPosition = 0;
 // Choice-specific logging variables
 let choiceDemonstratorId = null; // Will store the demonstrator_id of chosen demonstrator
 let choiceDemonstratorType = null; // Will store the demonstrator_type of chosen demonstrator
+let choiceDemonstratorData = null; // Will store the full demonstrator data object
 
 // Generate a unique user ID
 function generateUID() {
@@ -284,6 +285,7 @@ function resetGameTracking(gameType, numArmPulls = 0) {
   if (gameType !== 'choice' && currentGameType !== 'choice' && gameType !== 'feedback') {
     choiceDemonstratorId = null;
     choiceDemonstratorType = null;
+    choiceDemonstratorData = null;
   }
 }
 
@@ -308,7 +310,7 @@ function setSpriteDisplaySizeWithAspectRatio(sprite, maxSize) {
 const MARKER_DOT_RADIUS = 4;
 const TANK_SLOT_SIZE = 24;         // Size of each slot in the reward tank
 const TANK_SLOT_PADDING = 2;       // Padding between tank slots
-const TANK_MARGIN_TOP = 130;       // Space between grid bottom and tank
+const TANK_MARGIN_TOP = 150;       // Space between grid bottom and tank (increased for starship name)
 const CELL_PADDING = 10;           // Spacing between cells (in pixels)
 const BASE_CELL_SIZE = (400 / 12) * 1.85; // ~85% larger than before
 const WATCH_START_DELAY = 500;     // Delay before starting watch demonstrations (ms)
@@ -1170,25 +1172,41 @@ function maybeAddSummaryIcon(stage) {
   
   // For all other game types, use the normal icon logic
   let imageKey = 'user';
+  let iconName = null;
+  
   if (stageType === 'watch' || stageType === 'indicate') {
     if (stage.demonstrator && stage.demonstrator.demonstrator_global_index !== undefined) {
       // Use the mapped demonstrator image based on global index
       const mappedImage = mapDemonstratorImage(stage.demonstrator.demonstrator_global_index, stage.demonstrator.demonstrator_style, stage.demonstrator.demonstrator_color);
       imageKey = mappedImage.replace('.png', '');
+      // Add demonstrator name if available
+      if (stage.demonstrator.demonstrator_name) {
+        iconName = stage.demonstrator.demonstrator_name;
+      }
     } else {
       imageKey = 'styles/style1/blue'; // fallback to default style+color
     }
+  } else if (stageType === 'play' || stageType === 'practice' || stageType === 'blind') {
+    // Add player name for play stages
+    iconName = 'Prospector One';
   }
 
   // Add the icon with proper imageKey - generate zone color
   const zoneColorValue = generateZoneColor(stage.zone.zone_global_index);
   
-  summaryIcons.push({
+  const iconData = {
     imageKey: imageKey,
     zone: stage.zone.zone_global_index,
     zone_color: zoneColorValue,
     color: zoneColorValue // Keep color for backward compatibility
-  });
+  };
+  
+  // Add name if available
+  if (iconName) {
+    iconData.name = iconName;
+  }
+  
+  summaryIcons.push(iconData);
 }
 
 /**
@@ -1219,11 +1237,12 @@ function redrawSummaryBarDOM() {
     cellDiv.style.alignItems = "center"; // Center children horizontally
     cellDiv.style.justifyContent = "flex-start"; // Align to top
     cellDiv.style.minHeight = "70px"; // Consistent cell height
+    // No fixed width - let it size based on content
+    cellDiv.style.padding = "8px"; // Padding for spacing
 
     // Give it a border of the zone color - use zone_color property directly when available
     const borderColor = iconData.zone_color || iconData.color || "#ffffff";
     cellDiv.style.border = `3px solid ${borderColor}`;
-    cellDiv.style.padding = "5px"; // some spacing from border
 
     // The image
     const img = document.createElement("img");
@@ -1243,6 +1262,21 @@ function redrawSummaryBarDOM() {
     img.style.objectFit = "contain"; // Maintain aspect ratio
     img.style.display = "block";
     img.style.margin = "0 auto"; // Center horizontally
+
+    // Add name label if available (between image and zone label)
+    if (iconData.name) {
+      const nameLabel = document.createElement("div");
+      nameLabel.textContent = iconData.name;
+      nameLabel.style.color = "#fff";
+      nameLabel.style.fontSize = "10px"; // Smaller font as requested
+      nameLabel.style.fontWeight = "bold";
+      nameLabel.style.marginTop = "2px";
+      nameLabel.style.textAlign = "center";
+      cellDiv.appendChild(img);
+      cellDiv.appendChild(nameLabel);
+    } else {
+      cellDiv.appendChild(img);
+    }
 
     // The zone label - use custom label if provided
     const label = document.createElement("div");
@@ -1268,7 +1302,6 @@ function redrawSummaryBarDOM() {
     label.style.marginTop = "4px";
     label.style.textAlign = "center"; // Center text
 
-    cellDiv.appendChild(img);
     cellDiv.appendChild(label);
     bar.appendChild(cellDiv);
   }
@@ -1313,42 +1346,16 @@ function setupFeedback(stage) {
   msgEl.innerText = stage.message || "Please fill the box below with your response to the following question:";
   
   // Determine which demonstrator was chosen based on the choice variables
-  let chosenDemonstratorData = null;
   let chosenDemonstratorImage = null;
   
-  if (choiceDemonstratorId && choiceDemonstratorType) {
-    // choiceDemonstratorId is now in the format "styles/style1/blue.png"
+  if (choiceDemonstratorId) {
+    // choiceDemonstratorId is in the format "styles/style1/blue.png"
     // Just prepend the assets/demonstrators/ path
     chosenDemonstratorImage = `assets/demonstrators/${choiceDemonstratorId}`;
-    
-    // Try to extract the global index from the old format for backwards compatibility
-    const match = choiceDemonstratorId.match(/demonstrator_(\d+)\.png/);
-    const chosenGlobalIndex = match ? parseInt(match[1]) : null;
-    
-    // Find the chosen demonstrator from the stage data if possible
-    if (chosenGlobalIndex !== null) {
-      if (stage.demonstrator1 && stage.demonstrator1.demonstrator_global_index === chosenGlobalIndex) {
-        chosenDemonstratorData = stage.demonstrator1;
-      } else if (stage.demonstrator2 && stage.demonstrator2.demonstrator_global_index === chosenGlobalIndex) {
-        chosenDemonstratorData = stage.demonstrator2;
-      } else {
-        // Create a fallback demonstrator data object
-        chosenDemonstratorData = {
-          demonstrator_type: choiceDemonstratorType,
-          demonstrator_global_index: chosenGlobalIndex,
-          demonstrator_session_index: -1 // Unknown
-        };
-      }
-    } else {
-      // For new format, we don't have a global index extracted from filename
-      // Just create a basic data object with the type
-      chosenDemonstratorData = {
-        demonstrator_type: choiceDemonstratorType,
-        demonstrator_global_index: -1, // Unknown from new format
-        demonstrator_session_index: -1 // Unknown
-      };
-    }
   }
+  
+  // Use the stored demonstrator data directly (includes name!)
+  // choiceDemonstratorData is now a global variable set during choice selection
   
   // Set the partner image
   const partnerImg = document.getElementById('feedback-partner-image');
@@ -1358,6 +1365,31 @@ function setupFeedback(stage) {
   } else {
     partnerImg.style.display = 'none';
     console.warn('Could not determine chosen demonstrator for feedback display');
+  }
+  
+  // Set or create the partner name display
+  let partnerNameDiv = document.getElementById('feedback-partner-name');
+  if (!partnerNameDiv) {
+    // Create the name element if it doesn't exist
+    partnerNameDiv = document.createElement('div');
+    partnerNameDiv.id = 'feedback-partner-name';
+    partnerNameDiv.style.textAlign = 'center';
+    partnerNameDiv.style.fontWeight = 'bold';
+    partnerNameDiv.style.fontSize = '14px';
+    partnerNameDiv.style.color = '#fff';
+    partnerNameDiv.style.marginTop = '10px';
+    
+    // Insert it after the image in the partner display div
+    const partnerDisplay = document.getElementById('feedback-partner-display');
+    partnerDisplay.appendChild(partnerNameDiv);
+  }
+  
+  // Update the name text using the global variable
+  if (choiceDemonstratorData && choiceDemonstratorData.demonstrator_name) {
+    partnerNameDiv.textContent = choiceDemonstratorData.demonstrator_name;
+    partnerNameDiv.style.display = 'block';
+  } else {
+    partnerNameDiv.style.display = 'none';
   }
   
   // Clear previous text
@@ -1821,6 +1853,20 @@ function setupPlayOrPractice(stage, isPractice) {
     .setDepth(9999);
   setSpriteDisplaySizeWithAspectRatio(userSprite, DEMO_SPRITE_SIZE);
 
+  // Add "Prospector One" name label below player sprite
+  let userNameText = this.add.text(
+    initX,
+    initY + DEMO_SPRITE_SIZE / 2 + 15,
+    'Prospector One',
+    { 
+      font: 'bold 14px Arial', 
+      fill: '#ffffff',
+      align: 'center',
+      stroke: '#000000',
+      strokeThickness: 3
+    }
+  ).setOrigin(0.5).setDepth(10000);
+
   // Initialize position tracking for logging
   currentPosition = cursorR * numCols + cursorC;
 
@@ -1879,6 +1925,7 @@ function setupPlayOrPractice(stage, isPractice) {
           
           let { x, y } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
           userSprite.setPosition(x, y);
+          userNameText.setPosition(x, y + DEMO_SPRITE_SIZE / 2 + 15);
           highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
         }
       });
@@ -1995,6 +2042,7 @@ function setupPlayOrPractice(stage, isPractice) {
       
       let { x, y } = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cursorR, cursorC);
       userSprite.setPosition(x, y);
+      userNameText.setPosition(x, y + DEMO_SPRITE_SIZE / 2 + 15);
       highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
     }
   });
@@ -2101,6 +2149,23 @@ function setupWatch(stage) {
     .setDepth(9999);
     setSpriteDisplaySizeWithAspectRatio(dSprite, DEMO_SPRITE_SIZE);
 
+    // Add name label below demonstrator if name is available
+    let dNameText = null;
+    if (stage.demonstrator && stage.demonstrator.demonstrator_name) {
+      dNameText = this.add.text(
+        startPos.x,
+        startPos.y + DEMO_SPRITE_SIZE / 2 + 15,
+        stage.demonstrator.demonstrator_name,
+        { 
+          font: 'bold 14px Arial', 
+          fill: '#ffffff',
+          align: 'center',
+          stroke: '#000000',
+          strokeThickness: 3
+        }
+      ).setOrigin(0.5).setDepth(10000);
+    }
+
   let currentStep = 0;
   let totalSteps = trajectory.length;
 
@@ -2135,6 +2200,10 @@ function setupWatch(stage) {
         let cell = pathCells[index];
           let pos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cell.r, cell.c);
         dSprite.setPosition(pos.x, pos.y);
+          // Update name text position if it exists
+          if (dNameText) {
+            dNameText.setPosition(pos.x, pos.y + DEMO_SPRITE_SIZE / 2 + 15);
+          }
           highlightCurrentCell(highlightRect, cell.r, cell.c, gridOriginX, gridOriginY, cellWidth, cellHeight);
 
           // Log movement actions during watch (except for the first position)
@@ -2334,6 +2403,23 @@ function setupIndicate(stage) {
     .setDepth(9999);
     setSpriteDisplaySizeWithAspectRatio(dSprite, DEMO_SPRITE_SIZE);
 
+    // Add name label below demonstrator if name is available
+    let dNameText = null;
+    if (stage.demonstrator && stage.demonstrator.demonstrator_name) {
+      dNameText = this.add.text(
+        startPos.x,
+        startPos.y + DEMO_SPRITE_SIZE / 2 + 15,
+        stage.demonstrator.demonstrator_name,
+        { 
+          font: 'bold 14px Arial', 
+          fill: '#ffffff',
+          align: 'center',
+          stroke: '#000000',
+          strokeThickness: 3
+        }
+      ).setOrigin(0.5).setDepth(10000);
+    }
+
     let currentStep = 0;
     let totalSteps = trajectory.length;
 
@@ -2365,6 +2451,10 @@ function setupIndicate(stage) {
           let cell = pathCells[index];
           let pos = getCellBelow(gridOriginX, gridOriginY, cellWidth, cellHeight, cell.r, cell.c);
           dSprite.setPosition(pos.x, pos.y);
+          // Update name text position if it exists
+          if (dNameText) {
+            dNameText.setPosition(pos.x, pos.y + DEMO_SPRITE_SIZE / 2 + 15);
+          }
           highlightCurrentCell(highlightRect, cell.r, cell.c, gridOriginX, gridOriginY, cellWidth, cellHeight);
 
           // Log movement actions during indicate (except for the first position)
@@ -2661,6 +2751,23 @@ function setupChoice(stage) {
       );
       cell.image.setScale(scale);
       
+      // Add demonstrator name below the image if available
+      const demonstrator = i === 0 ? demonstrator1 : demonstrator2;
+      if (demonstrator && demonstrator.demonstrator_name) {
+        const nameText = currentScene.add.text(
+          cell.x,
+          cell.y + cellHeight/2 - 15, // Position below the image but above cell bottom
+          demonstrator.demonstrator_name,
+          { 
+            font: 'bold 14px Arial', 
+            fill: '#ffffff',
+            align: 'center',
+            stroke: '#000000',
+            strokeThickness: 3
+          }
+        ).setOrigin(0.5);
+      }
+      
       // Make the cells clickable
       cell.background.setInteractive();
       cell.image.setInteractive();
@@ -2739,9 +2846,11 @@ function setupChoice(stage) {
       if (index === 0) {
         choiceDemonstratorId = mapDemonstratorImage(demonstrator1.demonstrator_global_index, demonstrator1.demonstrator_style, demonstrator1.demonstrator_color);
         choiceDemonstratorType = demonstrator1.demonstrator_type;
+        choiceDemonstratorData = demonstrator1;
       } else if (index === 1) {
         choiceDemonstratorId = mapDemonstratorImage(demonstrator2.demonstrator_global_index, demonstrator2.demonstrator_style, demonstrator2.demonstrator_color);
         choiceDemonstratorType = demonstrator2.demonstrator_type;
+        choiceDemonstratorData = demonstrator2;
       }
       
       // Log the selection action
@@ -2912,15 +3021,24 @@ function addChoiceSelectionToSummary(imageKey, zoneColor, choiceLetter) {
     // Get the selected demonstrator's full image path from the current stage
     const stage = window.currentStage;
     let demoImage = null;
+    let demoName = null;
     
     if (stage && stage.demonstrator1 && stage.demonstrator2) {
       // Determine which demonstrator was selected based on the demoIndex
       if (demoIndex === '0' && stage.demonstrator1.demonstrator_global_index !== undefined) {
         const mappedImage = mapDemonstratorImage(stage.demonstrator1.demonstrator_global_index, stage.demonstrator1.demonstrator_style, stage.demonstrator1.demonstrator_color);
         demoImage = mappedImage.replace('.png', '');
+        // Get demonstrator name if available
+        if (stage.demonstrator1.demonstrator_name) {
+          demoName = stage.demonstrator1.demonstrator_name;
+        }
       } else if (demoIndex === '1' && stage.demonstrator2.demonstrator_global_index !== undefined) {
         const mappedImage = mapDemonstratorImage(stage.demonstrator2.demonstrator_global_index, stage.demonstrator2.demonstrator_style, stage.demonstrator2.demonstrator_color);
         demoImage = mappedImage.replace('.png', '');
+        // Get demonstrator name if available
+        if (stage.demonstrator2.demonstrator_name) {
+          demoName = stage.demonstrator2.demonstrator_name;
+        }
       }
     }
     
@@ -2932,6 +3050,11 @@ function addChoiceSelectionToSummary(imageKey, zoneColor, choiceLetter) {
     
     // Store the choice letter for display
     summaryIcons[choiceIconIndex].choiceLetter = choiceLetter;
+    
+    // Store the demonstrator name if available
+    if (demoName) {
+      summaryIcons[choiceIconIndex].name = demoName;
+    }
     
     // Redraw the summary bar to show the change
     redrawSummaryBarDOM();
@@ -3104,6 +3227,22 @@ function setupOnlineChoicePhaseChoice(stage) {
       );
       cell.image.setScale(scale);
       
+      // Add demonstrator name below the image if available
+      if (cell.data && cell.data.demonstrator_name) {
+        const nameText = currentScene.add.text(
+          cell.x,
+          cell.y + cellHeight/2 - 15, // Position below the image but above cell bottom
+          cell.data.demonstrator_name,
+          { 
+            font: 'bold 14px Arial', 
+            fill: '#ffffff',
+            align: 'center',
+            stroke: '#000000',
+            strokeThickness: 3
+          }
+        ).setOrigin(0.5);
+      }
+      
       // Make cells clickable
       cell.background.setInteractive();
       cell.image.setInteractive();
@@ -3201,6 +3340,7 @@ function setupOnlineChoicePhaseChoice(stage) {
       // Set global choice variables for logging  
       choiceDemonstratorId = mapDemonstratorImage(selectedCell.data.demonstrator_global_index, selectedCell.data.demonstrator_style, selectedCell.data.demonstrator_color);
       choiceDemonstratorType = selectedCell.data.demonstrator_type;
+      choiceDemonstratorData = selectedCell.data;
       
       // Log the selection action
       logToMongoDB('shoot', {
@@ -4320,11 +4460,11 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
     
     // Create dimensions for the icon
     const iconWidth = 140;
-    const iconHeight = 160;
+    const iconHeight = 200; // Increased from 160 to prevent overlap with name
     const borderThickness = 10;
     
     // Create a container at the center of the screen
-    const container = scene.add.container(scene.sys.game.config.width / 2, 300);
+    const container = scene.add.container(scene.sys.game.config.width / 2, 340); // Moved down to avoid overlap with text
     
     // Create a graphics object for drawing the border
     const border = scene.add.graphics();
@@ -4431,6 +4571,31 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
         
         playerImage.setScale(scale);
         container.add(playerImage);
+        
+        // Add name text below the player image if available
+        let nameText = '';
+        if (stageType === 'practice' || stageType === 'play' || stageType === 'blind') {
+            nameText = 'Prospector One';
+        } else if ((stageType === 'watch' || stageType === 'indicate') && 
+                   nextStage.demonstrator && nextStage.demonstrator.demonstrator_name) {
+            nameText = nextStage.demonstrator.demonstrator_name;
+        }
+        
+        if (nameText) {
+            const nameLabel = scene.add.text(
+                0,
+                30, // Position below the image
+                nameText,
+                { 
+                    font: 'bold 14px Arial', 
+                    fill: '#ffffff',
+                    align: 'center',
+                    stroke: '#000000',
+                    strokeThickness: 2
+                }
+            ).setOrigin(0.5);
+            container.add(nameLabel);
+        }
     }
   }
   
@@ -4470,13 +4635,13 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
     
     
     
-    // Create dimensions for the icon
-    const iconWidth = 140;
-    const iconHeight = 160;
+    // Create dimensions for the icon (wider for "Choice Zone" text)
+    const iconWidth = 240; // Increased to fit "Choice Zone" text comfortably
+    const iconHeight = 200; // Increased from 160 to prevent overlap with name
     const borderThickness = 10;
     
     // Create a container at the center of the screen
-    const container = scene.add.container(scene.sys.game.config.width / 2, 300);
+    const container = scene.add.container(scene.sys.game.config.width / 2, 340); // Moved down to avoid overlap with text
     
     // Create a graphics object for drawing the border
     const border = scene.add.graphics();
@@ -4586,11 +4751,11 @@ function createOnlineChoiceZoneIcon(scene, zoneColor, zoneIndex) {
     
     // Create dimensions for the icon
     const iconWidth = 140;
-    const iconHeight = 160;
+    const iconHeight = 200; // Increased from 160 to prevent overlap with name
     const borderThickness = 10;
     
     // Create a container at the center of the screen
-    const container = scene.add.container(scene.sys.game.config.width / 2, 300);
+    const container = scene.add.container(scene.sys.game.config.width / 2, 340); // Moved down to avoid overlap with text
     
     // Create a graphics object for drawing the border
     const border = scene.add.graphics();

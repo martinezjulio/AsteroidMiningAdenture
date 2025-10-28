@@ -13,7 +13,8 @@ def generate_timeline(
     textbox_feedback: bool = False,
     session_demonstrators: str = "all",
     prop_of_sessions: float = 0.5,
-    omit_explicit_experience_transfer_message: bool = False
+    omit_explicit_experience_transfer_message: bool = False,
+    name_demonstrators: bool = False
 ) -> List[Any]:
     # 0) load bandit data
     with open(bandits_json_path, "r") as f:
@@ -194,6 +195,37 @@ def generate_timeline(
     for sess_i in range(1, len(raw_sessions) + 1):
         session_to_ids[sess_i] = [available_ids.pop(), available_ids.pop()]
     
+    # Collect all unique demonstrator IDs used
+    all_demo_ids = set()
+    for ids in session_to_ids.values():
+        all_demo_ids.update(ids)
+    
+    # 7a) Generate and assign demonstrator names if enabled
+    # Create 36 unique starship names (space/mining/asteroid themed)
+    STARSHIP_NAMES = [
+        'Falcon', 'Phoenix', 'Orion', 'Vega', 'Titan', 'Nova',
+        'Eclipse', 'Zenith', 'Comet', 'Asteroid', 'Nebula', 'Cosmos',
+        'Voyager', 'Pioneer', 'Explorer', 'Seeker', 'Hunter', 'Ranger',
+        'Mercury', 'Jupiter', 'Saturn', 'Neptune', 'Pluto', 'Mars',
+        'Pulsar', 'Quasar', 'Galaxy', 'Meteor', 'Stellar', 'Lunar',
+        'Solar', 'Celestial', 'Horizon', 'Odyssey', 'Venture', 'Frontier'
+    ]
+    
+    # Shuffle names for random assignment
+    available_names = STARSHIP_NAMES.copy()
+    random.shuffle(available_names)
+    
+    # Map demonstrator_id -> name
+    demo_names: Dict[int, str] = {}
+    if name_demonstrators:
+        # Assign names to all demonstrators used in this timeline
+        for demo_id in sorted(all_demo_ids):
+            if available_names:
+                demo_names[demo_id] = available_names.pop()
+            else:
+                # Fallback (shouldn't happen with 36 names and max 20 demonstrators)
+                demo_names[demo_id] = f"Starship_{demo_id}"
+    
     # 7b) assign style+color to each demonstrator with session-level constraints
     AVAILABLE_STYLES = ['style1', 'style2', 'style3', 'style4', 'style5', 'style6']
     AVAILABLE_COLORS = ['red', 'orange', 'blue', 'green', 'yellow', 'purple']
@@ -201,11 +233,6 @@ def generate_timeline(
     # Create all possible style+color combinations and shuffle them
     all_combinations = [(style, color) for style in AVAILABLE_STYLES for color in AVAILABLE_COLORS]
     random.shuffle(all_combinations)
-    
-    # Collect all unique demonstrator IDs used
-    all_demo_ids = set()
-    for ids in session_to_ids.values():
-        all_demo_ids.update(ids)
     
     # Map demonstrator_id -> {style, color}
     demo_style_color: Dict[int, Dict[str, str]] = {}
@@ -293,7 +320,7 @@ def generate_timeline(
                 ]
                 start = e["round_index"] * num_watch_arm_pulls
                 traj = full[start : start + num_watch_arm_pulls]
-                e["demonstrator"] = {
+                demo_data = {
                     "demonstrator_type": typ,
                     "demonstrator_session_index": dem_idx,
                     "demonstrator_global_index": did,
@@ -301,6 +328,10 @@ def generate_timeline(
                     "demonstrator_style": demo_style_color[did]['style'],
                     "demonstrator_color": demo_style_color[did]['color']
                 }
+                # Add name if enabled
+                if name_demonstrators and did in demo_names:
+                    demo_data["demonstrator_name"] = demo_names[did]
+                e["demonstrator"] = demo_data
                 
                 # Check if this demonstrator has been seen before in this session
                 if did in seen_demonstrators:
@@ -342,13 +373,17 @@ def generate_timeline(
         for i_key, key in enumerate(("demonstrator_1", "demonstrator_2")):
             typ = choice[key]
             did = dem_ids[i_key]
-            demonstrator_data[f"demonstrator{i_key+1}"] = {
+            demo_data = {
                 "demonstrator_type": typ,
                 "demonstrator_session_index": i_key,
                 "demonstrator_global_index": did,
                 "demonstrator_style": demo_style_color[did]['style'],
                 "demonstrator_color": demo_style_color[did]['color']
             }
+            # Add name if enabled
+            if name_demonstrators and did in demo_names:
+                demo_data["demonstrator_name"] = demo_names[did]
+            demonstrator_data[f"demonstrator{i_key+1}"] = demo_data
             choice[f"demonstrator{i_key+1}"] = demonstrator_data[f"demonstrator{i_key+1}"]
             del choice[key]
 
@@ -484,6 +519,7 @@ if __name__ == "__main__":
         session_demonstrators = config.get('session_demonstrators', 'all')
         prop_of_sessions = config.get('prop_of_sessions', 0.5)
         omit_explicit_experience_transfer_message = config.get('omit_explicit_experience_transfer_message', False)
+        name_demonstrators = config.get('name_demonstrators', False)
     except Exception as e:
         # Write to stderr so it doesn't interfere with stdout JSON
         print(f"Warning: Could not read config.json, using default settings: {e}", file=sys.stderr)
@@ -492,6 +528,7 @@ if __name__ == "__main__":
         session_demonstrators = 'all'  # fallback
         prop_of_sessions = 0.5  # fallback
         omit_explicit_experience_transfer_message = False  # fallback
+        name_demonstrators = False  # fallback
 
     # Get request ID from command line arguments for unique file naming
     request_id = None
@@ -511,7 +548,8 @@ if __name__ == "__main__":
         textbox_feedback=textbox_feedback,
         session_demonstrators=session_demonstrators,
         prop_of_sessions=prop_of_sessions,
-        omit_explicit_experience_transfer_message=omit_explicit_experience_transfer_message
+        omit_explicit_experience_transfer_message=omit_explicit_experience_transfer_message,
+        name_demonstrators=name_demonstrators
     )
     
     # Output JSON to stdout for the Node.js server to capture
