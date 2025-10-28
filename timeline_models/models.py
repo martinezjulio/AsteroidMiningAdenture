@@ -322,7 +322,7 @@ def generate_timeline(
                     "session_total_rounds": rounds,
                     "demonstrator1": demo1_data,
                     "demonstrator2": demo2_data,
-                    "message": "You will now start a new session and have several watch and play games! You will have the partners shown below during your watch games. Pay close attention to learn from them. You will also be asked to choose between them at the end of the session."
+                    "message": "You will now start a new session with a starting TOTAL REWARD of 0. You will experience several watch and play games! You will observe two partners, shown below, during your watch games. Pay close attention to learn from them. You will also be asked to choose between them at the end of the session."
                 }
                 # Insert at the beginning of games array
                 games.insert(0, presentation_stage)
@@ -403,8 +403,8 @@ def generate_timeline(
                 
             elif e["game"] == "play":
                 parts.append(
-                    "In this game you will get to play and mine for rewards. "
-                    "Try to get as much reward as possible by discovering the best asteroid to mine from."
+                    "In this game you will mine for rewards. "
+                    "Try to get as much reward as possible. Every step counts! Keep an eye on your TOTAL REWARD to see how you're doing overall!"
                 )
 
             e["overlay-message"] = " ".join(parts)

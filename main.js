@@ -4259,9 +4259,11 @@ function drawRewardTank(container, totalSlots, outcomes) {
   // Add total reward display if enabled (only for play games)
   if (displayRunningTotalReward && currentGameType === 'play') {
     const totalRewardColor = getTotalRewardColor(userTotalReward);
-    const totalRewardText = this.add.text(0, 45, `Total Reward Mined: ${userTotalReward}`, {
+    const totalRewardText = this.add.text(0, 45, `TOTAL REWARD: ${userTotalReward}`, {
       font: 'bold 26px Arial',
-      fill: totalRewardColor
+      fill: totalRewardColor,
+      stroke: '#000000',
+      strokeThickness: 4
     });
     totalRewardText.setOrigin(0.5, 0.5);
     totalRewardText.setDepth(2);
