@@ -4193,18 +4193,19 @@ function createAsteroidBackgrounds(imageKeys, gridX, gridY, numRows, numCols, ce
 }
 
 /**
- * Calculate color for total reward display based on value (0 to 36)
- * Returns a hex color string that goes from grey (0) to bright green (36)
+ * Calculate color for total reward display based on value (0 to 30+)
+ * Returns a hex color string that goes from visible grey (0) to bright green (30)
+ * Stays at bright green for values 30-36
  */
 function getTotalRewardColor(totalReward) {
-  const maxReward = 36; // Maximum possible reward
+  const maxReward = 30; // Brightest green reached at 30 rewards
   const ratio = Math.min(totalReward / maxReward, 1.0); // Clamp to [0, 1]
   
-  // Grey base color: rgb(128, 128, 128)
+  // Light grey base color: rgb(180, 180, 180) - more visible than darker grey
   // Bright green target: rgb(0, 255, 0)
-  const r = Math.round(128 * (1 - ratio));
-  const g = Math.round(128 + 127 * ratio); // Goes from 128 to 255
-  const b = Math.round(128 * (1 - ratio));
+  const r = Math.round(180 * (1 - ratio));
+  const g = Math.round(180 + 75 * ratio); // Goes from 180 to 255
+  const b = Math.round(180 * (1 - ratio));
   
   // Convert to hex string
   const hexR = r.toString(16).padStart(2, '0');
