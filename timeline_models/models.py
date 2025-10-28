@@ -14,7 +14,8 @@ def generate_timeline(
     session_demonstrators: str = "all",
     prop_of_sessions: float = 0.5,
     omit_explicit_experience_transfer_message: bool = False,
-    name_demonstrators: bool = False
+    name_demonstrators: bool = False,
+    present_demonstrators_apriori: bool = False
 ) -> List[Any]:
     # 0) load bandit data
     with open(bandits_json_path, "r") as f:
@@ -289,22 +290,68 @@ def generate_timeline(
         dem_ids = session_to_ids[sess_i]
         payoff_key = zone_to_payoff[games[0]["zone"]["zone_global_index"]]
 
+        # Insert demonstrator presentation stage at beginning of session if enabled
+        if present_demonstrators_apriori:
+            # Get pattern for this session to determine demonstrator types
+            # The pattern is stored in the first watch game
+            first_watch_game = next((g for g in games if g["game"] == "watch"), None)
+            if first_watch_game:
+                # Build demonstrator data for both demonstrators
+                demo1_data = {
+                    "demonstrator_session_index": 0,
+                    "demonstrator_global_index": dem_ids[0],
+                    "demonstrator_style": demo_style_color[dem_ids[0]]['style'],
+                    "demonstrator_color": demo_style_color[dem_ids[0]]['color']
+                }
+                demo2_data = {
+                    "demonstrator_session_index": 1,
+                    "demonstrator_global_index": dem_ids[1],
+                    "demonstrator_style": demo_style_color[dem_ids[1]]['style'],
+                    "demonstrator_color": demo_style_color[dem_ids[1]]['color']
+                }
+                # Add names if enabled
+                if name_demonstrators:
+                    if dem_ids[0] in demo_names:
+                        demo1_data["demonstrator_name"] = demo_names[dem_ids[0]]
+                    if dem_ids[1] in demo_names:
+                        demo2_data["demonstrator_name"] = demo_names[dem_ids[1]]
+                
+                presentation_stage = {
+                    "stage_type": "demonstrator_presentation",
+                    "session_index": sess_i,
+                    "session_total_rounds": rounds,
+                    "demonstrator1": demo1_data,
+                    "demonstrator2": demo2_data,
+                    "message": "You will now start a new session and have several watch and play games! You will have the partners shown below during your watch games. Pay close attention to learn from them. You will also be asked to choose between them at the end of the session."
+                }
+                # Insert at the beginning of games array
+                games.insert(0, presentation_stage)
+                print(f"DEBUG: Inserted demonstrator_presentation stage for session {sess_i}", file=sys.stderr)
+
         # Track demonstrators seen in this session to determine if they're "new" or "previously seen"
         seen_demonstrators = set()
 
         # stage0 entries with corrected overlay logic
         prev_zone = None
+        is_first_game = True
         for i, e in enumerate(games):
+            # Skip non-game stages (like demonstrator_presentation)
+            if "stage_type" in e:
+                continue
+            
             z = e["zone"]["zone_global_index"]
             e["zone"] = zone_meta[z]
 
             parts: List[str] = []
-            if i == 0:
-                parts.append("This is a new session!")
-                parts.append("You will now enter a new zone.")
+            if is_first_game:
+                # Only show "This is a new session!" if we didn't already show presentation
+                if not present_demonstrators_apriori:
+                    parts.append("This is a new session!")
+                parts.append("You are entering a new zone.")
+                is_first_game = False
             else:
                 if z != prev_zone:
-                    parts.append("You will now enter a new zone.")
+                    parts.append("You are entering a new zone.")
                 else:
                     parts.append("You will continue in the same zone.")
 
@@ -343,7 +390,7 @@ def generate_timeline(
                 else:
                     # New demonstrator
                     parts.append(
-                        "In this game you will watch a new starship partner (shown below) play the game. "
+                        "In this game you will watch the starship partner shown below play the game. "
                         "Pay close attention to your partner's choices and outcomes."
                     )
                     seen_demonstrators.add(did)
@@ -520,6 +567,7 @@ if __name__ == "__main__":
         prop_of_sessions = config.get('prop_of_sessions', 0.5)
         omit_explicit_experience_transfer_message = config.get('omit_explicit_experience_transfer_message', False)
         name_demonstrators = config.get('name_demonstrators', False)
+        present_demonstrators_apriori = config.get('present_demonstrators_apriori', False)
     except Exception as e:
         # Write to stderr so it doesn't interfere with stdout JSON
         print(f"Warning: Could not read config.json, using default settings: {e}", file=sys.stderr)
@@ -529,6 +577,7 @@ if __name__ == "__main__":
         prop_of_sessions = 0.5  # fallback
         omit_explicit_experience_transfer_message = False  # fallback
         name_demonstrators = False  # fallback
+        present_demonstrators_apriori = False  # fallback
 
     # Get request ID from command line arguments for unique file naming
     request_id = None
@@ -549,7 +598,8 @@ if __name__ == "__main__":
         session_demonstrators=session_demonstrators,
         prop_of_sessions=prop_of_sessions,
         omit_explicit_experience_transfer_message=omit_explicit_experience_transfer_message,
-        name_demonstrators=name_demonstrators
+        name_demonstrators=name_demonstrators,
+        present_demonstrators_apriori=present_demonstrators_apriori
     )
     
     # Output JSON to stdout for the Node.js server to capture

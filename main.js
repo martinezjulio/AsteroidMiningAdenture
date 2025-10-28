@@ -1103,6 +1103,10 @@ function loadStage() {
     case 'online-choice':
       setupOnlineChoice.call(this, stage);
       break;
+    case 'demonstrator_presentation':
+      console.log("DEBUG: Loading demonstrator_presentation stage", stage);
+      setupDemonstratorPresentation.call(this, stage);
+      break;
     case 'watch':
       setupWatch.call(this, stage);
       break;
@@ -2551,6 +2555,141 @@ function setupIndicate(stage) {
       });
     }
   }
+}
+
+/**
+ * DEMONSTRATOR PRESENTATION stage - show both demonstrators at session start
+ */
+function setupDemonstratorPresentation(stage) {
+  console.log("DEBUG: setupDemonstratorPresentation called with stage:", stage);
+  
+  // Hide controls during presentation
+  updateControlsDisplay("hidden");
+  
+  // Get demonstrator data
+  let demonstrator1 = stage.demonstrator1 || {};
+  let demonstrator2 = stage.demonstrator2 || {};
+  
+  // Prepare demonstrator mapped images
+  const demonstratorMappedImages = [
+    mapDemonstratorImage(demonstrator1.demonstrator_global_index, demonstrator1.demonstrator_style, demonstrator1.demonstrator_color),
+    mapDemonstratorImage(demonstrator2.demonstrator_global_index, demonstrator2.demonstrator_style, demonstrator2.demonstrator_color)
+  ];
+  
+  // Configuration
+  const numDemonstrators = demonstratorMappedImages.length;
+  const cellWidth = 150;
+  const cellHeight = 150;
+  const cellPadding = 60; // More space between partners
+  
+  // Calculate total grid width
+  const totalWidth = numDemonstrators * cellWidth + (numDemonstrators - 1) * cellPadding;
+  
+  // Position grid in center of screen
+  const gridX = (this.sys.game.config.width - totalWidth) / 2;
+  const gridY = 300;
+  
+  // Create title text
+  const titleText = this.add.text(
+    this.sys.game.config.width / 2,
+    150,
+    stage.message || "You will now start a new session and have several watch and play games! You will have the following two partners throughout the watch games of this session:",
+    { 
+      font: '24px Arial', 
+      fill: '#ffffff',
+      align: 'center',
+      wordWrap: { width: 700 }
+    }
+  ).setOrigin(0.5);
+  
+  // Create cells for each demonstrator
+  const cells = [];
+  const currentScene = this;
+  
+  // Create cells and load images
+  for (let i = 0; i < numDemonstrators; i++) {
+    const x = gridX + i * (cellWidth + cellPadding) + cellWidth/2;
+    const y = gridY + cellHeight/2;
+    
+    // Create background for cell
+    const cellBg = this.add.rectangle(
+      x, y,
+      cellWidth, cellHeight,
+      0x333333
+    ).setOrigin(0.5);
+    
+    // Create letter label
+    const letter = String.fromCharCode(65 + i); // A, B
+    const letterText = this.add.text(
+      x,
+      gridY - 30,
+      `Partner ${letter}`,
+      { 
+        font: '18px Arial', 
+        fill: '#ffffff',
+        backgroundColor: '#333333',
+        padding: { x: 10, y: 5 }
+      }
+    ).setOrigin(0.5);
+    
+    // Load demonstrator image - include session_index to make keys unique per session
+    const imageKey = `presentation_demonstrator_s${stage.session_index}_${i}`;
+    this.load.image(imageKey, `assets/demonstrators/${demonstratorMappedImages[i]}`);
+    
+    // Store cell info
+    cells.push({
+      x: x,
+      y: y,
+      letter: letter,
+      background: cellBg,
+      letterText: letterText,
+      imageKey: imageKey,
+      demonstrator: i === 0 ? demonstrator1 : demonstrator2,
+      image: null
+    });
+  }
+  
+  // Once all images are loaded, create the demonstrator sprites
+  this.load.once('complete', () => {
+    // Create demonstrator images
+    for (let i = 0; i < cells.length; i++) {
+      const cell = cells[i];
+      cell.image = currentScene.add.image(cell.x, cell.y, cell.imageKey)
+        .setOrigin(0.5);
+      
+      // Scale image to fit cell
+      const scale = Math.min(
+        (cellWidth - 20) / cell.image.width,
+        (cellHeight - 20) / cell.image.height
+      );
+      cell.image.setScale(scale);
+      
+      // Add demonstrator name below the image if available
+      if (cell.demonstrator && cell.demonstrator.demonstrator_name) {
+        const nameText = currentScene.add.text(
+          cell.x,
+          cell.y + cellHeight/2 - 15,
+          cell.demonstrator.demonstrator_name,
+          { 
+            font: 'bold 14px Arial', 
+            fill: '#ffffff',
+            align: 'center',
+            stroke: '#000000',
+            strokeThickness: 3
+          }
+        ).setOrigin(0.5);
+      }
+    }
+    
+    // Add "Begin Session" button
+    makeNextButton.call(currentScene, "Begin Session", () => {
+      // Restore normal controls display before moving to next stage
+      updateControlsDisplay("default");
+      nextStage.call(currentScene);
+    }, "overlay");
+  });
+  
+  this.load.start();
 }
 
 /**
