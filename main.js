@@ -576,15 +576,11 @@ function assignDemonstratorStyleColors(allDemonstrators, sessionDemonstrators) {
     }
   }
   
-  console.log('Demonstrator Style+Color Assignments:', assignments);
-  console.log('Session Demonstrators:', sessionDemonstrators);
-  
-  // Verify constraints
-  console.log('\n=== VERIFYING SESSION CONSTRAINTS ===');
+  // Demonstrator assignments verification (logs removed to prevent revealing hidden information)
+  // All constraint validation still occurs internally but results are not printed
   let allValid = true;
   for (const sessionIdx in sessionDemonstrators) {
     const demosInSession = sessionDemonstrators[sessionIdx];
-    console.log(`Session ${sessionIdx}: ${JSON.stringify(demosInSession)}`);
     
     const usedStylesInSession = new Set();
     const usedColorsInSession = new Set();
@@ -592,36 +588,28 @@ function assignDemonstratorStyleColors(allDemonstrators, sessionDemonstrators) {
     for (const demoIdx of demosInSession) {
       const combo = assignments[demoIdx];
       if (!combo) {
-        console.error(`  ❌ ERROR: Demo ${demoIdx} has no assignment!`);
+        console.error(`ERROR: Demo ${demoIdx} has no assignment!`);
         allValid = false;
         continue;
       }
       
-      console.log(`  Demo ${demoIdx}: ${combo.style}/${combo.color}`);
-      
       // Check for duplicate styles in session
       if (usedStylesInSession.has(combo.style)) {
-        console.error(`  ❌ CONSTRAINT VIOLATION: Duplicate style ${combo.style} in session ${sessionIdx}`);
+        console.error(`CONSTRAINT VIOLATION: Duplicate style ${combo.style} in session ${sessionIdx}`);
         allValid = false;
       }
       usedStylesInSession.add(combo.style);
       
       // Check for duplicate colors in session
       if (usedColorsInSession.has(combo.color)) {
-        console.error(`  ❌ CONSTRAINT VIOLATION: Duplicate color ${combo.color} in session ${sessionIdx}`);
+        console.error(`CONSTRAINT VIOLATION: Duplicate color ${combo.color} in session ${sessionIdx}`);
         allValid = false;
       }
       usedColorsInSession.add(combo.color);
     }
-    
-    if (demosInSession.length === usedStylesInSession.size && demosInSession.length === usedColorsInSession.size) {
-      console.log(`  ✓ Session ${sessionIdx} VALID: All demonstrators have unique styles AND colors`);
-    }
   }
   
-  if (allValid) {
-    console.log('\n✅ ALL SESSION CONSTRAINTS SATISFIED\n');
-  } else {
+  if (!allValid) {
     console.error('\n❌ SOME SESSION CONSTRAINTS VIOLATED\n');
   }
   
@@ -970,9 +958,7 @@ function loadStage() {
     const oldSessionIndex = lastTrackedSessionIndex;
     sessionID = generateSessionID();
     lastTrackedSessionIndex = currentSessionIndex;
-    console.clear(); // Clear console for new session
-    console.log(`New session detected! session_index: ${oldSessionIndex} → ${currentSessionIndex}`);
-    console.log(`Generated new session_id: ${oldSessionID} → ${sessionID}`);
+    // Session tracking (logs removed to prevent revealing hidden information)
     
     // Session verification logs (print once per session):
     // console.log("Current session:", timelineData[currentSessionIndex]);
@@ -1109,7 +1095,6 @@ function loadStage() {
       setupOnlineChoice.call(this, stage);
       break;
     case 'demonstrator_presentation':
-      console.log("DEBUG: Loading demonstrator_presentation stage", stage);
       setupDemonstratorPresentation.call(this, stage);
       break;
     case 'watch':
@@ -2575,8 +2560,6 @@ function setupIndicate(stage) {
  * DEMONSTRATOR PRESENTATION stage - show both demonstrators at session start
  */
 function setupDemonstratorPresentation(stage) {
-  console.log("DEBUG: setupDemonstratorPresentation called with stage:", stage);
-  
   // Hide controls during presentation
   updateControlsDisplay("hidden");
   
