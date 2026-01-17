@@ -106,13 +106,58 @@ The game behavior is controlled through the `config.json` file in the root direc
   - `false`: Show direct Prolific redirect button (original behavior)
   - `true`: Show feedback form asking about partner choice before Prolific redirect
 
+#### `session_demonstrators`
+- **Type**: `string`
+- **Default**: `"all"`
+- **Options**:
+  - `"all"`: Generates all 4 combinations (Expert+Expert, Expert+Novice, Novice+Expert, Novice+Novice)
+  - `"different"`: Generates only sessions where demonstrators have different types (Expert+Novice, Novice+Expert)
+
+#### `prop_of_sessions`
+- **Type**: `number` (float between 0.0 and 1.0+)
+- **Default**: `0.5`
+- **Description**: Proportion of generated sessions to include in the timeline
+  - `1.0`: Use ALL generated sessions
+  - `0.5`: Use HALF of the generated sessions (randomly selected)
+  - `0.25`: Use QUARTER of the sessions
+  - Values ≥ 1.0 will keep all sessions
+  - Always keeps at least 1 session minimum
+
+#### `omit_explicit_experience_transfer_message`
+- **Type**: `boolean`
+- **Default**: `false`
+- **Description**: Controls whether to display explicit messages about demonstrators' experience levels
+  - `true`: Omits experience transfer messages from intro and watch transitions
+  - `false`: Includes explicit experience transfer messages (default behavior)
+
+#### `name_demonstrators`
+- **Type**: `boolean`
+- **Default**: `false`
+- **Description**: Whether to assign names to demonstrators
+
+#### `present_demonstrators_apriori`
+- **Type**: `boolean`
+- **Default**: `false`
+- **Description**: Whether to present demonstrators before gameplay begins
+
+#### `display_running_total_reward`
+- **Type**: `boolean`
+- **Default**: `false`
+- **Description**: Whether to display a running total of rewards during gameplay
+
 ### Example Configuration
 
 ```json
 {
     "experiment_config": "configs/timeline.json",
     "bandit_assignment_mode": "session_fixed",
-    "textbox_feedback": false
+    "textbox_feedback": false,
+    "session_demonstrators": "all",
+    "prop_of_sessions": 0.5,
+    "omit_explicit_experience_transfer_message": false,
+    "name_demonstrators": false,
+    "present_demonstrators_apriori": false,
+    "display_running_total_reward": false
 }
 ```
 
@@ -154,7 +199,9 @@ To change the experimental condition:
    {
        "experiment_config": "configs/timeline.json",
        "bandit_assignment_mode": "round_changing",
-       "textbox_feedback": true
+       "textbox_feedback": true,
+       "session_demonstrators": "different",
+       "prop_of_sessions": 1.0
    }
    ```
 
@@ -166,6 +213,64 @@ To change the experimental condition:
 3. **New users** will automatically receive timelines generated with the new mode
 
 **Note**: Existing users who already have generated timelines will continue with their original assignment mode until they start a new session.
+
+## Dynamic Timeline System
+
+The game generates **fresh, randomized timelines** for each user, ensuring no two participants have the same experience.
+
+### How It Works
+
+1. **User visits site** → Frontend requests timeline from `/api/timeline`
+2. **Server receives request** → Checks concurrency capacity and queues if needed
+3. **Python generates timeline** → Runs `models.py` script with randomized parameters
+4. **Server returns timeline** → Frontend loads the unique timeline
+5. **User plays game** → With their personalized, randomized experience
+
+### Concurrency Management
+
+The system handles multiple simultaneous users safely and efficiently:
+
+- **Maximum 3 concurrent Python processes** (configurable)
+- **Automatic queuing** for additional requests (FIFO)
+- **Unique request handling** with request IDs: `timeline_{timestamp}_{random}`
+- **Separate backup files** prevent conflicts: `configs/timeline_{requestId}.json`
+- **Automatic cleanup** of old backup files (hourly)
+- **Timeout protection**: 30-second maximum generation time
+
+### Request Flow
+
+```
+User Request → Queue Check → Process or Queue → Python Generation → Response
+                    ↓                               ↓
+          If capacity available              Unique backup file
+                    ↓                               ↓
+              Start generation                 JSON to stdout
+                    ↓                               ↓
+           Track active count                Return to user
+```
+
+### Python Execution
+
+- **Auto-detects** Python command (`python3`, `python`, or `py`)
+- **Fallback system**: If Python execution fails, falls back to static `timeline.json`
+- **Generation time**: Typically 1-3 seconds per timeline
+- **No caching**: Fresh generation per user ensures uniqueness
+
+### Benefits
+
+**For Researchers:**
+- Better experimental control - no order effects from repeated timelines
+- Increased statistical power - each participant has unique randomization
+- Reproducible - session-specific randomization seeds can be logged
+
+**For Participants:**
+- Fresh experience - no predictability from shared timelines
+- Improved validity - authentic decision-making without prior knowledge
+
+**For Deployment:**
+- No manual updates - timeline generation is automatic
+- Scalable - handles multiple concurrent users
+- Robust - fallback to static timeline if generation fails
 
 ## Timeline.json Structure
 
@@ -430,23 +535,157 @@ The timeline uses two different property naming patterns:
 - `choice-overlay-message`: Text for choice phase (online-choice only)
 - `watch-overlay-message`: Text for watch phase (online-choice only)
 
+## Demonstrator Visual System
+
+The game uses a sophisticated style+color assignment system for demonstrator appearances, ensuring visual distinctiveness within and across sessions.
+
+### How It Works
+
+The demonstrator style+color assignment is **built into the timeline generation process** (Python-side) rather than being computed at runtime.
+
+#### Timeline Generation (`timeline_models/models.py`)
+
+When a timeline is generated, the Python code:
+
+1. **Assigns Demonstrator IDs**: Each session gets 2 unique demonstrator IDs
+2. **Assigns Style+Color with Constraints**:
+   - Within each session: Different styles AND different colors
+   - Globally: Each demonstrator gets a unique style+color combination
+   - Same demonstrator always has same appearance across sessions
+
+3. **Embeds in Timeline JSON**: Each demonstrator object includes:
+   - `demonstrator_style`: "style1", "style2", etc.
+   - `demonstrator_color`: "red", "orange", "blue", etc.
+
+#### JavaScript Runtime (`main.js`)
+
+The JavaScript code simply **reads and uses** the style+color from the timeline:
+- `mapDemonstratorImage(index, style, color)` uses the provided style+color
+- Image paths: `assets/demonstrators/styles/style1/red.png`
+- No runtime computation needed - just reads what Python generated
+
+### Constraints Enforced
+
+#### Within Each Session ✅
+- No two demonstrators share the same **style**
+- No two demonstrators share the same **color**
+- Example: Session 1 might have Demo 13 (style1/red) and Demo 19 (style2/orange)
+
+#### Across Sessions ✅
+- Each demonstrator_global_index gets a **globally unique** style+color combination
+- Same demonstrator always looks the same
+- Example: Demo 13 always appears as (style2/blue) whenever it appears
+
+#### Between Sessions ✅
+- Demonstrators in different sessions **CAN** share styles or colors (but not both)
+- Example: Session 1 Demo 13 (style1/red) and Session 2 Demo 8 (style1/orange) can both use style1
+
+### File Structure
+
+```
+assets/demonstrators/styles/
+├── style1/
+│   ├── red.png
+│   ├── orange.png
+│   ├── blue.png
+│   ├── green.png
+│   ├── yellow.png
+│   └── purple.png
+├── style2/
+│   └── ... (same 6 colors)
+├── style3/
+├── style4/
+├── style5/
+└── style6/
+```
+
+**Total combinations**: 6 styles × 6 colors = **36 unique demonstrator appearances**
+
+### Benefits
+
+1. **Guaranteed Correctness**: Constraints are enforced at generation time
+2. **No Runtime Complexity**: JavaScript just reads the values
+3. **Deterministic**: Same timeline file always produces same demonstrators
+4. **Debuggable**: Can inspect timeline JSON to see exact assignments
+5. **Reproducible**: Timeline files can be saved and reused exactly
+
 ## MongoDB Logging
 
-The game automatically logs all user actions to MongoDB:
+The game automatically logs all user actions to MongoDB with comprehensive tracking of game state, user behavior, and experimental conditions.
 
-### Logged Data
-- User actions: `left`, `right`, `up`, `down`, `pull`
-- Game types: `practice`, `play`, `watch`, `choice` (includes online-choice phases)
-- Game state: rewards, position, remaining shots
-- Session information: game sequence, stage indices
-- Demonstrator data: type, trajectory, selections
-- Zone information: bandit structure, zone properties
+### Database Structure
+
+- **Database**: `AMGDB`
+- **Collection**: `gamelogs`
+- Each document represents one user action
+
+### Logged Variables
+
+The system logs the following variables for every user action:
+
+#### User Information
+- `prolific_id`: Participant's Prolific ID
+- `uid`: Auto-generated unique identifier
+- `session_id`: MongoDB session identifier
+
+#### Game Progress
+- `session_index`: Session number (0-based)
+- `step`: Action step counter
+- `position`: Current player position
+- `action`: User action (`left`, `right`, `up`, `down`, `pull`)
+- `timestamp`: Action timestamp
+
+#### Game State
+- `shots_remaining`: Number of actions remaining
+- `game`: Game type (`practice`, `play`, `watch`, `choice`, `feedback`)
+- `game_total_reward`: Total reward in current game
+- `user_total_reward`: Cumulative reward across all games
+
+#### Action Details
+- `reward_generated`: Reward from current action
+- `shot`: Boolean indicating arm pull/mining action
+
+#### Session Info
+- `transfer`: Transfer learning condition indicator
+- `game_sequence`: Sequence of games in session
+
+#### Stage/Game IDs
+- `game_index`: Sequential game number within session
+- `stage_index`: Stage number within session container
+- `round_index`: Round number (can be null)
+
+#### Demonstrator Info
+- `demonstrator_index`: Index for image mapping system
+- `demonstrator_type`: "expert", "novice", etc.
+- `demonstrator_id`: Unique demonstrator identifier
+- `demonstrator_trajectory`: Array of linear cell indices showing movement path
+- `demonstrator_style`: Visual style assignment
+- `demonstrator_color`: Color assignment
+
+#### Zone Info
+- `zone_index`: Unique zone identifier
+- `zone_bandit`: 2D array of reward probabilities
+- `zone_bandit_id`: Identifier for payoff structure
+
+#### Tracking
+- `refresh_count`: Page refresh counter
+
+### Logged Actions
+
+- **Movement**: `left`, `right`, `up`, `down` - when user moves position
+- **Pulling**: `pull` - when user pulls an arm/shoots an asteroid
+- **Feedback**: `feedback` - when user submits end-game feedback
 
 ### Special Logging for Online-Choice
+
+The `online-choice` game type is handled specially for logging purposes:
 - **Choice phase** → logged as `game: "choice"`
 - **Watch phase** → logged as `game: "watch"`
 
+This allows for consistent analysis of choice and watch behaviors regardless of whether they occur as standalone games or as part of an online-choice sequence.
+
 ### Feedback Data Collection
+
 When `textbox_feedback: true` is enabled, feedback data is collected in the main `GameLog` collection:
 
 - **Collection**: Main `GameLog` collection (same as all other user actions)
@@ -458,12 +697,95 @@ When `textbox_feedback: true` is enabled, feedback data is collected in the main
   - Session context: `session_index`, zone information
   - Standard fields: All other GameLog fields for consistency
 
+### Security Note
+
+Keep `mongo_auth.json` secure and never commit it to version control. It should be added to your `.gitignore` file.
+
+## API Endpoints Reference
+
+### Timeline Generation
+
+#### `GET /api/timeline`
+Generates and returns a fresh, randomized timeline for each user.
+
+- **Response**: JSON timeline data
+- **Behavior**: Automatically queued if server at capacity
+- **Generation Time**: Typically 1-3 seconds
+- **Concurrency**: Max 3 concurrent generations (configurable)
+
+#### `GET /api/timeline-status`
+Returns real-time status of the timeline generation system.
+
+**Response**:
+```json
+{
+  "active_generations": 2,
+  "max_concurrent": 3,
+  "queue_length": 1,
+  "capacity_available": 1,
+  "server_time": "2024-01-15T10:30:00.000Z",
+  "uptime_seconds": 3600
+}
+```
+
+#### `GET /api/test-python`
+Tests Python installation and verifies timeline generation capabilities.
+
+- **Use**: Debugging and setup verification
+- **Response**: Python version and execution status
+
+### Data Logging
+
+#### `POST /api/log`
+Log a game action to MongoDB.
+
+- **Body**: Action data including position, reward, game state
+- **Response**: Confirmation of logged data
+
+#### `POST /api/log-refresh`
+Log a page refresh event.
+
+- **Body**: User identification data
+- **Response**: Confirmation of logged refresh
+
+#### `GET /api/logs/:prolific_id`
+Retrieve all logs for a specific user (for debugging).
+
+- **Parameters**: `prolific_id` - User's Prolific ID
+- **Response**: Array of all logged actions for that user
+
+### Health & Monitoring
+
+#### `GET /api/health`
+Comprehensive server health check.
+
+**Returns**:
+- Timeline system status
+- MongoDB connection status
+- Memory usage
+- Server uptime
+- Active process counts
+
 ## Asset Structure
 
 ### Required Directories
 ```
 assets/
-├── demonstrators/     # demonstrator_XX.png files
+├── demonstrators/
+│   ├── demonstrator_XX.png (legacy, no longer used)
+│   └── styles/
+│       ├── style1/
+│       │   ├── red.png
+│       │   ├── orange.png
+│       │   ├── blue.png
+│       │   ├── green.png
+│       │   ├── yellow.png
+│       │   └── purple.png
+│       ├── style2/ (same 6 colors)
+│       ├── style3/
+│       ├── style4/
+│       ├── style5/
+│       └── style6/
 ├── landscapes/        # landscape_XX.png files  
 ├── zone_backgrounds/  # zone_XX.png files
 ├── asteroids/         # asteroid_XX.png files
@@ -472,7 +794,128 @@ assets/
 ```
 
 ### Image Mapping System
+
 The game uses a randomization system that maps logical indices to shuffled image files, ensuring each playthrough uses different visual assets while maintaining game logic.
+
+**Demonstrator System**: All demonstrators now use the style+color system from the `styles/` folders. The timeline generation assigns each demonstrator a unique style+color combination, providing 36 possible unique appearances (6 styles × 6 colors).
+
+## Testing & Monitoring
+
+### Concurrency Testing
+
+Test the timeline generation system with multiple simultaneous users:
+
+```bash
+# Install test dependencies (if not already installed)
+npm install
+
+# Run concurrency test (simulates 10 concurrent users)
+npm run test-concurrency
+```
+
+#### Sample Test Output
+```
+🧪 Starting concurrency test with 10 users...
+📡 Testing server: http://localhost:8080
+📊 Server Status: { active_generations: 0, queue_length: 0, ... }
+
+🚀 User 1: Requesting timeline...
+🚀 User 2: Requesting timeline...
+🚀 User 3: Requesting timeline...
+...
+
+✅ User 1: Timeline received in 2341ms (9 sessions)
+✅ User 2: Timeline received in 2456ms (9 sessions)
+✅ User 3: Timeline received in 2234ms (9 sessions)
+
+📋 Test Results:
+Total Users: 10
+Successful: 10
+Failed: 0
+Total Duration: 8234ms
+Average Time per User: 823ms
+Success Rate: 100.0%
+✅ Excellent performance!
+```
+
+#### Custom Test Configuration
+
+Edit `test_concurrency.js` to adjust:
+- `CONCURRENT_USERS`: Number of simultaneous users to simulate
+- `SERVER_URL`: Target server URL
+- `TEST_TIMEOUT`: Request timeout duration
+
+### Monitoring in Production
+
+#### Key Metrics to Watch
+- Active generations count
+- Queue length trends
+- Average response times
+- Error rates
+- Memory usage patterns
+
+#### Alerting Thresholds
+- Queue length > 10 users
+- Average response time > 10 seconds
+- Error rate > 5%
+- Memory usage > 80%
+
+#### Real-Time Monitoring
+
+Use the monitoring endpoints for real-time system status:
+
+```bash
+# Check timeline generation status
+curl http://localhost:8080/api/timeline-status
+
+# Check overall server health
+curl http://localhost:8080/api/health
+
+# Test Python installation
+curl http://localhost:8080/api/test-python
+```
+
+### Performance Recommendations
+
+#### Server Specifications
+- **CPU**: Multi-core recommended for Python processes
+- **Memory**: 2GB+ RAM for multiple concurrent generations
+- **Storage**: SSD recommended for file I/O performance
+
+#### Scaling Options
+1. **Increase Concurrency**: Raise `MAX_CONCURRENT_GENERATIONS` in `server.js`
+2. **Pre-generation**: Generate timeline pool in advance
+3. **Caching**: Cache recently generated timelines
+4. **Load Balancing**: Distribute across multiple servers
+
+#### Configuration Tuning
+
+In `server.js`:
+```javascript
+const MAX_CONCURRENT_GENERATIONS = 3; // Adjust based on server capacity
+const TIMEOUT = 30000; // 30 second timeout
+```
+
+In `timeline_models/models.py`:
+```python
+# Timeline parameters
+rounds=2
+num_play_arm_pulls=6  
+num_watch_arm_pulls=6
+```
+
+### File Management
+
+#### Backup Files
+- Unique files: `configs/timeline_{requestId}.json`
+- Main file: `configs/timeline.json` (for backward compatibility)
+- Automatic cleanup after 1 hour
+
+#### Cleanup Process
+- Runs on server startup
+- Runs every hour automatically
+- Only removes files older than 1 hour
+- Preserves main `timeline.json` file
 
 ## Development Notes
 
@@ -496,12 +939,123 @@ Use the Python scripts in `timeline_models/` to generate timeline.json files pro
 ## Troubleshooting
 
 ### Common Issues
-1. **MongoDB Connection Error**: Ensure MongoDB is running and credentials are correct
-2. **Missing Images**: Check that all referenced images exist in assets folders
-3. **Timeline Validation**: Validate JSON syntax and required properties
-4. **Port Conflicts**: Use `PORT=XXXX` to specify different port
+
+#### MongoDB Connection Error
+**Symptoms**: Cannot connect to database, logs show connection errors
+
+**Solutions**:
+- Ensure MongoDB is running (`brew services start mongodb-community` on macOS)
+- Check credentials in `mongo_auth.json` for production
+- Verify connection string is correct
+- Check firewall settings if using remote MongoDB
+
+#### Missing Images
+**Symptoms**: Broken images in game, console errors about missing assets
+
+**Solutions**:
+- Check that all referenced images exist in assets folders
+- Verify demonstrator style/color images exist: `assets/demonstrators/styles/style1/red.png`, etc.
+- Ensure zone backgrounds and asteroids are properly named
+- Check file permissions
+
+#### Timeline Validation
+**Symptoms**: Game fails to load, timeline parsing errors
+
+**Solutions**:
+- Validate JSON syntax using a JSON validator
+- Check all required properties are present
+- Verify stage types match expected values
+- Ensure demonstrator and zone objects are properly formatted
+
+#### Port Conflicts
+**Symptoms**: "Port already in use" error on startup
+
+**Solutions**:
+- Use `PORT=XXXX` to specify different port
+- Check for other processes using port 8080: `lsof -i :8080`
+- Kill conflicting process or choose different port
+
+#### Python Installation Issues
+**Symptoms**: "No working Python installation found", timeline generation fails
+
+**Solutions**:
+- Install Python 3.x and ensure it's in PATH
+- Test with: `python3 --version` or `python --version`
+- Verify Python can run: `curl http://localhost:8080/api/test-python`
+- Check Python dependencies are installed
+
+#### Timeline Generation Timeout
+**Symptoms**: Timeline generation takes too long, timeout errors
+
+**Solutions**:
+- Check Python dependencies
+- Verify `timeline_models/bandits_data.json` exists and is accessible
+- Check system resources (CPU, memory)
+- Consider increasing timeout in `server.js`
+
+#### Failed to Parse Generated Timeline
+**Symptoms**: JSON parsing errors after Python execution
+
+**Solutions**:
+- Check Python script syntax errors
+- Manually run: `cd timeline_models && python3 models.py`
+- Verify JSON output format
+- Check for print statements in Python code (should output to stderr, not stdout)
+
+#### High Queue Length
+**Symptoms**: Many users waiting for timelines, slow response times
+
+**Solutions**:
+- Check Python installation and performance
+- Consider increasing `MAX_CONCURRENT_GENERATIONS` in `server.js`
+- Monitor system resources (CPU, memory)
+- Check for hanging Python processes: `ps aux | grep python`
+- Consider pre-generation strategy
+
+#### Slow Response Times
+**Symptoms**: Timeline generation takes longer than expected
+
+**Solutions**:
+- Verify Python script performance
+- Check disk I/O for backup file writes
+- Monitor network latency
+- Profile Python script execution
+- Consider pre-generation strategy
+
+#### File Permission Errors
+**Symptoms**: Cannot write timeline files, permission denied errors
+
+**Solutions**:
+- Ensure `configs/` directory is writable
+- Check Node.js process permissions
+- Verify disk space availability
+- Check file ownership
+
+#### Missing Logs in MongoDB
+**Symptoms**: User actions not appearing in database
+
+**Solutions**:
+- Ensure `window.currentStage` is set correctly
+- Verify `prolificID` is collected at game start
+- Check page refresh handlers are properly set up
+- Verify MongoDB connection is active
+- Check browser console for logging errors
 
 ### Performance Tips
-- Keep trajectory arrays reasonable in length
-- Optimize image file sizes
+
+- Keep trajectory arrays reasonable in length (< 50 steps recommended)
+- Optimize image file sizes (use compressed PNGs)
 - Use appropriate bandit grid sizes (recommend 1x12 or 2x6)
+- Monitor memory usage during concurrent timeline generation
+- Consider caching strategies for high-traffic scenarios
+- Use SSD storage for better file I/O performance
+
+### Debug Steps
+
+1. **Check server logs** for detailed error messages
+2. **Test Python setup**: `GET /api/test-python`
+3. **Check timeline status**: `GET /api/timeline-status`
+4. **Verify MongoDB connection**: Check `/api/health`
+5. **Test manual generation**: `cd timeline_models && python3 models.py`
+6. **Check browser console** for client-side errors
+7. **Verify config.json** syntax and values
