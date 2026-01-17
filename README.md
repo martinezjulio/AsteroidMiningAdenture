@@ -145,6 +145,78 @@ The game behavior is controlled through the `config.json` file in the root direc
 - **Default**: `false`
 - **Description**: Whether to display a running total of rewards during gameplay
 
+#### `demonstrator_config`
+- **Type**: `object`
+- **Default**: `null` (uses file mode with default settings)
+- **Description**: Controls how demonstrator trajectories are generated
+
+The `demonstrator_config` option determines whether demonstrator trajectories are loaded from a pre-computed file or generated in real-time using Thompson sampling.
+
+**File Mode (Pre-computed Trajectories):**
+```json
+{
+  "demonstrator_config": {
+    "source": "file",
+    "filename": "bandits_data.json"
+  }
+}
+```
+- Trajectories are loaded from the specified file in `timeline_models/`
+- File must contain pre-computed Thompson sampling trajectories
+- Each demonstrator follows a pre-defined path
+- Reward outcomes are sampled randomly during gameplay
+- This is the traditional mode used when `demonstrator_config` is not specified
+
+**Inline Mode (Real-time Generation):**
+```json
+{
+  "demonstrator_config": {
+    "source": "inline",
+    "bandit_payoffs": [0.0, 0.1, 0.2, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.75, 0.8],
+    "expert_demonstrator_experience": 72,
+    "novice_demonstrator_experience": 0,
+    "demonstrator_sampling_strategy": "thompson"
+  }
+}
+```
+
+**Inline Mode Parameters:**
+- `bandit_payoffs`: Sorted list of reward probabilities (one per arm/asteroid)
+- `expert_demonstrator_experience`: Number of warmup iterations for expert demonstrators (e.g., 72)
+- `novice_demonstrator_experience`: Number of warmup iterations for novice demonstrators (e.g., 0)
+- `demonstrator_sampling_strategy`: Algorithm to use (currently only "thompson" is supported)
+
+**How Inline Mode Works:**
+1. Each zone's bandit is a random permutation of `bandit_payoffs`
+2. When a watch stage starts, a Thompson sampler is initialized with alpha=1, beta=1 for all arms
+3. Warmup iterations run invisibly (0 for novice, 72 for expert)
+4. Then the trajectory is shown to the user, continuing from the current alpha/beta state
+5. Rewards shown to the user ARE the rewards that influence the demonstrator's next action
+6. All actions and rewards (including warmup) are logged to MongoDB as JSON strings
+
+**Differences from File Mode:**
+- Trajectories are never the same twice (stochastic generation)
+- Reward outcomes are consistent with demonstrator decisions (not random)
+- Complete action/reward sequences are logged for post-hoc analysis
+- Allows computing final alpha/beta values: `alpha_i = 1 + sum(rewards for arm i)`
+- No need to pre-generate large trajectory files
+
+**Thompson Sampling Algorithm:**
+The inline mode uses Beta-Bernoulli Thompson sampling:
+- Initialize: `alpha_i = 1`, `beta_i = 1` for all arms
+- Each iteration:
+  1. Sample `theta_i ~ Beta(alpha_i, beta_i)` for each arm
+  2. Choose arm `a = argmax(theta_i)`
+  3. Sample reward `r ~ Bernoulli(payoff[a])`
+  4. Update: `alpha_a += r`, `beta_a += (1-r)`
+
+**Logged Data in Inline Mode:**
+- `demonstrator_all_actions`: JSON string array of all arm indices selected (e.g., `"[0,1,2,5,1,2,4,5,...]"`)
+- `demonstrator_all_rewards`: JSON string array of all rewards received (e.g., `"[1,0,0,1,1,1,0,1,...]"`)
+- These include both warmup iterations (not shown) and displayed iterations
+- Example: Expert with 72 warmup + 6 shown = 78 total entries
+- Take the final log entry for each watch stage to get the complete trajectory
+
 ### Example Configuration
 
 ```json
@@ -157,7 +229,33 @@ The game behavior is controlled through the `config.json` file in the root direc
     "omit_explicit_experience_transfer_message": false,
     "name_demonstrators": false,
     "present_demonstrators_apriori": false,
-    "display_running_total_reward": false
+    "display_running_total_reward": false,
+    "demonstrator_config": {
+        "source": "file",
+        "filename": "bandits_data.json"
+    }
+}
+```
+
+**Or with inline mode:**
+```json
+{
+    "experiment_config": "configs/timeline.json",
+    "bandit_assignment_mode": "round_changing",
+    "textbox_feedback": true,
+    "session_demonstrators": "different",
+    "prop_of_sessions": 1.0,
+    "omit_explicit_experience_transfer_message": true,
+    "name_demonstrators": true,
+    "present_demonstrators_apriori": true,
+    "display_running_total_reward": true,
+    "demonstrator_config": {
+        "source": "inline",
+        "bandit_payoffs": [0.0, 0.1, 0.2, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.75, 0.8],
+        "expert_demonstrator_experience": 72,
+        "novice_demonstrator_experience": 0,
+        "demonstrator_sampling_strategy": "thompson"
+    }
 }
 ```
 

@@ -15,12 +15,24 @@ def generate_timeline(
     prop_of_sessions: float = 0.5,
     omit_explicit_experience_transfer_message: bool = False,
     name_demonstrators: bool = False,
-    present_demonstrators_apriori: bool = False
+    present_demonstrators_apriori: bool = False,
+    demonstrator_config: Optional[Dict[str, Any]] = None
 ) -> List[Any]:
-    # 0) load bandit data
-    with open(bandits_json_path, "r") as f:
-        bandits_data = json.load(f)
-    payoff_keys = sorted(k for k in bandits_data if k.startswith("payoffs"))
+    # 0) load bandit data or use inline config
+    if demonstrator_config and demonstrator_config.get('source') == 'inline':
+        # Inline mode: use permuted bandit payoffs
+        bandits_data = None
+        payoff_keys = None
+        bandit_payoffs = demonstrator_config.get('bandit_payoffs', [])
+        if not bandit_payoffs:
+            raise ValueError("bandit_payoffs must be provided in demonstrator_config for inline mode")
+    else:
+        # File mode: load from file
+        with open(bandits_json_path, "r") as f:
+            bandits_data = json.load(f)
+        payoff_keys = sorted(k for k in bandits_data if k.startswith("payoffs"))
+        bandit_payoffs = None
+    
     if rounds < 1:
         raise ValueError("rounds must be >= 1")
 
@@ -160,11 +172,25 @@ def generate_timeline(
                 all_zones.add(e["zone"]["zone_global_index"])
     unique_zones = sorted(all_zones)
 
-    # 4) sample payoff key per zone
-    if len(unique_zones) > len(payoff_keys):
-        raise RuntimeError("Not enough payoff keys")
-    chosen = random.sample(payoff_keys, len(unique_zones))
-    zone_to_payoff = dict(zip(unique_zones, chosen))
+    # 4) sample payoff key per zone OR generate permuted bandits for inline mode
+    if demonstrator_config and demonstrator_config.get('source') == 'inline':
+        # Inline mode: generate permuted bandits
+        zone_to_payoff = {}
+        zone_permuted_payoffs: Dict[int, List[float]] = {}
+        for z in unique_zones:
+            # Create a unique permutation for this zone
+            permuted = bandit_payoffs.copy()
+            random.shuffle(permuted)
+            zone_permuted_payoffs[z] = permuted
+            # Create a pseudo payoff key for tracking
+            zone_to_payoff[z] = f"inline_zone_{z}"
+    else:
+        # File mode: sample from payoff keys
+        if len(unique_zones) > len(payoff_keys):
+            raise RuntimeError("Not enough payoff keys")
+        chosen = random.sample(payoff_keys, len(unique_zones))
+        zone_to_payoff = dict(zip(unique_zones, chosen))
+        zone_permuted_payoffs = None
 
     # 5) generate asteroid image indexes (no colors or backgrounds here)
     used_sets = set()
@@ -181,13 +207,24 @@ def generate_timeline(
     zone_meta: Dict[int, Dict[str, Any]] = {}
     for i, z in enumerate(unique_zones):
         pk = zone_to_payoff[z]
-        zone_meta[z] = {
-            "zone_global_index": z,
-            "zone_mode": "asteroid",
-            "zone_bandit_arm_image_indexes": zone_bandit_arm_indexes[z],
-            "zone_bandit": [bandits_data[pk]["payoffs"]],
-            "bandit_id": pk
-        }
+        if demonstrator_config and demonstrator_config.get('source') == 'inline':
+            # Inline mode: use permuted payoffs
+            zone_meta[z] = {
+                "zone_global_index": z,
+                "zone_mode": "asteroid",
+                "zone_bandit_arm_image_indexes": zone_bandit_arm_indexes[z],
+                "zone_bandit": [zone_permuted_payoffs[z]],
+                "bandit_id": pk
+            }
+        else:
+            # File mode: use payoffs from file
+            zone_meta[z] = {
+                "zone_global_index": z,
+                "zone_mode": "asteroid",
+                "zone_bandit_arm_image_indexes": zone_bandit_arm_indexes[z],
+                "zone_bandit": [bandits_data[pk]["payoffs"]],
+                "bandit_id": pk
+            }
 
     # 7) assign demonstrator_ids per session with style+color constraints
     available_ids = list(range(20))
@@ -360,21 +397,30 @@ def generate_timeline(
                 pos = e["game_index"] % len(repeat_block)
                 dem_idx = 0 if pos < 2 else 1
                 did = dem_ids[dem_idx]
-                # Use the game-specific zone's payoff key (important for round_changing mode)
-                game_payoff_key = zone_to_payoff[z]
-                full = bandits_data[game_payoff_key]["policy"]["thompson"][typ][
-                    f"{game_payoff_key}_{typ}_policy{did}"
-                ]
-                start = e["round_index"] * num_watch_arm_pulls
-                traj = full[start : start + num_watch_arm_pulls]
+                
+                # Build demonstrator data
                 demo_data = {
                     "demonstrator_type": typ,
                     "demonstrator_session_index": dem_idx,
                     "demonstrator_global_index": did,
-                    "demonstrator_trajectory": traj,
                     "demonstrator_style": demo_style_color[did]['style'],
                     "demonstrator_color": demo_style_color[did]['color']
                 }
+                
+                # Add trajectory only in file mode
+                if demonstrator_config and demonstrator_config.get('source') == 'inline':
+                    # Inline mode: no trajectory, will be generated in JavaScript
+                    pass
+                else:
+                    # File mode: load trajectory from bandits_data
+                    game_payoff_key = zone_to_payoff[z]
+                    full = bandits_data[game_payoff_key]["policy"]["thompson"][typ][
+                        f"{game_payoff_key}_{typ}_policy{did}"
+                    ]
+                    start = e["round_index"] * num_watch_arm_pulls
+                    traj = full[start : start + num_watch_arm_pulls]
+                    demo_data["demonstrator_trajectory"] = traj
+                
                 # Add name if enabled
                 if name_demonstrators and did in demo_names:
                     demo_data["demonstrator_name"] = demo_names[did]
@@ -581,12 +627,27 @@ if __name__ == "__main__":
 
     # Get request ID from command line arguments for unique file naming
     request_id = None
+    demonstrator_config = None
     if len(sys.argv) > 1:
         request_id = sys.argv[1]
     else:
         # Fallback to timestamp if no request_id provided
         import time
         request_id = f"timeline_{int(time.time())}"
+    
+    # Get demonstrator_config from command line if provided (3rd argument)
+    if len(sys.argv) > 2:
+        try:
+            demonstrator_config = json.loads(sys.argv[2])
+            print(f"Using demonstrator_config from command line: {demonstrator_config}", file=sys.stderr)
+        except json.JSONDecodeError as e:
+            print(f"Warning: Could not parse demonstrator_config JSON: {e}", file=sys.stderr)
+            demonstrator_config = None
+    
+    # Fallback to config file if not provided via command line
+    if demonstrator_config is None and 'demonstrator_config' in config:
+        demonstrator_config = config.get('demonstrator_config')
+        print(f"Using demonstrator_config from config.json: {demonstrator_config}", file=sys.stderr)
 
     # e.g. 3 rounds, 6 pulls for play, 6 pulls for watch
     tl = generate_timeline(
@@ -599,7 +660,8 @@ if __name__ == "__main__":
         prop_of_sessions=prop_of_sessions,
         omit_explicit_experience_transfer_message=omit_explicit_experience_transfer_message,
         name_demonstrators=name_demonstrators,
-        present_demonstrators_apriori=present_demonstrators_apriori
+        present_demonstrators_apriori=present_demonstrators_apriori,
+        demonstrator_config=demonstrator_config
     )
     
     # Output JSON to stdout for the Node.js server to capture

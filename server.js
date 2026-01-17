@@ -47,7 +47,8 @@ app.get('/api/config', (req, res) => {
     res.json({ 
         experiment_id,
         experiment_config_path,
-        display_running_total_reward: config.display_running_total_reward || false
+        display_running_total_reward: config.display_running_total_reward || false,
+        demonstrator_config: config.demonstrator_config || null
     });
 });
 
@@ -157,7 +158,13 @@ function processTimelineGeneration(req, res) {
     
     const generateWithPython = (pythonCommand) => {
         // Run the Python script to generate a new timeline
-        const pythonProcess = spawn(pythonCommand, ['models.py', requestId], {
+        // Pass demonstrator_config as JSON string if present
+        const args = ['models.py', requestId];
+        if (config.demonstrator_config) {
+            args.push(JSON.stringify(config.demonstrator_config));
+        }
+        
+        const pythonProcess = spawn(pythonCommand, args, {
             cwd: path.join(__dirname, 'timeline_models'),
             stdio: ['pipe', 'pipe', 'pipe']
         });

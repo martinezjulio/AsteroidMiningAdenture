@@ -17,7 +17,10 @@ let currentStageIndex = 0;        // Which stage within the session we're on
 let prolificID = "";            
 
 // We'll store summary icons (one per "game" stage).
-let summaryIcons = []; 
+let summaryIcons = [];
+
+// Demonstrator config from server
+let demonstratorConfig = null; 
 
 // Track demonstrators seen in current session
 let seenDemonstratorsThisSession = new Set();
@@ -75,6 +78,93 @@ function generateSessionID() {
   return 'sid_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
 }
 
+/*****************************************
+ * Thompson Sampler Class
+ * Implements Thompson sampling for bandit problems
+ ****************************************/
+class ThompsonSampler {
+  constructor(numArms, banditPayoffs) {
+    this.numArms = numArms;
+    this.banditPayoffs = banditPayoffs;  // Flattened 1D array of payoffs
+    this.alphas = new Array(numArms).fill(1);  // Initialize with 1s
+    this.betas = new Array(numArms).fill(1);   // Initialize with 1s
+    this.allActions = [];  // Track all actions
+    this.allRewards = [];  // Track all rewards
+  }
+  
+  // Sample from Beta distribution using Gamma distribution method
+  sampleBeta(alpha, beta) {
+    // Beta(alpha, beta) can be sampled as Gamma(alpha) / (Gamma(alpha) + Gamma(beta))
+    const gammaAlpha = this.sampleGamma(alpha);
+    const gammaBeta = this.sampleGamma(beta);
+    return gammaAlpha / (gammaAlpha + gammaBeta);
+  }
+  
+  // Sample from Gamma distribution using Marsaglia and Tsang's method
+  sampleGamma(shape, scale = 1.0) {
+    // Handle special case for shape < 1
+    if (shape < 1) {
+      return this.sampleGamma(shape + 1, scale) * Math.pow(Math.random(), 1.0 / shape);
+    }
+    
+    const d = shape - 1.0 / 3.0;
+    const c = 1.0 / Math.sqrt(9.0 * d);
+    
+    while (true) {
+      let x, v;
+      do {
+        x = this.sampleNormal(0, 1);
+        v = 1.0 + c * x;
+      } while (v <= 0);
+      
+      v = v * v * v;
+      const u = Math.random();
+      const x2 = x * x;
+      
+      if (u < 1.0 - 0.0331 * x2 * x2) {
+        return d * v * scale;
+      }
+      if (Math.log(u) < 0.5 * x2 + d * (1.0 - v + Math.log(v))) {
+        return d * v * scale;
+      }
+    }
+  }
+  
+  // Sample from standard normal distribution using Box-Muller transform
+  sampleNormal(mean = 0, stdDev = 1) {
+    const u1 = Math.random();
+    const u2 = Math.random();
+    const z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+    return z0 * stdDev + mean;
+  }
+  
+  // Select arm using Thompson sampling
+  selectArm() {
+    const samples = this.alphas.map((alpha, i) => 
+      this.sampleBeta(alpha, this.betas[i])
+    );
+    // Return argmax of sampled values
+    return samples.indexOf(Math.max(...samples));
+  }
+  
+  // Update alpha/beta based on reward
+  update(arm, reward) {
+    this.alphas[arm] += reward;
+    this.betas[arm] += (1 - reward);
+    this.allActions.push(arm);
+    this.allRewards.push(reward);
+  }
+  
+  // Run one step: select arm, sample reward, update
+  step() {
+    const arm = this.selectArm();
+    const payoff = this.banditPayoffs[arm];
+    const reward = (Math.random() < payoff) ? 1 : 0;
+    this.update(arm, reward);
+    return { arm, reward };
+  }
+}
+
 // Request fullscreen mode with cross-browser compatibility
 function requestFullscreen() {
   const element = document.documentElement; // Use the entire document
@@ -100,7 +190,9 @@ async function fetchExperimentConfig() {
     experimentID = config.experiment_id;
     experimentConfigPath = config.experiment_config_path;
     displayRunningTotalReward = config.display_running_total_reward || false;
+    demonstratorConfig = config.demonstrator_config || null;
     
+    console.log('Demonstrator config:', demonstratorConfig);
   } catch (error) {
     console.error('Error fetching experiment config:', error);
     experimentID = 'unknown'; // fallback
@@ -148,11 +240,16 @@ async function logToMongoDB(action, additionalData = {}) {
                      mapDemonstratorImage(window.onlineChoiceSelectedDemo.data.demonstrator_global_index, window.onlineChoiceSelectedDemo.data.demonstrator_style, window.onlineChoiceSelectedDemo.data.demonstrator_color) : null),
     demonstrator_trajectory: stage.demonstrator ? (() => {
                            const trajectory = stage.demonstrator.demonstrator_trajectory;
-                           return Array.isArray(trajectory) ? trajectory.join(',') : "";
+                           return (trajectory && Array.isArray(trajectory)) ? trajectory.join(',') : "";
                          })() : (stage.demonstrator1 && window.onlineChoiceSelectedDemo ? (() => {
                            const trajectory = window.onlineChoiceSelectedDemo.data.demonstrator_trajectory;
-                           return Array.isArray(trajectory) ? trajectory.join(',') : "";
+                           return (trajectory && Array.isArray(trajectory)) ? trajectory.join(',') : "";
                          })() : ""),
+    
+    // Inline mode demonstrator data (from additionalData if present)
+    demonstrator_all_actions: additionalData.demonstrator_all_actions || null,
+    demonstrator_all_rewards: additionalData.demonstrator_all_rewards || null,
+    
     zone_global_index: stage.zone ? stage.zone.zone_global_index : 0,
     zone_color: stage.zone ? generateZoneColor(stage.zone.zone_global_index) : null,
     zone_background: stage.zone ? mapZoneBackground(stage.zone.zone_global_index) : null,
@@ -2058,9 +2155,57 @@ function setupWatch(stage) {
   const overlayMessage = stage["watch-overlay-message"] || 
     "You will now watch your chosen starship partner.";
   
-  // Get demonstrator data and trajectory
+  // Get demonstrator data
   const demoData = stage.demonstrator;
-  const trajectory = demoData.demonstrator_trajectory;
+  
+  // Check if we're in inline mode
+  const isInlineMode = demonstratorConfig && demonstratorConfig.source === 'inline';
+  
+  let trajectory;
+  let thompsonSampler = null;
+  let trajectoryData = null;  // Will store {trajectory: [], rewards: []}
+  
+  if (isInlineMode) {
+    // Inline mode: generate trajectory using Thompson sampling
+    const bandit = stage.zone.zone_bandit;
+    const numRows = bandit.length;
+    const numCols = bandit[0].length;
+    const flattenedPayoffs = bandit.flat();
+    const numArmPulls = stage.num_arm_pulls || 6;
+    
+    // Get experience level based on demonstrator type
+    const demonstratorType = demoData.demonstrator_type;
+    const experienceLevel = demonstratorType === 'expert' 
+      ? demonstratorConfig.expert_demonstrator_experience 
+      : demonstratorConfig.novice_demonstrator_experience;
+    
+    console.log(`Generating ${demonstratorType} trajectory with ${experienceLevel} warmup iterations`);
+    
+    // Initialize Thompson sampler
+    thompsonSampler = new ThompsonSampler(flattenedPayoffs.length, flattenedPayoffs);
+    
+    // Run warmup iterations (not shown to user)
+    for (let i = 0; i < experienceLevel; i++) {
+      thompsonSampler.step();
+    }
+    
+    // Generate trajectory for display
+    trajectory = [];
+    const rewards = [];
+    for (let i = 0; i < numArmPulls; i++) {
+      const stepResult = thompsonSampler.step();
+      trajectory.push(stepResult.arm);
+      rewards.push(stepResult.reward);
+    }
+    
+    trajectoryData = { trajectory, rewards };
+    console.log('Generated trajectory:', trajectory);
+    console.log('Generated rewards:', rewards);
+  } else {
+    // File mode: use pre-computed trajectory
+    trajectory = demoData.demonstrator_trajectory;
+    trajectoryData = null;
+  }
   
   // Reset game tracking for watch phase
   resetGameTracking('watch', trajectory.length);
@@ -2238,7 +2383,15 @@ function setupWatch(stage) {
             const performShootingAction = () => {
               // Calculate outcome
               let payoff = bandit[currentR][currentC];
-              let outcome = (Math.random() < payoff) ? 1 : 0;
+              let outcome;
+              
+              if (isInlineMode && trajectoryData) {
+                // Use the pre-generated reward from Thompson sampler
+                outcome = trajectoryData.rewards[currentStep];
+              } else {
+                // Random sampling (file mode)
+                outcome = (Math.random() < payoff) ? 1 : 0;
+              }
               
               // Log the shoot action from current position (where shot was taken from)
               currentShotsRemaining = totalSteps - currentStep - 1;
@@ -2282,6 +2435,16 @@ function setupWatch(stage) {
                   drawRewardTank.call(this, rewardTankContainer, totalSteps, watchOutcomes);
 
                   currentStep++;
+                  
+                  // After the last step, log complete trajectory data if in inline mode
+                  if (currentStep >= totalSteps && isInlineMode && thompsonSampler) {
+                    // Log all actions and rewards to MongoDB
+                    logToMongoDB('trajectory_complete', {
+                      demonstrator_all_actions: JSON.stringify(thompsonSampler.allActions),
+                      demonstrator_all_rewards: JSON.stringify(thompsonSampler.allRewards)
+                    });
+                  }
+                  
                   moveAlongTrajectoryStep.call(this);
                 }
               });
@@ -2315,9 +2478,57 @@ function setupIndicate(stage) {
   const overlayMessage = stage["indicate-overlay-message"] || 
     "You will now watch the demonstrator indicate their strategy.";
   
-  // Get demonstrator data and trajectory
+  // Get demonstrator data
   const demoData = stage.demonstrator;
-  const trajectory = demoData.demonstrator_trajectory;
+  
+  // Check if we're in inline mode
+  const isInlineMode = demonstratorConfig && demonstratorConfig.source === 'inline';
+  
+  let trajectory;
+  let thompsonSampler = null;
+  let trajectoryData = null;  // Will store {trajectory: [], rewards: []}
+  
+  if (isInlineMode) {
+    // Inline mode: generate trajectory using Thompson sampling
+    const bandit = stage.zone.zone_bandit;
+    const numRows = bandit.length;
+    const numCols = bandit[0].length;
+    const flattenedPayoffs = bandit.flat();
+    const numArmPulls = stage.num_arm_pulls || 6;
+    
+    // Get experience level based on demonstrator type
+    const demonstratorType = demoData.demonstrator_type;
+    const experienceLevel = demonstratorType === 'expert' 
+      ? demonstratorConfig.expert_demonstrator_experience 
+      : demonstratorConfig.novice_demonstrator_experience;
+    
+    console.log(`Generating ${demonstratorType} trajectory with ${experienceLevel} warmup iterations`);
+    
+    // Initialize Thompson sampler
+    thompsonSampler = new ThompsonSampler(flattenedPayoffs.length, flattenedPayoffs);
+    
+    // Run warmup iterations (not shown to user)
+    for (let i = 0; i < experienceLevel; i++) {
+      thompsonSampler.step();
+    }
+    
+    // Generate trajectory for display
+    trajectory = [];
+    const rewards = [];
+    for (let i = 0; i < numArmPulls; i++) {
+      const stepResult = thompsonSampler.step();
+      trajectory.push(stepResult.arm);
+      rewards.push(stepResult.reward);
+    }
+    
+    trajectoryData = { trajectory, rewards };
+    console.log('Generated trajectory:', trajectory);
+    console.log('Generated rewards:', rewards);
+  } else {
+    // File mode: use pre-computed trajectory
+    trajectory = demoData.demonstrator_trajectory;
+    trajectoryData = null;
+  }
   
   // Reset game tracking for indicate phase
   resetGameTracking('indicate', trajectory.length);
@@ -2492,7 +2703,15 @@ function setupIndicate(stage) {
             const performShootingAction = () => {
               // Calculate outcome
               let payoff = bandit[currentR][currentC];
-              let outcome = (Math.random() < payoff) ? 1 : 0;
+              let outcome;
+              
+              if (isInlineMode && trajectoryData) {
+                // Use the pre-generated reward from Thompson sampler
+                outcome = trajectoryData.rewards[currentStep];
+              } else {
+                // Random sampling (file mode)
+                outcome = (Math.random() < payoff) ? 1 : 0;
+              }
               
               // Log the shoot action from current position (where shot was taken from)
               currentShotsRemaining = totalSteps - currentStep - 1;
@@ -2536,6 +2755,16 @@ function setupIndicate(stage) {
                   drawRewardTank.call(this, rewardTankContainer, totalSteps, indicateOutcomes);
 
                   currentStep++;
+                  
+                  // After the last step, log complete trajectory data if in inline mode
+                  if (currentStep >= totalSteps && isInlineMode && thompsonSampler) {
+                    // Log all actions and rewards to MongoDB
+                    logToMongoDB('trajectory_complete', {
+                      demonstrator_all_actions: JSON.stringify(thompsonSampler.allActions),
+                      demonstrator_all_rewards: JSON.stringify(thompsonSampler.allRewards)
+                    });
+                  }
+                  
                   moveAlongTrajectoryStep.call(this);
                 }
               });
@@ -2729,11 +2958,17 @@ function setupChoice(stage) {
     };
   }
   
+  // Debug: Log demonstrator data
+  console.log("Choice demonstrator1:", demonstrator1);
+  console.log("Choice demonstrator2:", demonstrator2);
+  
   // Prepare demonstrator mapped images and indices  
   const demonstratorMappedImages = [
     mapDemonstratorImage(demonstrator1.demonstrator_global_index, demonstrator1.demonstrator_style, demonstrator1.demonstrator_color),
     mapDemonstratorImage(demonstrator2.demonstrator_global_index, demonstrator2.demonstrator_style, demonstrator2.demonstrator_color)
   ];
+  
+  console.log("Mapped demonstrator images:", demonstratorMappedImages);
   
   const demonstratorSessionIndices = [
     demonstrator1.demonstrator_session_index,
@@ -3573,9 +3808,57 @@ function setupOnlineChoicePhaseWatch(stage) {
   const overlayMessage = stage["watch-overlay-message"] || 
     "You will now watch your chosen starship partner.";
   
-  // Get demonstrator data and trajectory
+  // Get demonstrator data
   const demoData = selectedDemo.data;
-  const trajectory = demoData.demonstrator_trajectory;
+  
+  // Check if we're in inline mode
+  const isInlineMode = demonstratorConfig && demonstratorConfig.source === 'inline';
+  
+  let trajectory;
+  let thompsonSampler = null;
+  let trajectoryData = null;  // Will store {trajectory: [], rewards: []}
+  
+  if (isInlineMode) {
+    // Inline mode: generate trajectory using Thompson sampling
+    const bandit = stage.zone.zone_bandit;
+    const numRows = bandit.length;
+    const numCols = bandit[0].length;
+    const flattenedPayoffs = bandit.flat();
+    const numArmPulls = stage.num_arm_pulls || 6;
+    
+    // Get experience level based on demonstrator type
+    const demonstratorType = demoData.demonstrator_type;
+    const experienceLevel = demonstratorType === 'expert' 
+      ? demonstratorConfig.expert_demonstrator_experience 
+      : demonstratorConfig.novice_demonstrator_experience;
+    
+    console.log(`Generating ${demonstratorType} trajectory with ${experienceLevel} warmup iterations`);
+    
+    // Initialize Thompson sampler
+    thompsonSampler = new ThompsonSampler(flattenedPayoffs.length, flattenedPayoffs);
+    
+    // Run warmup iterations (not shown to user)
+    for (let i = 0; i < experienceLevel; i++) {
+      thompsonSampler.step();
+    }
+    
+    // Generate trajectory for display
+    trajectory = [];
+    const rewards = [];
+    for (let i = 0; i < numArmPulls; i++) {
+      const stepResult = thompsonSampler.step();
+      trajectory.push(stepResult.arm);
+      rewards.push(stepResult.reward);
+    }
+    
+    trajectoryData = { trajectory, rewards };
+    console.log('Generated trajectory:', trajectory);
+    console.log('Generated rewards:', rewards);
+  } else {
+    // File mode: use pre-computed trajectory
+    trajectory = demoData.demonstrator_trajectory;
+    trajectoryData = null;
+  }
   
   // Reset game tracking for watch phase  
   resetGameTracking('watch', trajectory.length);
@@ -3732,7 +4015,15 @@ function setupOnlineChoicePhaseWatch(stage) {
             const performShootingAction = () => {
               // Calculate outcome
               let payoff = bandit[currentR][currentC];
-              let outcome = (Math.random() < payoff) ? 1 : 0;
+              let outcome;
+              
+              if (isInlineMode && trajectoryData) {
+                // Use the pre-generated reward from Thompson sampler
+                outcome = trajectoryData.rewards[currentStep];
+              } else {
+                // Random sampling (file mode)
+                outcome = (Math.random() < payoff) ? 1 : 0;
+              }
               
               // Log the shoot action from current position (where shot was taken from)
               currentShotsRemaining = totalSteps - currentStep - 1;
@@ -3776,6 +4067,16 @@ function setupOnlineChoicePhaseWatch(stage) {
                   drawRewardTank.call(currentScene, rewardTankContainer, totalSteps, watchOutcomes);
 
                   currentStep++;
+                  
+                  // After the last step, log complete trajectory data if in inline mode
+                  if (currentStep >= totalSteps && isInlineMode && thompsonSampler) {
+                    // Log all actions and rewards to MongoDB
+                    logToMongoDB('trajectory_complete', {
+                      demonstrator_all_actions: JSON.stringify(thompsonSampler.allActions),
+                      demonstrator_all_rewards: JSON.stringify(thompsonSampler.allRewards)
+                    });
+                  }
+                  
                   moveAlongTrajectoryStep.call(currentScene);
                 }
               });

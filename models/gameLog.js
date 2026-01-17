@@ -10,7 +10,7 @@ const gameLogSchema = new mongoose.Schema({
     session_index: { type: Number, required: true },
     step: { type: Number, required: true },
     position: { type: Number, required: true },
-    action: { type: String, enum: ['left', 'right', 'up', 'down', 'shoot', 'feedback'], required: true },
+    action: { type: String, enum: ['left', 'right', 'up', 'down', 'shoot', 'feedback', 'trajectory_complete'], required: true },
     timestamp: { type: Date, default: Date.now },
     
     // Game state
@@ -36,6 +36,10 @@ const gameLogSchema = new mongoose.Schema({
     demonstrator_global_index: { type: Number, default: null },
     demonstrator_id: { type: String, default: null }, // Now stores the actual image filename
     demonstrator_trajectory: { type: String, default: "" },
+    
+    // Inline mode demonstrator data (only populated in inline mode)
+    demonstrator_all_actions: { type: String, default: null }, // JSON string of all actions including warmup
+    demonstrator_all_rewards: { type: String, default: null }, // JSON string of all rewards including warmup
     
     // Zone info (updated field names and new fields)
     zone_global_index: { type: Number, required: true },
