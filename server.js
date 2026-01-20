@@ -5,6 +5,11 @@ const { spawn } = require('child_process');
 const mongoose = require('mongoose');
 const GameLog = require('./models/gameLog'); // Import the model
 const app = express();
+
+// INTERNAL NOTE (for stanford-cogsci.org deployment):
+// If you change this port, also update Apache proxy configuration at:
+// /etc/apache2/sites-available/000-default.conf (ProxyPass line for /~julio/asteroidgame)
+// Other deployments may have different proxy configurations
 const PORT = process.env.PORT || 8080;
 const isProduction = process.env.NODE_ENV === 'production';
 const host = isProduction ? '0.0.0.0' : 'localhost';

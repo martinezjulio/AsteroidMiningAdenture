@@ -56,6 +56,32 @@ PORT=3000 npm start
 PORT=3000 NODE_ENV=production npm start
 ```
 
+#### Apache Reverse Proxy Configuration (Production Setup)
+
+For production deployment on stanford-cogsci.org, the game is accessible via Apache reverse proxy:
+
+**Public URL:** `https://stanford-cogsci.org/~julio/asteroidgame/`  
+**Internal Port:** `8080` (proxied by Apache)
+
+**Apache Configuration Location:** `/etc/apache2/sites-available/000-default.conf`
+
+```apache
+# Proxy for Asteroid Mining Game
+# NOTE: This must match the port in server.js (currently 8080)
+<Location /~julio/asteroidgame>
+    ProxyPass http://localhost:8080/
+    ProxyPassReverse http://localhost:8080/
+</Location>
+```
+
+**If you change the port:**
+1. Update `PORT` in `server.js` (or set `PORT` environment variable)
+2. Update the `ProxyPass` directives in Apache configuration
+3. Reload Apache: `sudo systemctl reload apache2`
+4. Restart your Node.js application
+
+**Note:** This configuration is specific to the stanford-cogsci.org deployment. Other deployments may use different web servers or proxy configurations.
+
 ### MongoDB Setup
 
 #### Local Development
