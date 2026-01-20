@@ -185,7 +185,7 @@ function requestFullscreen() {
 // Fetch experiment config from server
 async function fetchExperimentConfig() {
   try {
-    const response = await fetch('/api/config');
+    const response = await fetch('api/config');
     const config = await response.json();
     experimentID = config.experiment_id;
     experimentConfigPath = config.experiment_config_path;
@@ -271,7 +271,7 @@ async function logToMongoDB(action, additionalData = {}) {
   };
   
   try {
-    const response = await fetch('/api/log', {
+    const response = await fetch('api/log', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -292,7 +292,7 @@ async function logPageRefresh() {
   refreshCount++;
   localStorage.setItem('refreshCount', refreshCount.toString());
   try {
-    const response = await fetch('/api/log-refresh', {
+    const response = await fetch('api/log-refresh', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1004,7 +1004,7 @@ function create() {
     initializeImageMappings().then(() => {
       // Generate and load a fresh timeline from the server
 
-      fetch('/api/timeline')
+      fetch('api/timeline')
     .then(r => {
       if (!r.ok) {
         throw new Error(`Timeline generation failed: ${r.status} ${r.statusText}`);
