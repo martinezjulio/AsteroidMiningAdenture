@@ -68,6 +68,13 @@ function cleanupOldBackupFiles() {
     const oneHourAgo = Date.now() - (60 * 60 * 1000); // 1 hour ago
     
     try {
+        // Create configs directory if it doesn't exist
+        if (!fs.existsSync(configsDir)) {
+            fs.mkdirSync(configsDir, { recursive: true });
+            console.log('📁 Created configs directory');
+            return;
+        }
+        
         const files = fs.readdirSync(configsDir);
         let cleanedCount = 0;
         
