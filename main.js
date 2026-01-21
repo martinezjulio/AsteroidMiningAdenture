@@ -1429,6 +1429,9 @@ function setupProlificIdForm(stage) {
       return;
     }
     
+    // Clear console to remove any harmless 404 errors from initial asset loading
+    console.clear();
+    
     // Request fullscreen mode before proceeding to the game
     requestFullscreen();
     
