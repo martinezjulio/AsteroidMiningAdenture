@@ -1006,10 +1006,6 @@ function preload() {
 }
 
 function create() {
-  // Optional debug circle
-  const circle = this.add.circle(400, 300, 40, 0xffff00, 1);
-  circle.setDepth(99999);
-
   // Fetch experiment config first, then initialize image mappings and load timeline
   fetchExperimentConfig().then(() => {
     initializeImageMappings().then(() => {
