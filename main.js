@@ -22,6 +22,9 @@ let summaryIcons = [];
 // Demonstrator config from server
 let demonstratorConfig = null; 
 
+// Game config from server (includes verbose flag)
+let gameConfig = null;
+
 // Track demonstrators seen in current session
 let seenDemonstratorsThisSession = new Set();
 let lastSessionIndex = -1; // Track when session changes to reset demonstrator history
@@ -76,6 +79,13 @@ function generateUID() {
 // Generate a unique session ID
 function generateSessionID() {
   return 'sid_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+}
+
+// Verbose logging helper - only logs if verbose flag is set in config
+function verboseLog(...args) {
+  if (gameConfig && gameConfig.verbose) {
+    console.log(...args);
+  }
 }
 
 /*****************************************
@@ -187,12 +197,13 @@ async function fetchExperimentConfig() {
   try {
     const response = await fetch('api/config');
     const config = await response.json();
+    gameConfig = config; // Store full config including verbose flag
     experimentID = config.experiment_id;
     experimentConfigPath = config.experiment_config_path;
     displayRunningTotalReward = config.display_running_total_reward || false;
     demonstratorConfig = config.demonstrator_config || null;
     
-    console.log('Demonstrator config:', demonstratorConfig);
+    verboseLog('Demonstrator config:', demonstratorConfig);
   } catch (error) {
     console.error('Error fetching experiment config:', error);
     experimentID = 'unknown'; // fallback
@@ -1508,7 +1519,7 @@ function setupFeedback(stage) {
         feedback_text: feedbackText
       });
       
-      console.log('Feedback submitted successfully');
+      verboseLog('Feedback submitted successfully');
       
       // Hide the feedback overlay
       document.getElementById('feedback-form-overlay').style.visibility = 'hidden';
@@ -1891,6 +1902,11 @@ function setupPlayOrPractice(stage, isPractice) {
     return;
   }
   
+  // Log bandit payoffs for play/practice games
+  const flattenedPayoffs = bandit.flat();
+  verboseLog('Bandit payoffs:', flattenedPayoffs);
+  verboseLog('Demonstrator type: no demonstrator, this is a play game');
+  
   const num_arm_pulls = stage.num_arm_pulls;
   
   let numRows = bandit.length;
@@ -2179,7 +2195,10 @@ function setupWatch(stage) {
       ? demonstratorConfig.expert_demonstrator_experience 
       : demonstratorConfig.novice_demonstrator_experience;
     
-    console.log(`Generating ${demonstratorType} trajectory with ${experienceLevel} warmup iterations`);
+    // Log bandit payoffs and demonstrator information
+    verboseLog('Bandit payoffs:', flattenedPayoffs);
+    verboseLog('Demonstrator type:', demonstratorType);
+    verboseLog(`Generating ${demonstratorType} trajectory with ${experienceLevel} warmup iterations`);
     
     // Initialize Thompson sampler
     thompsonSampler = new ThompsonSampler(flattenedPayoffs.length, flattenedPayoffs);
@@ -2199,8 +2218,8 @@ function setupWatch(stage) {
     }
     
     trajectoryData = { trajectory, rewards };
-    console.log('Generated trajectory:', trajectory);
-    console.log('Generated rewards:', rewards);
+    verboseLog('Generated trajectory:', trajectory);
+    verboseLog('Generated rewards:', rewards);
   } else {
     // File mode: use pre-computed trajectory
     trajectory = demoData.demonstrator_trajectory;
@@ -2502,7 +2521,10 @@ function setupIndicate(stage) {
       ? demonstratorConfig.expert_demonstrator_experience 
       : demonstratorConfig.novice_demonstrator_experience;
     
-    console.log(`Generating ${demonstratorType} trajectory with ${experienceLevel} warmup iterations`);
+    // Log bandit payoffs and demonstrator information
+    verboseLog('Bandit payoffs:', flattenedPayoffs);
+    verboseLog('Demonstrator type:', demonstratorType);
+    verboseLog(`Generating ${demonstratorType} trajectory with ${experienceLevel} warmup iterations`);
     
     // Initialize Thompson sampler
     thompsonSampler = new ThompsonSampler(flattenedPayoffs.length, flattenedPayoffs);
@@ -2522,8 +2544,8 @@ function setupIndicate(stage) {
     }
     
     trajectoryData = { trajectory, rewards };
-    console.log('Generated trajectory:', trajectory);
-    console.log('Generated rewards:', rewards);
+    verboseLog('Generated trajectory:', trajectory);
+    verboseLog('Generated rewards:', rewards);
   } else {
     // File mode: use pre-computed trajectory
     trajectory = demoData.demonstrator_trajectory;
@@ -2959,8 +2981,8 @@ function setupChoice(stage) {
   }
   
   // Debug: Log demonstrator data
-  console.log("Choice demonstrator1:", demonstrator1);
-  console.log("Choice demonstrator2:", demonstrator2);
+  verboseLog("Choice demonstrator1:", demonstrator1);
+  verboseLog("Choice demonstrator2:", demonstrator2);
   
   // Prepare demonstrator mapped images and indices  
   const demonstratorMappedImages = [
@@ -2968,7 +2990,7 @@ function setupChoice(stage) {
     mapDemonstratorImage(demonstrator2.demonstrator_global_index, demonstrator2.demonstrator_style, demonstrator2.demonstrator_color)
   ];
   
-  console.log("Mapped demonstrator images:", demonstratorMappedImages);
+  verboseLog("Mapped demonstrator images:", demonstratorMappedImages);
   
   const demonstratorSessionIndices = [
     demonstrator1.demonstrator_session_index,
@@ -3832,7 +3854,10 @@ function setupOnlineChoicePhaseWatch(stage) {
       ? demonstratorConfig.expert_demonstrator_experience 
       : demonstratorConfig.novice_demonstrator_experience;
     
-    console.log(`Generating ${demonstratorType} trajectory with ${experienceLevel} warmup iterations`);
+    // Log bandit payoffs and demonstrator information
+    verboseLog('Bandit payoffs:', flattenedPayoffs);
+    verboseLog('Demonstrator type:', demonstratorType);
+    verboseLog(`Generating ${demonstratorType} trajectory with ${experienceLevel} warmup iterations`);
     
     // Initialize Thompson sampler
     thompsonSampler = new ThompsonSampler(flattenedPayoffs.length, flattenedPayoffs);
@@ -3852,8 +3877,8 @@ function setupOnlineChoicePhaseWatch(stage) {
     }
     
     trajectoryData = { trajectory, rewards };
-    console.log('Generated trajectory:', trajectory);
-    console.log('Generated rewards:', rewards);
+    verboseLog('Generated trajectory:', trajectory);
+    verboseLog('Generated rewards:', rewards);
   } else {
     // File mode: use pre-computed trajectory
     trajectory = demoData.demonstrator_trajectory;
