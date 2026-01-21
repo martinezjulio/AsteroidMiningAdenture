@@ -59,7 +59,7 @@ app.get('/api/config', (req, res) => {
 });
 
 // Concurrency management for timeline generation
-const MAX_CONCURRENT_GENERATIONS = 3; // Limit concurrent Python processes
+const MAX_CONCURRENT_GENERATIONS = 4; // Limit concurrent Python processes
 const GENERATION_QUEUE = [];
 let activeGenerations = 0;
 
