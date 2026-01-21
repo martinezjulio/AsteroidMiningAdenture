@@ -53,7 +53,8 @@ app.get('/api/config', (req, res) => {
         experiment_id,
         experiment_config_path,
         display_running_total_reward: config.display_running_total_reward || false,
-        demonstrator_config: config.demonstrator_config || null
+        demonstrator_config: config.demonstrator_config || null,
+        verbose: config.verbose || false
     });
 });
 
