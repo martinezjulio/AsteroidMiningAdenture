@@ -236,12 +236,17 @@ The inline mode uses Beta-Bernoulli Thompson sampling:
   3. Sample reward `r ~ Bernoulli(payoff[a])`
   4. Update: `alpha_a += r`, `beta_a += (1-r)`
 
-**Logged Data in Inline Mode:**
-- `demonstrator_all_actions`: JSON string array of all arm indices selected (e.g., `"[0,1,2,5,1,2,4,5,...]"`)
-- `demonstrator_all_rewards`: JSON string array of all rewards received (e.g., `"[1,0,0,1,1,1,0,1,...]"`)
-- These include both warmup iterations (not shown) and displayed iterations
-- Example: Expert with 72 warmup + 6 shown = 78 total entries
-- Take the final log entry for each watch stage to get the complete trajectory
+**Logged Data:**
+- `demonstrator_actions`: JSON string array of all arm indices selected (e.g., `"[0,1,2,5,1,2,4,5,...]"`)
+- `demonstrator_rewards`: JSON string array of all rewards received (e.g., `"[1,0,0,1,1,1,0,1,...]"`)
+- `demonstrator_source`: "inline" or "file" (indicates generation mode)
+- `demonstrator_experience`: Warmup iterations used (e.g., 128 for expert, 0 for novice)
+- `demonstrator_strategy`: Sampling strategy (e.g., "thompson")
+- `demonstrator_bandit_payoffs`: JSON array of payoffs used for generation
+- For inline mode: actions/rewards include both warmup iterations (not shown) and displayed iterations
+- For file mode: actions/rewards contain only the displayed trajectory
+- Example: Expert with 128 warmup + 6 shown = 134 total entries in inline mode
+- Look for `action: "trajectory_complete"` entries to get the complete trajectory data
 
 ### Example Configuration
 
@@ -782,13 +787,27 @@ The system logs the following variables for every user action:
 - `demonstrator_index`: Index for image mapping system
 - `demonstrator_type`: "expert", "novice", etc.
 - `demonstrator_id`: Unique demonstrator identifier
-- `demonstrator_trajectory`: Array of linear cell indices showing movement path
+- `demonstrator_actions`: JSON array of arm indices (e.g., `"[8,8,11,6,8,8]"`)
+- `demonstrator_rewards`: JSON array of rewards (e.g., `"[1,0,0,1,1,0]"`)
+- `demonstrator_source`: Generation mode - "inline" or "file"
+- `demonstrator_experience`: Warmup iterations (inline mode only, e.g., 128 for expert)
+- `demonstrator_strategy`: Sampling strategy (inline mode only, e.g., "thompson")
+- `demonstrator_bandit_payoffs`: JSON array of payoffs used (inline mode only)
 - `demonstrator_style`: Visual style assignment
 - `demonstrator_color`: Color assignment
 
+**Note:** For inline mode, actions/rewards include warmup + displayed. For file mode, only displayed trajectory.
+
+#### User Play Data
+- `play_actions`: JSON array of arm indices selected by user (e.g., `"[2,5,8,11,6,9]"`)
+- `play_rewards`: JSON array of rewards received by user (e.g., `"[1,0,1,1,0,1]"`)
+
+**Note:** These fields are only populated for play games and logged in the `trajectory_complete` action at the end of each play game.
+
 #### Zone Info
 - `zone_index`: Unique zone identifier
-- `zone_bandit`: 2D array of reward probabilities
+- `zone_bandit`: JSON string of flattened 2D array (e.g., `"[0.35,0.4,0.55,...]"`)
+- `zone_bandit_arm_image_ids`: JSON string array of image filenames (e.g., `"[\"asteroid_12.png\",\"asteroid_49.png\",...]"`)
 - `zone_bandit_id`: Identifier for payoff structure
 
 #### Tracking

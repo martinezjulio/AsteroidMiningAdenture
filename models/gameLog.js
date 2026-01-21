@@ -35,19 +35,28 @@ const gameLogSchema = new mongoose.Schema({
     demonstrator_type: { type: String, default: null },
     demonstrator_global_index: { type: Number, default: null },
     demonstrator_id: { type: String, default: null }, // Now stores the actual image filename
-    demonstrator_trajectory: { type: String, default: "" },
     
-    // Inline mode demonstrator data (only populated in inline mode)
-    demonstrator_all_actions: { type: String, default: null }, // JSON string of all actions including warmup
-    demonstrator_all_rewards: { type: String, default: null }, // JSON string of all rewards including warmup
+    // Demonstrator trajectory data (unified for both inline and file modes)
+    demonstrator_actions: { type: String, default: null }, // JSON array of arm indices
+    demonstrator_rewards: { type: String, default: null }, // JSON array of rewards (0 or 1)
+    
+    // Demonstrator configuration metadata
+    demonstrator_source: { type: String, default: null }, // "inline" or "file"
+    demonstrator_experience: { type: Number, default: null }, // Warmup iterations (inline mode only)
+    demonstrator_strategy: { type: String, default: null }, // "thompson" (inline mode only)
+    demonstrator_bandit_payoffs: { type: String, default: null }, // JSON array of payoffs used for inline generation
+    
+    // User play trajectory data (populated for play games only)
+    play_actions: { type: String, default: null }, // JSON array of arm indices selected by user
+    play_rewards: { type: String, default: null }, // JSON array of rewards received by user (0 or 1)
     
     // Zone info (updated field names and new fields)
     zone_global_index: { type: Number, required: true },
     zone_color: { type: String, default: null }, // Generated zone color
     zone_background: { type: String, default: null }, // Mapped background image filename
-    zone_bandit: { type: String, default: "" }, // Comma-separated bandit payoffs
+    zone_bandit: { type: String, default: null }, // JSON string of flattened bandit payoffs
     zone_bandit_id: { type: String, default: null },
-    zone_bandit_arm_image_ids: { type: String, default: "" }, // Comma-separated asteroid image filenames
+    zone_bandit_arm_image_ids: { type: String, default: null }, // JSON string array of asteroid image filenames
     
     // Choice-specific fields (null for non-choice games)
     choice_demonstrator_id: { type: String, default: null }, // Demonstrator image filename of chosen demonstrator

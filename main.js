@@ -249,31 +249,34 @@ async function logToMongoDB(action, additionalData = {}) {
     demonstrator_id: stage.demonstrator ? mapDemonstratorImage(stage.demonstrator.demonstrator_global_index, stage.demonstrator.demonstrator_style, stage.demonstrator.demonstrator_color) :
                     (stage.demonstrator1 && window.onlineChoiceSelectedDemo ? 
                      mapDemonstratorImage(window.onlineChoiceSelectedDemo.data.demonstrator_global_index, window.onlineChoiceSelectedDemo.data.demonstrator_style, window.onlineChoiceSelectedDemo.data.demonstrator_color) : null),
-    demonstrator_trajectory: stage.demonstrator ? (() => {
-                           const trajectory = stage.demonstrator.demonstrator_trajectory;
-                           return (trajectory && Array.isArray(trajectory)) ? trajectory.join(',') : "";
-                         })() : (stage.demonstrator1 && window.onlineChoiceSelectedDemo ? (() => {
-                           const trajectory = window.onlineChoiceSelectedDemo.data.demonstrator_trajectory;
-                           return (trajectory && Array.isArray(trajectory)) ? trajectory.join(',') : "";
-                         })() : ""),
     
-    // Inline mode demonstrator data (from additionalData if present)
-    demonstrator_all_actions: additionalData.demonstrator_all_actions || null,
-    demonstrator_all_rewards: additionalData.demonstrator_all_rewards || null,
+    // Demonstrator trajectory data (unified for both inline and file modes)
+    demonstrator_actions: additionalData.demonstrator_actions || null,
+    demonstrator_rewards: additionalData.demonstrator_rewards || null,
+    
+    // Demonstrator configuration metadata
+    demonstrator_source: additionalData.demonstrator_source || null,
+    demonstrator_experience: additionalData.demonstrator_experience || null,
+    demonstrator_strategy: additionalData.demonstrator_strategy || null,
+    demonstrator_bandit_payoffs: additionalData.demonstrator_bandit_payoffs || null,
+    
+    // User play trajectory data
+    play_actions: additionalData.play_actions || null,
+    play_rewards: additionalData.play_rewards || null,
     
     zone_global_index: stage.zone ? stage.zone.zone_global_index : 0,
     zone_color: stage.zone ? generateZoneColor(stage.zone.zone_global_index) : null,
     zone_background: stage.zone ? mapZoneBackground(stage.zone.zone_global_index) : null,
     zone_bandit: stage.zone ? (() => {
       const bandit = stage.zone.zone_bandit || stage.zone.bandit || [];
-      return Array.isArray(bandit) ? bandit.flat().join(',') : "";
-    })() : "",
+      return Array.isArray(bandit) ? JSON.stringify(bandit.flat()) : null;
+    })() : null,
     zone_bandit_id: stage.zone ? (stage.zone.bandit_id || null) : null,
     zone_bandit_arm_image_ids: stage.zone && stage.zone.zone_bandit_arm_image_indexes ? 
                                (() => {
                                  const images = mapZoneBanditArmImages(stage.zone.zone_global_index, stage.zone.zone_bandit_arm_image_indexes);
-                                 return Array.isArray(images) ? images.join(',') : "";
-                               })() : "",
+                                 return Array.isArray(images) ? JSON.stringify(images) : null;
+                               })() : null,
     choice_demonstrator_id: choiceDemonstratorId,
     choice_demonstrator_type: choiceDemonstratorType,
     refresh_count: refreshCount,
@@ -1944,6 +1947,7 @@ function setupPlayOrPractice(stage, isPractice) {
 
   // Reward tank
   let pullOutcomes = [];
+  let playActions = []; // Track cell indices for play games
   const tankX = gridOriginX + (totalGridWidth / 2);
   const tankY = gridBottomY + TANK_MARGIN_TOP;
   const rewardTankContainer = this.add.container(tankX, tankY);
@@ -2058,6 +2062,12 @@ function setupPlayOrPractice(stage, isPractice) {
     let payoff = bandit[row][col];
       let outcome = (Math.random() < payoff) ? 1 : 0;
       
+      // Track the cell index for trajectory logging (only for play games)
+      if (currentGameType === 'play') {
+        const cellIndex = row * numCols + col;
+        playActions.push(cellIndex);
+      }
+      
       // Log the shoot action BEFORE incrementing step
       currentShotsRemaining = pullsRemaining;
       logToMongoDB('shoot', {
@@ -2098,6 +2108,14 @@ function setupPlayOrPractice(stage, isPractice) {
         drawRewardTank.call(scene, rewardTankContainer, num_arm_pulls, pullOutcomes);
 
       if (pullsRemaining <= 0) {
+          // Log complete trajectory for play games
+          if (currentGameType === 'play') {
+            logToMongoDB('trajectory_complete', {
+              play_actions: JSON.stringify(playActions),
+              play_rewards: JSON.stringify(pullOutcomes)
+            });
+          }
+          
           makeNextButton.call(scene, "Next", () => {
             nextStage.call(scene);
         }, "overlay");
@@ -2454,13 +2472,32 @@ function setupWatch(stage) {
 
                   currentStep++;
                   
-                  // After the last step, log complete trajectory data if in inline mode
-                  if (currentStep >= totalSteps && isInlineMode && thompsonSampler) {
-                    // Log all actions and rewards to MongoDB
-                    logToMongoDB('trajectory_complete', {
-                      demonstrator_all_actions: JSON.stringify(thompsonSampler.allActions),
-                      demonstrator_all_rewards: JSON.stringify(thompsonSampler.allRewards)
-                    });
+                  // After the last step, log complete trajectory data
+                  if (currentStep >= totalSteps) {
+                    if (isInlineMode && thompsonSampler) {
+                      // Inline mode: log with config metadata
+                      const demonstratorType = demoData.demonstrator_type;
+                      logToMongoDB('trajectory_complete', {
+                        demonstrator_actions: JSON.stringify(thompsonSampler.allActions),
+                        demonstrator_rewards: JSON.stringify(thompsonSampler.allRewards),
+                        demonstrator_source: demonstratorConfig.source,
+                        demonstrator_experience: demonstratorType === 'expert' 
+                          ? demonstratorConfig.expert_demonstrator_experience 
+                          : demonstratorConfig.novice_demonstrator_experience,
+                        demonstrator_strategy: demonstratorConfig.demonstrator_sampling_strategy,
+                        demonstrator_bandit_payoffs: JSON.stringify(demonstratorConfig.bandit_payoffs)
+                      });
+                    } else if (!isInlineMode) {
+                      // File mode: log displayed trajectory only
+                      logToMongoDB('trajectory_complete', {
+                        demonstrator_actions: JSON.stringify(trajectory),
+                        demonstrator_rewards: trajectoryData && trajectoryData.rewards ? JSON.stringify(trajectoryData.rewards) : null,
+                        demonstrator_source: 'file',
+                        demonstrator_experience: null,
+                        demonstrator_strategy: null,
+                        demonstrator_bandit_payoffs: null
+                      });
+                    }
                   }
                   
                   moveAlongTrajectoryStep.call(this);
@@ -2777,13 +2814,32 @@ function setupIndicate(stage) {
 
                   currentStep++;
                   
-                  // After the last step, log complete trajectory data if in inline mode
-                  if (currentStep >= totalSteps && isInlineMode && thompsonSampler) {
-                    // Log all actions and rewards to MongoDB
-                    logToMongoDB('trajectory_complete', {
-                      demonstrator_all_actions: JSON.stringify(thompsonSampler.allActions),
-                      demonstrator_all_rewards: JSON.stringify(thompsonSampler.allRewards)
-                    });
+                  // After the last step, log complete trajectory data
+                  if (currentStep >= totalSteps) {
+                    if (isInlineMode && thompsonSampler) {
+                      // Inline mode: log with config metadata
+                      const demonstratorType = demoData.demonstrator_type;
+                      logToMongoDB('trajectory_complete', {
+                        demonstrator_actions: JSON.stringify(thompsonSampler.allActions),
+                        demonstrator_rewards: JSON.stringify(thompsonSampler.allRewards),
+                        demonstrator_source: demonstratorConfig.source,
+                        demonstrator_experience: demonstratorType === 'expert' 
+                          ? demonstratorConfig.expert_demonstrator_experience 
+                          : demonstratorConfig.novice_demonstrator_experience,
+                        demonstrator_strategy: demonstratorConfig.demonstrator_sampling_strategy,
+                        demonstrator_bandit_payoffs: JSON.stringify(demonstratorConfig.bandit_payoffs)
+                      });
+                    } else if (!isInlineMode) {
+                      // File mode: log displayed trajectory only
+                      logToMongoDB('trajectory_complete', {
+                        demonstrator_actions: JSON.stringify(trajectory),
+                        demonstrator_rewards: trajectoryData && trajectoryData.rewards ? JSON.stringify(trajectoryData.rewards) : null,
+                        demonstrator_source: 'file',
+                        demonstrator_experience: null,
+                        demonstrator_strategy: null,
+                        demonstrator_bandit_payoffs: null
+                      });
+                    }
                   }
                   
                   moveAlongTrajectoryStep.call(this);
@@ -4092,13 +4148,32 @@ function setupOnlineChoicePhaseWatch(stage) {
 
                   currentStep++;
                   
-                  // After the last step, log complete trajectory data if in inline mode
-                  if (currentStep >= totalSteps && isInlineMode && thompsonSampler) {
-                    // Log all actions and rewards to MongoDB
-                    logToMongoDB('trajectory_complete', {
-                      demonstrator_all_actions: JSON.stringify(thompsonSampler.allActions),
-                      demonstrator_all_rewards: JSON.stringify(thompsonSampler.allRewards)
-                    });
+                  // After the last step, log complete trajectory data
+                  if (currentStep >= totalSteps) {
+                    if (isInlineMode && thompsonSampler) {
+                      // Inline mode: log with config metadata
+                      const demonstratorType = demoData.demonstrator_type;
+                      logToMongoDB('trajectory_complete', {
+                        demonstrator_actions: JSON.stringify(thompsonSampler.allActions),
+                        demonstrator_rewards: JSON.stringify(thompsonSampler.allRewards),
+                        demonstrator_source: demonstratorConfig.source,
+                        demonstrator_experience: demonstratorType === 'expert' 
+                          ? demonstratorConfig.expert_demonstrator_experience 
+                          : demonstratorConfig.novice_demonstrator_experience,
+                        demonstrator_strategy: demonstratorConfig.demonstrator_sampling_strategy,
+                        demonstrator_bandit_payoffs: JSON.stringify(demonstratorConfig.bandit_payoffs)
+                      });
+                    } else if (!isInlineMode) {
+                      // File mode: log displayed trajectory only
+                      logToMongoDB('trajectory_complete', {
+                        demonstrator_actions: JSON.stringify(trajectory),
+                        demonstrator_rewards: trajectoryData && trajectoryData.rewards ? JSON.stringify(trajectoryData.rewards) : null,
+                        demonstrator_source: 'file',
+                        demonstrator_experience: null,
+                        demonstrator_strategy: null,
+                        demonstrator_bandit_payoffs: null
+                      });
+                    }
                   }
                   
                   moveAlongTrajectoryStep.call(currentScene);
