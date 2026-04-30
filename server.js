@@ -6,14 +6,15 @@ const mongoose = require('mongoose');
 const GameLog = require('./models/gameLog'); // Import the model
 const app = express();
 
-// INTERNAL NOTE (for stanford-cogsci.org deployment):
-// If you change this port, also update Apache proxy configuration at:
-// /etc/apache2/sites-available/000-default.conf (ProxyPass line for /~julio/asteroidgame)
-// Other deployments may have different proxy configurations
 const PORT = process.env.PORT || 8080;
 const isProduction = process.env.NODE_ENV === 'production';
 const host = isProduction ? '0.0.0.0' : 'localhost';
-let mongoDBUri;
+
+const mongoDBUri = process.env.MONGODB_URI;
+if (!mongoDBUri) {
+    console.error('MONGODB_URI env var is required (e.g. mongodb://localhost:27017/AMGDB for local dev)');
+    process.exit(1);
+}
 
 // Middleware
 app.use(express.json());
@@ -26,16 +27,6 @@ const experiment_config_path = config.experiment_config;
 const experiment_id = experiment_config_path.split('/').pop(); // Gets "timeline_june_09_2025.json"
 console.log('Experiment config path:', experiment_config_path);
 console.log('Experiment ID:', experiment_id);
-
-if (isProduction) {
-    // On server, read MongoDB credentials from mongo_auth.json
-    let raw_data = fs.readFileSync('mongo_auth.json');
-    let auth = JSON.parse(raw_data);
-    mongoDBUri = `mongodb://${auth.user}:${auth.password}@127.0.0.1:27017/AMGDB?authSource=admin`;
-} else {
-    // Locally, connect to MongoDB without credentials
-    mongoDBUri = 'mongodb://localhost:27017/AMGDB';
-}
 
 // MongoDB
 mongoose.connect(mongoDBUri)

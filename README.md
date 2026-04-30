@@ -22,89 +22,93 @@ npm install
 
 ### Running the Game
 
+The server reads its MongoDB connection string from the `MONGODB_URI` environment variable (required — the server exits if it's unset).
+
 #### Development Mode (Local)
 ```bash
+# Start a local MongoDB
+brew services start mongodb-community   # macOS
+# sudo systemctl start mongod           # Linux
+# net start MongoDB                     # Windows
+
+# Point the app at it
+export MONGODB_URI='mongodb://localhost:27017/AMGDB'
+
 # Start with auto-restart on file changes
 npm run dev
 
 # Or start normally
 npm start
 ```
-- Game accessible at: `http://localhost:8080`
-- Connects to local MongoDB: `mongodb://localhost:27017/AMGDB`
-- No authentication required
-
-#### Production Mode
-```bash
-# 1. Set up MongoDB credentials
-cp mongo_auth.json.example mongo_auth.json
-# Edit mongo_auth.json with your MongoDB username/password
-
-# 2. Set environment variable
-export NODE_ENV=production
-
-# 3. Start the server
-npm start
-```
+Game accessible at `http://localhost:8080`.
 
 #### Custom Port
 ```bash
-# Set custom port (default is 8080)
-PORT=3000 npm start
-
-# Or for production
-PORT=3000 NODE_ENV=production npm start
+PORT=3000 MONGODB_URI='mongodb://localhost:27017/AMGDB' npm start
 ```
 
-#### Apache Reverse Proxy Configuration (Production Setup)
+#### Production Deployment
 
-For production deployment on stanford-cogsci.org, the game is accessible via Apache reverse proxy:
+The recommended production deployment is **Google Cloud Run + MongoDB Atlas** — see [Deploying to Cloud Run + Atlas](#deploying-to-cloud-run--atlas) below.
 
-**Public URL:** `https://stanford-cogsci.org/~julio/asteroidgame/`  
-**Internal Port:** `8080` (proxied by Apache)
+If you prefer a self-hosted VM, just export `MONGODB_URI` (and `NODE_ENV=production` to bind on `0.0.0.0`) before running `npm start`. Front it with whatever reverse proxy you like.
 
-**Apache Configuration Location:** `/etc/apache2/sites-available/000-default.conf`
+## Deploying to Cloud Run + Atlas
 
-```apache
-# Proxy for Asteroid Mining Game
-# NOTE: This must match the port in server.js (currently 8080)
-<Location /~julio/asteroidgame>
-    ProxyPass http://localhost:8080/
-    ProxyPassReverse http://localhost:8080/
-</Location>
-```
+The repo ships with a `Dockerfile` and `.dockerignore` for Google Cloud Run.
 
-**If you change the port:**
-1. Update `PORT` in `server.js` (or set `PORT` environment variable)
-2. Update the `ProxyPass` directives in Apache configuration
-3. Reload Apache: `sudo systemctl reload apache2`
-4. Restart your Node.js application
+### One-time setup
 
-**Note:** This configuration is specific to the stanford-cogsci.org deployment. Other deployments may use different web servers or proxy configurations.
+1. **MongoDB Atlas** (cloud.mongodb.com)
+   - Create a free **M0** cluster.
+   - **Database Access** → add a user with `readWrite` on database `AMGDB`.
+   - **Network Access** → allow `0.0.0.0/0` (Cloud Run egresses from a dynamic IP pool unless a Serverless VPC connector is configured).
+   - Grab the SRV connection string and substitute the password and database:
+     `mongodb+srv://USER:PASSWORD@CLUSTER.mongodb.net/AMGDB?retryWrites=true&w=majority`
 
-### MongoDB Setup
+2. **Google Cloud project** — pick or create one and link a billing account (Cloud Run free tier still applies; billing is required to enable APIs).
 
-#### Local Development
+### Deploy
+
 ```bash
-# macOS (Homebrew)
-brew services start mongodb-community
+# 1. Project + APIs (one-time)
+gcloud config set project YOUR_PROJECT_ID
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
+    artifactregistry.googleapis.com secretmanager.googleapis.com
 
-# Ubuntu/Linux
-sudo systemctl start mongod
+# 2. Store the Atlas URI in Secret Manager (one-time)
+printf '%s' 'mongodb+srv://USER:PASSWORD@CLUSTER.mongodb.net/AMGDB?...' \
+  | gcloud secrets create MONGODB_URI --data-file=- --replication-policy=automatic
 
-# Windows
-net start MongoDB
+# Grant the default Cloud Run service account read access
+PROJECT_NUMBER=$(gcloud projects describe $(gcloud config get-value project) --format='value(projectNumber)')
+gcloud secrets add-iam-policy-binding MONGODB_URI \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+
+# 3. Deploy (idempotent — re-run to push updates)
+gcloud run deploy asteroid-mining-game \
+  --source . \
+  --region us-east4 \
+  --allow-unauthenticated \
+  --memory 1Gi \
+  --cpu 1 \
+  --concurrency 8 \
+  --timeout 60 \
+  --min-instances 0 \
+  --max-instances 4 \
+  --set-secrets MONGODB_URI=MONGODB_URI:latest
 ```
 
-#### Production
-1. Create `mongo_auth.json`:
-   ```json
-   {
-       "user": "your_mongodb_username",
-       "password": "your_mongodb_password"
-   }
-   ```
-2. Ensure MongoDB is running with authentication enabled
+Pick a Cloud Run region close to your Atlas region — `us-east4` (Virginia) co-locates with Atlas AWS `us-east-1`.
+
+### Updating the Atlas password later
+
+```bash
+printf '%s' 'mongodb+srv://NEW_URI...' \
+  | gcloud secrets versions add MONGODB_URI --data-file=-
+```
+Cloud Run picks up the new version on the next request because the deploy uses `MONGODB_URI:latest`.
 
 ## Game Configuration
 
@@ -842,7 +846,7 @@ When `textbox_feedback: true` is enabled, feedback data is collected in the main
 
 ### Security Note
 
-Keep `mongo_auth.json` secure and never commit it to version control. It should be added to your `.gitignore` file.
+Never commit MongoDB connection strings to version control. Use environment variables locally and Secret Manager (or equivalent) in production.
 
 ## API Endpoints Reference
 
