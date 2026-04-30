@@ -18,6 +18,8 @@ configs/timeline_*.json
 
 notes.md
 test_concurrency.js
+deploy.sh
+deploy.example.sh
 
 timeline_models/__pycache__
 **/__pycache__
