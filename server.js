@@ -38,6 +38,34 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
+// Build asset manifest once at startup so the client gets directory listings
+// in a single request instead of probing each filename sequentially.
+const ASSET_DIRS = {
+    landscapes: 'assets/landscapes',
+    zone_backgrounds: 'assets/zone_backgrounds',
+    asteroids: 'assets/asteroids'
+};
+const assetManifest = {};
+for (const [key, dir] of Object.entries(ASSET_DIRS)) {
+    try {
+        assetManifest[key] = fs.readdirSync(path.join(__dirname, dir))
+            .filter(f => f.endsWith('.png'))
+            .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    } catch (err) {
+        console.warn(`Could not read ${dir}:`, err.message);
+        assetManifest[key] = [];
+    }
+}
+console.log(
+    `Asset manifest: ${assetManifest.landscapes.length} landscapes, ` +
+    `${assetManifest.zone_backgrounds.length} zone backgrounds, ` +
+    `${assetManifest.asteroids.length} asteroids`
+);
+
+app.get('/api/asset-manifest', (req, res) => {
+    res.json(assetManifest);
+});
+
 // Endpoint to get experiment config
 app.get('/api/config', (req, res) => {
     res.json({ 

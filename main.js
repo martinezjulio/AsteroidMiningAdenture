@@ -744,29 +744,37 @@ async function initializeImageMappings() {
       }
     }
     
-    // Note: We no longer need to discover demonstrator images from the old location
-    // since we're using the style/color system
-    
-    // Discover and map landscape images
-    const landscapeImages = await discoverAvailableImages('assets/landscapes', 'landscape_', '.png');
+    // Fetch all asset listings in one round-trip instead of probing each filename.
+    // Falls back to the old per-file discovery if the manifest endpoint isn't available
+    // (e.g. running against an older server build).
+    let manifest = null;
+    try {
+      const resp = await fetch('api/asset-manifest');
+      if (resp.ok) manifest = await resp.json();
+    } catch (e) {
+      console.warn('asset-manifest fetch failed, falling back to discovery:', e);
+    }
+
+    const landscapeImages = manifest?.landscapes
+      ?? await discoverAvailableImages('assets/landscapes', 'landscape_', '.png');
     if (landscapeImages.length > 0) {
       landscapeImageMapping = createRandomMapping(landscapeImages);
     } else {
       console.warn('No landscape images found, using minimal fallback');
       landscapeImageMapping = { 0: 'landscape_00.png' };
     }
-    
-    // Discover and map zone background images
-    const zoneBackgroundImages = await discoverAvailableImages('assets/zone_backgrounds', 'zone_', '.png');
+
+    const zoneBackgroundImages = manifest?.zone_backgrounds
+      ?? await discoverAvailableImages('assets/zone_backgrounds', 'zone_', '.png');
     if (zoneBackgroundImages.length > 0) {
       zoneBackgroundImageMapping = createRandomMapping(zoneBackgroundImages);
     } else {
       console.warn('No zone background images found, using minimal fallback');
       zoneBackgroundImageMapping = { 0: 'zone_00.png' };
     }
-    
-    // Discover and map asteroid images
-    const asteroidImages = await discoverAvailableImages('assets/asteroids', 'asteroid_', '.png');
+
+    const asteroidImages = manifest?.asteroids
+      ?? await discoverAvailableImages('assets/asteroids', 'asteroid_', '.png');
     if (asteroidImages.length > 0) {
       // Create mapping for discovered images
       const discoveredMapping = createRandomMapping(asteroidImages);
