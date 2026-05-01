@@ -16,7 +16,7 @@ cd timeline_models && python3 models.py <request_id> '<demonstrator_config_json>
 
 The Python timeline generator has no `requirements.txt` — it uses only stdlib (`json`, `random`, `colorsys`, `itertools`, `typing`). Any Python 3 in `PATH` works; the server probes `python3` → `python` → `py` in order.
 
-`NODE_ENV=production` switches MongoDB connection from `mongodb://localhost:27017/AMGDB` (no auth) to a credentialed URI built from `mongo_auth.json` (gitignored). The same env var also binds the listener to `0.0.0.0` instead of `localhost`.
+`MONGODB_URI` is required — the server exits at startup if it's missing. For local dev, set it to `mongodb://localhost:27017/AMGDB`; in production (Cloud Run) it's injected from the `MONGODB_URI` Secret Manager secret pointing at MongoDB Atlas. `NODE_ENV=production` only affects the listener host (`0.0.0.0` instead of `localhost`).
 
 ## Architecture
 
@@ -46,12 +46,12 @@ When adding logged fields, update the schema in `models/gameLog.js` — Mongoose
 
 ### Stage dispatch (`stage_type` vs `game`)
 
-The timeline mixes two stage shapes; the dispatcher in `loadStage()` (main.js ~1180) reads `stage.stage_type || stage.game`:
+The timeline mixes two stage shapes; the dispatcher in `loadStage()` (main.js ~1061) reads `stage.stage_type || stage.game`:
 
 - **Meta stages** use `stage_type`: `prolific_id_form`, `introduction`, `instructions`, `feedback`, `demonstrator_presentation`. No `game_index`/`session_index`.
 - **Game stages** use `game`: `practice`, `play`, `watch`, `choice`, `online-choice`, `blind`, `indicate`. Carry full `game_index`/`stage_index`/`session_index`/`round_index`.
 
-Adding a new stage means: extend the `gameLog.js` enum, write a `setup<Type>(stage)` function, add a `case` to `loadStage()`, and add a button label in `makeNextButton()` (~main.js 4857).
+Adding a new stage means: extend the `gameLog.js` enum, write a `setup<Type>(stage)` function, add a `case` to `loadStage()`, and add a button label in `makeNextButton()` (~main.js 4743).
 
 ### Demonstrator visual identity
 
@@ -71,6 +71,8 @@ The `online-choice` game type is one stage in the timeline but logs as **two** g
 - `present_demonstrators_apriori`: prepends a `demonstrator_presentation` meta stage to each session (changes the intro overlay text in `models.py`, see `is_first_game` branch).
 - `verbose`: surfaced to client via `/api/config` and gates `verboseLog()` in main.js.
 
-## Deployment note
+## Deployment
 
-Production is fronted by Apache at `https://stanford-cogsci.org/~julio/asteroidgame/` proxying to localhost:8080. If you change `PORT` in `server.js`, also update `/etc/apache2/sites-available/000-default.conf` (`ProxyPass` line) and reload Apache. This is documented inline at the top of `server.js`.
+Production runs on **Google Cloud Run**, built from the `Dockerfile` (Node 20-slim + python3, `NODE_ENV=production`, `PORT=8080`). MongoDB is **Atlas**, with the connection string stored in Secret Manager as `MONGODB_URI` and bound to the service via `--set-secrets MONGODB_URI=MONGODB_URI:latest`.
+
+Redeploy with `./deploy.sh` (wraps `gcloud run deploy --source . --region <REGION>`). Flags from the first-time deploy — memory, cpu, concurrency, timeout, min/max-instances, allow-unauthenticated, set-secrets — persist across revisions, so subsequent deploys only need `--source` and `--region`. Override at runtime by passing extra args, e.g. `./deploy.sh --memory 2Gi` or `./deploy.sh --no-traffic`. `deploy.example.sh` is a template documenting the one-off first-time setup (enabling APIs, creating the `MONGODB_URI` secret, the initial `gcloud run deploy` with all the persistent flags).
