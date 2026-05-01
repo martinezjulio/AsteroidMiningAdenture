@@ -1,0 +1,80 @@
+# Pilot configuration — the configuration used for the initial pilot study.
+# DO NOT modify the values below without intent: this file is the canonical
+# baseline that pilot participants experienced. To experiment with changes,
+# copy this file to a new name (e.g. experiment_a.yaml) and switch
+# ACTIVE_CONFIG in .env to point at the copy. See CONFIG.md for full field docs.
+
+# Path-string label for the timeline configuration. Only the basename is
+# extracted and stored as `experiment_id` in MongoDB logs (used for run
+# identification). Convention: for new configs, set this to the YAML's own
+# filename (e.g. "configs/experiment_a.yaml"). The pilot value is preserved
+# verbatim to maintain log continuity with existing pilot data.
+experiment_config: configs/timeline.json
+
+# When true, suppresses the "Some starships have experience in every zone..."
+# overlay text in intro and watch transitions. Read by Python (models.py).
+omit_explicit_experience_transfer_message: true
+
+# "session_fixed" → all rounds in a session use the same zone.
+# "round_changing" → each round in a session gets a fresh zone.
+bandit_assignment_mode: round_changing
+
+# When true, inserts a free-text feedback stage after each choice stage.
+# Responses are logged to MongoDB.
+textbox_feedback: true
+
+# "all" → all 4 demonstrator-type combos per round-set (EE/EN/NE/NN).
+# "different" → only mixed pairs (EN, NE). Any other value raises ValueError.
+session_demonstrators: different
+
+# Float in (0, ∞). <1 keeps that fraction of generated sessions; >=1 keeps all.
+prop_of_sessions: 1
+
+# When true, demonstrators get one of 36 starship names assigned in Python
+# and surfaced in the timeline JSON.
+name_demonstrators: true
+
+# When true, prepends a "demonstrator_presentation" meta stage to each session
+# showing both demonstrators' style/color before gameplay begins.
+present_demonstrators_apriori: true
+
+# When true, shows "TOTAL REWARD: N" text in the reward tank during play
+# stages (purely cosmetic; does not affect game mechanics).
+display_running_total_reward: true
+
+# When true, gates verbose console.log() calls in main.js (browser-only).
+# Does not affect timeline generation, gameplay, or MongoDB logging.
+verbose: false
+
+# Trajectory generation config for demonstrator behavior in watch stages.
+demonstrator_config:
+  # "inline" → trajectories generated in JS at watch time using bandit_payoffs.
+  # "file"   → pre-computed trajectories loaded from timeline_models/bandits_data.json.
+  source: inline
+
+  # Bandit arm reward probabilities in [0, 1]. Required when source=inline.
+  # Permuted per zone; passed to Thompson sampler. 12 elements = 12 asteroid cells.
+  bandit_payoffs:
+    - 0
+    - 0.1
+    - 0.2
+    - 0.3
+    - 0.35
+    - 0.4
+    - 0.45
+    - 0.5
+    - 0.55
+    - 0.6
+    - 0.75
+    - 0.8
+
+  # Invisible warmup iterations the expert demonstrator's Thompson sampler runs
+  # before the visible trajectory begins. Higher = more "learned" expert.
+  expert_demonstrator_experience: 128
+
+  # Same as above, for novice demonstrators. Typically 0 for raw exploration.
+  novice_demonstrator_experience: 0
+
+  # Logged to MongoDB for analysis. Behavior is hardcoded to Thompson regardless
+  # of this value (informational only).
+  demonstrator_sampling_strategy: thompson

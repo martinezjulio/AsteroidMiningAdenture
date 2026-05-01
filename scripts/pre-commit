@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Pre-commit hook: keeps config.json in sync with configs/<ACTIVE_CONFIG>.
+#
+# Install with:
+#   ln -sf ../../scripts/pre-commit .git/hooks/pre-commit
+#
+# Logic:
+#   - Skip if there is no .env (not a dev machine, or a CI checkout).
+#   - Otherwise run `npm run build-config`.
+#   - Fail the commit if config.json was modified by the rebuild but not staged,
+#     OR if the rebuild produced an unstaged diff anywhere — both mean the
+#     committed YAML and committed config.json would drift.
+
+set -e
+
+if [[ ! -f .env ]]; then
+    exit 0
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+    echo "pre-commit: node not found, skipping config rebuild" >&2
+    exit 0
+fi
+
+npm run build-config --silent >/dev/null
+
+if ! git diff --quiet --exit-code config.json; then
+    echo "pre-commit: config.json is out of sync with configs/\$ACTIVE_CONFIG." >&2
+    echo "  Run 'npm run build-config' and stage config.json before committing." >&2
+    git --no-pager diff config.json | head -40 >&2
+    exit 1
+fi

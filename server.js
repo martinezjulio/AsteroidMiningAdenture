@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
@@ -84,23 +85,22 @@ let activeGenerations = 0;
 
 // Cleanup old timeline backup files on startup
 function cleanupOldBackupFiles() {
-    const configsDir = path.join(__dirname, 'configs');
+    const timelinesDir = path.join(__dirname, 'timelines');
     const oneHourAgo = Date.now() - (60 * 60 * 1000); // 1 hour ago
-    
+
     try {
-        // Create configs directory if it doesn't exist
-        if (!fs.existsSync(configsDir)) {
-            fs.mkdirSync(configsDir, { recursive: true });
-            console.log('📁 Created configs directory');
+        if (!fs.existsSync(timelinesDir)) {
+            fs.mkdirSync(timelinesDir, { recursive: true });
+            console.log('📁 Created timelines directory');
             return;
         }
-        
-        const files = fs.readdirSync(configsDir);
+
+        const files = fs.readdirSync(timelinesDir);
         let cleanedCount = 0;
         
         files.forEach(file => {
             if (file.startsWith('timeline_') && file.endsWith('.json') && file !== 'timeline.json') {
-                const filePath = path.join(configsDir, file);
+                const filePath = path.join(timelinesDir, file);
                 const stats = fs.statSync(filePath);
                 
                 if (stats.mtime.getTime() < oneHourAgo) {

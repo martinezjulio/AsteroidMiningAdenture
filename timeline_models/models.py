@@ -669,7 +669,7 @@ if __name__ == "__main__":
     
     # Also save to file for backup/debugging with unique filename
     try:
-        backup_filename = f'../configs/timeline_{request_id}.json'
+        backup_filename = f'../timelines/timeline_{request_id}.json'
         with open(backup_filename, 'w') as f: 
             json.dump(tl, f, indent=4)
     except Exception as e:

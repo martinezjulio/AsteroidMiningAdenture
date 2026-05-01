@@ -12,6 +12,16 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+# Regenerate config.json from the YAML named by .env's ACTIVE_CONFIG.
+# This makes .env canonical for production: whoever runs ./deploy.sh ships
+# the config their local .env points to, not whatever happens to be committed.
+if [[ ! -f .env ]]; then
+    echo "Error: .env not found. Copy .env.example to .env and set ACTIVE_CONFIG before deploying." >&2
+    exit 1
+fi
+echo "Regenerating config.json from configs/\$ACTIVE_CONFIG (per .env)..."
+npm run build-config
+
 PROJECT="julios-personal-compute"
 SERVICE="asteroid-mining-game"
 REGION="us-east4"

@@ -31,8 +31,11 @@ brew services start mongodb-community   # macOS
 # sudo systemctl start mongod           # Linux
 # net start MongoDB                     # Windows
 
-# Point the app at it
-export MONGODB_URI='mongodb://localhost:27017/AMGDB'
+# One-time setup: copy .env.example to .env (provides ACTIVE_CONFIG, MONGODB_URI, PORT)
+cp .env.example .env
+
+# Build config.json from configs/<ACTIVE_CONFIG> (the YAML named in .env)
+npm run build-config
 
 # Start with auto-restart on file changes
 npm run dev
@@ -42,10 +45,7 @@ npm start
 ```
 Game accessible at `http://localhost:8080`.
 
-#### Custom Port
-```bash
-PORT=3000 MONGODB_URI='mongodb://localhost:27017/AMGDB' npm start
-```
+`MONGODB_URI` and `PORT` are loaded from `.env` automatically. Shell-level env vars still take precedence (e.g. `PORT=3000 npm start` overrides the `.env` value).
 
 #### Production Deployment
 
@@ -112,187 +112,9 @@ Cloud Run picks up the new version on the next request because the deploy uses `
 
 ## Game Configuration
 
-The game behavior is controlled through the `config.json` file in the root directory. This file allows you to customize experimental parameters without modifying the code.
+Game behavior is driven by a YAML config in `configs/`. The YAML named by `.env`'s `ACTIVE_CONFIG` is compiled to `config.json` (the runtime artifact loaded by the server) via `npm run build-config`. **See [CONFIG.md](./CONFIG.md) for the field-by-field reference** — every accepted value, default, and read-site is documented there. The pilot baseline lives in `configs/pilot.yaml`.
 
-### Configuration Options
-
-#### `experiment_config`
-- **Type**: `string`
-- **Default**: `"configs/timeline.json"`
-- **Description**: Path to the timeline configuration file (currently used for fallback scenarios)
-
-#### `bandit_assignment_mode`
-- **Type**: `string`
-- **Default**: `"session_fixed"`
-- **Options**:
-  - `"session_fixed"`: All rounds within a session use the same bandit (same reward structure)
-  - `"round_changing"`: Each round within a session uses a different bandit (different reward structure)
-
-#### `textbox_feedback`
-- **Type**: `boolean`
-- **Default**: `false`
-- **Description**: Controls the end-game experience
-- **Options**:
-  - `false`: Show direct Prolific redirect button (original behavior)
-  - `true`: Show feedback form asking about partner choice before Prolific redirect
-
-#### `session_demonstrators`
-- **Type**: `string`
-- **Default**: `"all"`
-- **Options**:
-  - `"all"`: Generates all 4 combinations (Expert+Expert, Expert+Novice, Novice+Expert, Novice+Novice)
-  - `"different"`: Generates only sessions where demonstrators have different types (Expert+Novice, Novice+Expert)
-
-#### `prop_of_sessions`
-- **Type**: `number` (float between 0.0 and 1.0+)
-- **Default**: `0.5`
-- **Description**: Proportion of generated sessions to include in the timeline
-  - `1.0`: Use ALL generated sessions
-  - `0.5`: Use HALF of the generated sessions (randomly selected)
-  - `0.25`: Use QUARTER of the sessions
-  - Values ≥ 1.0 will keep all sessions
-  - Always keeps at least 1 session minimum
-
-#### `omit_explicit_experience_transfer_message`
-- **Type**: `boolean`
-- **Default**: `false`
-- **Description**: Controls whether to display explicit messages about demonstrators' experience levels
-  - `true`: Omits experience transfer messages from intro and watch transitions
-  - `false`: Includes explicit experience transfer messages (default behavior)
-
-#### `name_demonstrators`
-- **Type**: `boolean`
-- **Default**: `false`
-- **Description**: Whether to assign names to demonstrators
-
-#### `present_demonstrators_apriori`
-- **Type**: `boolean`
-- **Default**: `false`
-- **Description**: Whether to present demonstrators before gameplay begins
-
-#### `display_running_total_reward`
-- **Type**: `boolean`
-- **Default**: `false`
-- **Description**: Whether to display a running total of rewards during gameplay
-
-#### `demonstrator_config`
-- **Type**: `object`
-- **Default**: `null` (uses file mode with default settings)
-- **Description**: Controls how demonstrator trajectories are generated
-
-The `demonstrator_config` option determines whether demonstrator trajectories are loaded from a pre-computed file or generated in real-time using Thompson sampling.
-
-**File Mode (Pre-computed Trajectories):**
-```json
-{
-  "demonstrator_config": {
-    "source": "file",
-    "filename": "bandits_data.json"
-  }
-}
-```
-- Trajectories are loaded from the specified file in `timeline_models/`
-- File must contain pre-computed Thompson sampling trajectories
-- Each demonstrator follows a pre-defined path
-- Reward outcomes are sampled randomly during gameplay
-- This is the traditional mode used when `demonstrator_config` is not specified
-
-**Inline Mode (Real-time Generation):**
-```json
-{
-  "demonstrator_config": {
-    "source": "inline",
-    "bandit_payoffs": [0.0, 0.1, 0.2, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.75, 0.8],
-    "expert_demonstrator_experience": 72,
-    "novice_demonstrator_experience": 0,
-    "demonstrator_sampling_strategy": "thompson"
-  }
-}
-```
-
-**Inline Mode Parameters:**
-- `bandit_payoffs`: Sorted list of reward probabilities (one per arm/asteroid)
-- `expert_demonstrator_experience`: Number of warmup iterations for expert demonstrators (e.g., 72)
-- `novice_demonstrator_experience`: Number of warmup iterations for novice demonstrators (e.g., 0)
-- `demonstrator_sampling_strategy`: Algorithm to use (currently only "thompson" is supported)
-
-**How Inline Mode Works:**
-1. Each zone's bandit is a random permutation of `bandit_payoffs`
-2. When a watch stage starts, a Thompson sampler is initialized with alpha=1, beta=1 for all arms
-3. Warmup iterations run invisibly (0 for novice, 72 for expert)
-4. Then the trajectory is shown to the user, continuing from the current alpha/beta state
-5. Rewards shown to the user ARE the rewards that influence the demonstrator's next action
-6. All actions and rewards (including warmup) are logged to MongoDB as JSON strings
-
-**Differences from File Mode:**
-- Trajectories are never the same twice (stochastic generation)
-- Reward outcomes are consistent with demonstrator decisions (not random)
-- Complete action/reward sequences are logged for post-hoc analysis
-- Allows computing final alpha/beta values: `alpha_i = 1 + sum(rewards for arm i)`
-- No need to pre-generate large trajectory files
-
-**Thompson Sampling Algorithm:**
-The inline mode uses Beta-Bernoulli Thompson sampling:
-- Initialize: `alpha_i = 1`, `beta_i = 1` for all arms
-- Each iteration:
-  1. Sample `theta_i ~ Beta(alpha_i, beta_i)` for each arm
-  2. Choose arm `a = argmax(theta_i)`
-  3. Sample reward `r ~ Bernoulli(payoff[a])`
-  4. Update: `alpha_a += r`, `beta_a += (1-r)`
-
-**Logged Data:**
-- `demonstrator_actions`: JSON string array of all arm indices selected (e.g., `"[0,1,2,5,1,2,4,5,...]"`)
-- `demonstrator_rewards`: JSON string array of all rewards received (e.g., `"[1,0,0,1,1,1,0,1,...]"`)
-- `demonstrator_source`: "inline" or "file" (indicates generation mode)
-- `demonstrator_experience`: Warmup iterations used (e.g., 128 for expert, 0 for novice)
-- `demonstrator_strategy`: Sampling strategy (e.g., "thompson")
-- `demonstrator_bandit_payoffs`: JSON array of payoffs used for generation
-- For inline mode: actions/rewards include both warmup iterations (not shown) and displayed iterations
-- For file mode: actions/rewards contain only the displayed trajectory
-- Example: Expert with 128 warmup + 6 shown = 134 total entries in inline mode
-- Look for `action: "trajectory_complete"` entries to get the complete trajectory data
-
-### Example Configuration
-
-```json
-{
-    "experiment_config": "configs/timeline.json",
-    "bandit_assignment_mode": "session_fixed",
-    "textbox_feedback": false,
-    "session_demonstrators": "all",
-    "prop_of_sessions": 0.5,
-    "omit_explicit_experience_transfer_message": false,
-    "name_demonstrators": false,
-    "present_demonstrators_apriori": false,
-    "display_running_total_reward": false,
-    "demonstrator_config": {
-        "source": "file",
-        "filename": "bandits_data.json"
-    }
-}
-```
-
-**Or with inline mode:**
-```json
-{
-    "experiment_config": "configs/timeline.json",
-    "bandit_assignment_mode": "round_changing",
-    "textbox_feedback": true,
-    "session_demonstrators": "different",
-    "prop_of_sessions": 1.0,
-    "omit_explicit_experience_transfer_message": true,
-    "name_demonstrators": true,
-    "present_demonstrators_apriori": true,
-    "display_running_total_reward": true,
-    "demonstrator_config": {
-        "source": "inline",
-        "bandit_payoffs": [0.0, 0.1, 0.2, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.75, 0.8],
-        "expert_demonstrator_experience": 72,
-        "novice_demonstrator_experience": 0,
-        "demonstrator_sampling_strategy": "thompson"
-    }
-}
-```
+The narrative sections below explain the higher-level meaning of two of the most consequential fields (`bandit_assignment_mode`, `textbox_feedback`) and the workflow for switching configs.
 
 ### Bandit Assignment Modes Explained
 
@@ -323,29 +145,16 @@ The inline mode uses Beta-Bernoulli Thompson sampling:
 - Feedback responses are automatically saved to MongoDB
 - After submission, user is redirected to Prolific
 
-### Switching Between Modes
+### Switching configs
 
-To change the experimental condition:
+To run a different experimental condition:
 
-1. **Edit `config.json`**:
-   ```json
-   {
-       "experiment_config": "configs/timeline.json",
-       "bandit_assignment_mode": "round_changing",
-       "textbox_feedback": true,
-       "session_demonstrators": "different",
-       "prop_of_sessions": 1.0
-   }
-   ```
+1. **Author a new YAML in `configs/`** (start by copying `configs/pilot.yaml`). Per-field semantics and accepted values are in [CONFIG.md](./CONFIG.md).
+2. **Point `.env` at it**: edit `ACTIVE_CONFIG=<your-file>.yaml`.
+3. **Rebuild + restart locally**: `npm run build-config && npm start`. The pre-commit hook also rebuilds, so committed `config.json` always matches the active YAML.
+4. **Deploy**: `./deploy.sh` runs `npm run build-config` first (using the deploying machine's `.env`), then ships everything to Cloud Run. The deployed `config.json` always reflects the deployer's local `ACTIVE_CONFIG`.
 
-2. **Restart the server** to apply changes:
-   ```bash
-   npm start
-   ```
-
-3. **New users** will automatically receive timelines generated with the new mode
-
-**Note**: Existing users who already have generated timelines will continue with their original assignment mode until they start a new session.
+**Note**: existing users who already have generated timelines continue with their original assignment until they start a new session.
 
 ## Dynamic Timeline System
 
