@@ -38,7 +38,7 @@
 
     /* The single-row "grid" for user/demonstrator + zone icons. */
     #summary-bar {
-      width: 800px;         
+      width: 800px;
       min-height: 80px;
       margin-top: 10px;
       margin-left: -100px; /* Shift further left to start */
@@ -49,10 +49,30 @@
       gap: 15px; /* Reduced gap between boxes */
     }
 
+    /* Running total reward, shown beneath the summary bar during play stages. */
+    #total-reward-display {
+      width: 800px;
+      margin-top: 50px;
+      margin-left: -100px;
+      text-align: center;
+      font: bold 26px Arial;
+      color: #00ff00;
+      text-shadow:
+        -2px -2px 0 #000,
+         2px -2px 0 #000,
+        -2px  2px 0 #000,
+         2px  2px 0 #000,
+         0   -2px 0 #000,
+         0    2px 0 #000,
+        -2px  0   0 #000,
+         2px  0   0 #000;
+      display: none;
+    }
+
     /* The controls display row below the summary bar. */
     #controls-display {
       width: 800px;
-      margin-top: 10px;
+      margin-top: 30px;
       display: flex;
       flex-direction: row;
       align-items: flex-start;
@@ -197,6 +217,9 @@
 
   <!-- Single-row "grid" for user/demonstrator icons & zone text -->
   <div id="summary-bar"></div>
+
+  <!-- Running total reward, shown beneath the icon row during play stages -->
+  <div id="total-reward-display"></div>
 
   <!-- Controls display below the summary bar -->
   <div id="controls-display">
