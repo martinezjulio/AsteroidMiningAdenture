@@ -1,32 +1,51 @@
 {
-    "experiment_config": "configs/timeline.json",
-    "omit_explicit_experience_transfer_message": true,
-    "bandit_assignment_mode": "round_changing",
-    "textbox_feedback": true,
-    "session_demonstrators": "different",
+    "experiment_config": "configs/pilot_D_2026-01-20.yaml",
+    "round_game_sequence_conditions": [
+        [
+            "watch-demo-1",
+            "play",
+            "watch-demo-2",
+            "play"
+        ],
+        [
+            "watch-demo-2",
+            "play",
+            "watch-demo-1",
+            "play"
+        ]
+    ],
+    "session_end_stages": [
+        "choice",
+        "feedback"
+    ],
+    "num_rounds": 3,
+    "num_pulls_per_play_game": 6,
+    "num_pulls_per_watch_game": 6,
+    "sampling_method": "all_conditions_shuffled",
+    "num_sessions": null,
+    "num_times_conditions_repeat": 1,
     "prop_of_sessions": 1,
+    "demo_1_prior_experience": 128,
+    "demo_2_prior_experience": 0,
+    "bandit_payoffs": [
+        0,
+        0.1,
+        0.2,
+        0.3,
+        0.35,
+        0.4,
+        0.45,
+        0.5,
+        0.55,
+        0.6,
+        0.75,
+        0.8
+    ],
+    "demonstrator_sampling_strategy": "thompson",
+    "bandit_assignment_mode": "round_changing",
+    "experience_message_text": null,
     "name_demonstrators": true,
     "present_demonstrators_apriori": true,
     "display_running_total_reward": true,
-    "verbose": false,
-    "demonstrator_config": {
-        "source": "inline",
-        "bandit_payoffs": [
-            0,
-            0.1,
-            0.2,
-            0.3,
-            0.35,
-            0.4,
-            0.45,
-            0.5,
-            0.55,
-            0.6,
-            0.75,
-            0.8
-        ],
-        "expert_demonstrator_experience": 128,
-        "novice_demonstrator_experience": 0,
-        "demonstrator_sampling_strategy": "thompson"
-    }
+    "verbose": false
 }

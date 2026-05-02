@@ -69,11 +69,19 @@ app.get('/api/asset-manifest', (req, res) => {
 
 // Endpoint to get experiment config
 app.get('/api/config', (req, res) => {
-    res.json({ 
+    // Compose a demonstrator_config blob from the flat YAML fields. The browser
+    // (main.js) consumes priors + payoffs via this object during watch stages.
+    const demonstrator_config = {
+        demo_1_prior_experience: config.demo_1_prior_experience,
+        demo_2_prior_experience: config.demo_2_prior_experience,
+        bandit_payoffs: config.bandit_payoffs,
+        demonstrator_sampling_strategy: config.demonstrator_sampling_strategy
+    };
+    res.json({
         experiment_id,
         experiment_config_path,
         display_running_total_reward: config.display_running_total_reward || false,
-        demonstrator_config: config.demonstrator_config || null,
+        demonstrator_config,
         verbose: config.verbose || false
     });
 });
@@ -189,12 +197,10 @@ function processTimelineGeneration(req, res) {
     };
     
     const generateWithPython = (pythonCommand) => {
-        // Run the Python script to generate a new timeline
-        // Pass demonstrator_config as JSON string if present
+        // Run the Python script to generate a new timeline. Python reads
+        // every config field directly from config.json now, so the only
+        // argv we still need is the request_id (used for the backup filename).
         const args = ['models.py', requestId];
-        if (config.demonstrator_config) {
-            args.push(JSON.stringify(config.demonstrator_config));
-        }
         
         const pythonProcess = spawn(pythonCommand, args, {
             cwd: path.join(__dirname, 'timeline_models'),

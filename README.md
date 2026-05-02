@@ -597,19 +597,19 @@ The system logs the following variables for every user action:
 - `round_index`: Round number (can be null)
 
 #### Demonstrator Info
-- `demonstrator_index`: Index for image mapping system
-- `demonstrator_type`: "expert", "novice", etc.
-- `demonstrator_id`: Unique demonstrator identifier
+- `demonstrator_index`: 0 = demo-1, 1 = demo-2 (slot within the session)
+- `demonstrator_type`: legacy field, present on old logs only — null on new logs
+- `demonstrator_global_index`: globally unique demonstrator identifier
+- `demonstrator_id`: image filename for this demonstrator
 - `demonstrator_actions`: JSON array of arm indices (e.g., `"[8,8,11,6,8,8]"`)
 - `demonstrator_rewards`: JSON array of rewards (e.g., `"[1,0,0,1,1,0]"`)
-- `demonstrator_source`: Generation mode - "inline" or "file"
-- `demonstrator_experience`: Warmup iterations (inline mode only, e.g., 128 for expert)
-- `demonstrator_strategy`: Sampling strategy (inline mode only, e.g., "thompson")
-- `demonstrator_bandit_payoffs`: JSON array of payoffs used (inline mode only)
+- `demonstrator_experience`: Thompson warmup iterations (matches `demo_1/2_prior_experience`)
+- `demonstrator_strategy`: Sampling strategy ("thompson")
+- `demonstrator_bandit_payoffs`: JSON array of arm payoffs used for generation
 - `demonstrator_style`: Visual style assignment
 - `demonstrator_color`: Color assignment
 
-**Note:** For inline mode, actions/rewards include warmup + displayed. For file mode, only displayed trajectory.
+**Note:** `demonstrator_actions` / `demonstrator_rewards` include both the invisible warmup iterations AND the displayed trajectory.
 
 #### User Play Data
 - `play_actions`: JSON array of arm indices selected by user (e.g., `"[2,5,8,11,6,9]"`)
@@ -944,8 +944,8 @@ Use the Python scripts in `timeline_models/` to generate timeline.json files pro
 **Symptoms**: Timeline generation takes too long, timeout errors
 
 **Solutions**:
-- Check Python dependencies
-- Verify `timeline_models/bandits_data.json` exists and is accessible
+- Check Python is available (`python3 --version`)
+- Verify `config.json` exists at the repo root (run `npm run build-config` if missing)
 - Check system resources (CPU, memory)
 - Consider increasing timeout in `server.js`
 
