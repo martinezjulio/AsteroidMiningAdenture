@@ -1,80 +1,100 @@
-# Pilot configuration — the configuration used for the initial pilot study.
-# DO NOT modify the values below without intent: this file is the canonical
-# baseline that pilot participants experienced. To experiment with changes,
-# copy this file to a new name (e.g. experiment_a.yaml) and switch
-# ACTIVE_CONFIG in .env to point at the copy. See CONFIG.md for full field docs.
+# Pilot D — 2026-01-20
+# Designed to reproduce the dynamics of the original pilot under the new
+# config-driven-rounds schema. See CONFIG.md for the field-by-field reference.
 
-# Path-string label for the timeline configuration. Only the basename is
-# extracted and stored as `experiment_id` in MongoDB logs (used for run
-# identification). Convention: for new configs, set this to the YAML's own
-# filename (e.g. "configs/experiment_a.yaml"). The pilot value is preserved
-# verbatim to maintain log continuity with existing pilot data.
-experiment_config: configs/timeline.json
+# === Identity ===
+# Path-string label. Only the basename is stored as `experiment_id` in MongoDB
+# logs. Convention: set to this file's own filename for new configs.
+experiment_config: configs/pilot_D_2026-01-20.yaml
 
-# When true, suppresses the "Some starships have experience in every zone..."
-# overlay text in intro and watch transitions. Read by Python (models.py).
-omit_explicit_experience_transfer_message: true
+# === Round shape ===
 
-# "session_fixed" → all rounds in a session use the same zone.
-# "round_changing" → each round in a session gets a fresh zone.
-bandit_assignment_mode: round_changing
+# List of per-round stage sequences. Each entry is ONE round; that round
+# repeats `num_rounds` times within a session that uses this condition.
+# Allowed tokens:
+#   play | watch-demo-1 | watch-demo-2 | choice | online-choice | blind | indicate | feedback
+# The pilot has two conditions, mirroring today's two filtered (EN, NE) sessions.
+round_game_sequence_conditions:
+  - [watch-demo-1, play, watch-demo-2, play]
+  - [watch-demo-2, play, watch-demo-1, play]
 
-# When true, inserts a free-text feedback stage after each choice stage.
-# Responses are logged to MongoDB.
-textbox_feedback: true
+# Stages appended ONCE per session, after the num_rounds repetitions. Putting
+# these inside `round_game_sequence_conditions` would repeat them every round,
+# which is rarely what you want — that's why session_end_stages is separate.
+session_end_stages: [choice, feedback]
 
-# "all" → all 4 demonstrator-type combos per round-set (EE/EN/NE/NN).
-# "different" → only mixed pairs (EN, NE). Any other value raises ValueError.
-session_demonstrators: different
+# Number of times the chosen round-sequence repeats in a single session.
+num_rounds: 3
 
-# Float in (0, ∞). <1 keeps that fraction of generated sessions; >=1 keeps all.
+# Asteroid pulls per stage instance.
+num_pulls_per_play_game: 6
+num_pulls_per_watch_game: 6
+
+# === Session sampling ===
+
+# How `round_game_sequence_conditions` becomes the timeline's session list:
+#   all_conditions_shuffled       → use each condition once, in shuffled order
+#                                    (sessions = len(conditions) × num_times_conditions_repeat)
+#   conditions_sampled_uniformly  → draw `num_sessions` from conditions uniformly with replacement
+#                                    (sessions = num_sessions × num_times_conditions_repeat)
+sampling_method: all_conditions_shuffled
+
+# Required iff sampling_method == conditions_sampled_uniformly. Ignored otherwise.
+num_sessions: null
+
+# Outer multiplier: run the chosen sampling method this many times per participant.
+# 1 reproduces the pilot (each condition runs exactly once).
+num_times_conditions_repeat: 1
+
+# Float in (0, ∞). Subsamples sessions AFTER sampling_method has produced them.
+# 1.0 keeps everything. Values >= 1.0 keep all.
 prop_of_sessions: 1
 
-# When true, demonstrators get one of 36 starship names assigned in Python
-# and surfaced in the timeline JSON.
+# === Demonstrators ===
+
+# Thompson sampler warmup iterations run from α=β=1 priors before the visible
+# trajectory begins. Higher = more "experienced" demonstrator; the visible run
+# continues from the warmed posterior. demo-1 ≡ pilot's "expert"; demo-2 ≡ "novice".
+demo_1_prior_experience: 128
+demo_2_prior_experience: 0
+
+# Bandit arm reward probabilities ∈ [0,1]. Permuted per zone.
+bandit_payoffs:
+  - 0.0
+  - 0.1
+  - 0.2
+  - 0.3
+  - 0.35
+  - 0.4
+  - 0.45
+  - 0.5
+  - 0.55
+  - 0.6
+  - 0.75
+  - 0.8
+
+# Logged-only (no code branch on this value).
+demonstrator_sampling_strategy: thompson
+
+# === Zones & UI ===
+
+# session_fixed → one zone for all rounds in a session.
+# round_changing → new zone each round.
+bandit_assignment_mode: round_changing
+
+# Optional overlay text shown on the first game of each session. Set to null
+# (or "") to omit. Replaces the old hardcoded experience-claim message and
+# the omit_explicit_experience_transfer_message flag.
+experience_message_text: null
+
+# Whether demonstrators get assigned starship names rendered in the UI.
 name_demonstrators: true
 
-# When true, prepends a "demonstrator_presentation" meta stage to each session
-# showing both demonstrators' style/color before gameplay begins.
+# Prepend a `demonstrator_presentation` meta stage at the start of each session.
 present_demonstrators_apriori: true
 
-# When true, shows "TOTAL REWARD: N" text in the reward tank during play
-# stages (purely cosmetic; does not affect game mechanics).
+# Show "TOTAL REWARD: N" in the play tank.
 display_running_total_reward: true
 
-# When true, gates verbose console.log() calls in main.js (browser-only).
-# Does not affect timeline generation, gameplay, or MongoDB logging.
+# Browser console verbose logging.
 verbose: false
-
-# Trajectory generation config for demonstrator behavior in watch stages.
-demonstrator_config:
-  # "inline" → trajectories generated in JS at watch time using bandit_payoffs.
-  # "file"   → pre-computed trajectories loaded from timeline_models/bandits_data.json.
-  source: inline
-
-  # Bandit arm reward probabilities in [0, 1]. Required when source=inline.
-  # Permuted per zone; passed to Thompson sampler. 12 elements = 12 asteroid cells.
-  bandit_payoffs:
-    - 0
-    - 0.1
-    - 0.2
-    - 0.3
-    - 0.35
-    - 0.4
-    - 0.45
-    - 0.5
-    - 0.55
-    - 0.6
-    - 0.75
-    - 0.8
-
-  # Invisible warmup iterations the expert demonstrator's Thompson sampler runs
-  # before the visible trajectory begins. Higher = more "learned" expert.
-  expert_demonstrator_experience: 128
-
-  # Same as above, for novice demonstrators. Typically 0 for raw exploration.
-  novice_demonstrator_experience: 0
-
-  # Logged to MongoDB for analysis. Behavior is hardcoded to Thompson regardless
-  # of this value (informational only).
-  demonstrator_sampling_strategy: thompson

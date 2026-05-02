@@ -68,8 +68,20 @@ let currentPosition = 0;
 
 // Choice-specific logging variables
 let choiceDemonstratorId = null; // Will store the demonstrator_id of chosen demonstrator
-let choiceDemonstratorType = null; // Will store the demonstrator_type of chosen demonstrator
+let choiceDemonstratorIndex = null; // 0 = demo-1, 1 = demo-2 — replaces the old "expert"/"novice" type
 let choiceDemonstratorData = null; // Will store the full demonstrator data object
+
+// Look up a demonstrator's prior_experience (Thompson warmup iterations) from
+// its slot index. Replaces the old `demonstratorType === 'expert' ? expert_exp : novice_exp` pattern.
+function getDemoPriorExperience(demoData, demonstratorConfig) {
+  if (!demoData || !demonstratorConfig) return 0;
+  const idx = (typeof demoData.demonstrator_index === 'number')
+    ? demoData.demonstrator_index
+    : demoData.demonstrator_session_index;  // fallback
+  return idx === 0
+    ? demonstratorConfig.demo_1_prior_experience
+    : demonstratorConfig.demo_2_prior_experience;
+}
 
 // Generate a unique user ID
 function generateUID() {
@@ -237,12 +249,12 @@ async function logToMongoDB(action, additionalData = {}) {
     game_index: stage.game_index || 0,
     stage_index: stage.stage_index || 0,
     round_index: stage.round_index !== null ? stage.round_index : 0,
-    demonstrator_session_index: stage.demonstrator ? stage.demonstrator.demonstrator_session_index : 
-                               (stage.demonstrator1 && window.onlineChoiceSelectedDemo ? 
+    demonstrator_session_index: stage.demonstrator ? stage.demonstrator.demonstrator_session_index :
+                               (stage.demonstrator1 && window.onlineChoiceSelectedDemo ?
                                 window.onlineChoiceSelectedDemo.data.demonstrator_session_index : null),
-    demonstrator_type: stage.demonstrator ? stage.demonstrator.demonstrator_type :
-                      (stage.demonstrator1 && window.onlineChoiceSelectedDemo ? 
-                       window.onlineChoiceSelectedDemo.data.demonstrator_type : null),
+    demonstrator_index: stage.demonstrator ? stage.demonstrator.demonstrator_index :
+                       (stage.demonstrator1 && window.onlineChoiceSelectedDemo ?
+                        window.onlineChoiceSelectedDemo.data.demonstrator_index : null),
     demonstrator_global_index: stage.demonstrator ? stage.demonstrator.demonstrator_global_index :
                                (stage.demonstrator1 && window.onlineChoiceSelectedDemo ? 
                                window.onlineChoiceSelectedDemo.data.demonstrator_global_index : null),
@@ -278,7 +290,7 @@ async function logToMongoDB(action, additionalData = {}) {
                                  return Array.isArray(images) ? JSON.stringify(images) : null;
                                })() : null,
     choice_demonstrator_id: choiceDemonstratorId,
-    choice_demonstrator_type: choiceDemonstratorType,
+    choice_demonstrator_index: choiceDemonstratorIndex,
     refresh_count: refreshCount,
     experiment_id: experimentID,
     ...additionalData
@@ -341,9 +353,11 @@ function initializeGameSequence() {
     for (let stage of firstRoundStages) {
       const gameType = stage.stage_type || stage.game;
       if (gameType === 'watch') {
-        // Use demonstrator expertise instead of "watch"
-        const demonstratorType = stage.demonstrator?.demonstrator_type || 'unknown';
-        sequenceParts.push(demonstratorType);
+        // Tag the watch by which demo slot it's for (0/1)
+        const demoIdx = (typeof stage.demonstrator_index === 'number')
+          ? stage.demonstrator_index
+          : stage.demonstrator?.demonstrator_index;
+        sequenceParts.push(typeof demoIdx === 'number' ? `watch-demo-${demoIdx + 1}` : 'watch');
       } else if (gameType === 'play') {
         sequenceParts.push('play');
       } else if (['practice', 'indicate', 'blind'].includes(gameType)) {
@@ -398,7 +412,7 @@ function resetGameTracking(gameType, numArmPulls = 0) {
   // Reset choice-specific variables for non-choice games (but preserve for feedback)
   if (gameType !== 'choice' && currentGameType !== 'choice' && gameType !== 'feedback') {
     choiceDemonstratorId = null;
-    choiceDemonstratorType = null;
+    choiceDemonstratorIndex = null;
     choiceDemonstratorData = null;
   }
 }
@@ -2193,70 +2207,44 @@ function setupWatch(stage) {
   }
   
   // Use watch-overlay-message if available, otherwise use default
-  const overlayMessage = stage["watch-overlay-message"] || 
+  const overlayMessage = stage["watch-overlay-message"] ||
     "You will now watch your chosen starship partner.";
-  
+
   // Get demonstrator data
   const demoData = stage.demonstrator;
-  
-  // Check if we're in inline mode
-  const isInlineMode = demonstratorConfig && demonstratorConfig.source === 'inline';
-  
-  let trajectory;
-  let thompsonSampler = null;
-  let trajectoryData = null;  // Will store {trajectory: [], rewards: []}
-  
-  if (isInlineMode) {
-    // Inline mode: generate trajectory using Thompson sampling
-    const bandit = stage.zone.zone_bandit;
-    const numRows = bandit.length;
-    const numCols = bandit[0].length;
-    const flattenedPayoffs = bandit.flat();
-    const numArmPulls = stage.num_arm_pulls || 6;
-    
-    // Get experience level based on demonstrator type
-    const demonstratorType = demoData.demonstrator_type;
-    const experienceLevel = demonstratorType === 'expert' 
-      ? demonstratorConfig.expert_demonstrator_experience 
-      : demonstratorConfig.novice_demonstrator_experience;
-    
-    // Log bandit payoffs and demonstrator information
-    verboseLog('Bandit payoffs:', flattenedPayoffs);
-    verboseLog('Demonstrator type:', demonstratorType);
-    verboseLog(`Generating ${demonstratorType} trajectory with ${experienceLevel} warmup iterations`);
-    
-    // Initialize Thompson sampler
-    thompsonSampler = new ThompsonSampler(flattenedPayoffs.length, flattenedPayoffs);
-    
-    // Run warmup iterations (not shown to user)
-    for (let i = 0; i < experienceLevel; i++) {
-      thompsonSampler.step();
-    }
-    
-    // Generate trajectory for display
-    trajectory = [];
-    const rewards = [];
-    for (let i = 0; i < numArmPulls; i++) {
-      const stepResult = thompsonSampler.step();
-      trajectory.push(stepResult.arm);
-      rewards.push(stepResult.reward);
-    }
-    
-    trajectoryData = { trajectory, rewards };
-    verboseLog('Generated trajectory:', trajectory);
-    verboseLog('Generated rewards:', rewards);
-  } else {
-    // File mode: use pre-computed trajectory
-    trajectory = demoData.demonstrator_trajectory;
-    trajectoryData = null;
-  }
-  
-  // Reset game tracking for watch phase
-  resetGameTracking('watch', trajectory.length);
-  
+
+  // Always inline now — generate trajectory via Thompson sampling.
   const bandit = stage.zone.zone_bandit;
   const numRows = bandit.length;
   const numCols = bandit[0].length;
+  const flattenedPayoffs = bandit.flat();
+  const numArmPulls = stage.num_arm_pulls || 6;
+
+  const demoIdx = demoData.demonstrator_index ?? demoData.demonstrator_session_index;
+  const experienceLevel = getDemoPriorExperience(demoData, demonstratorConfig);
+
+  verboseLog('Bandit payoffs:', flattenedPayoffs);
+  verboseLog('Demonstrator index:', demoIdx);
+  verboseLog(`Generating demo-${demoIdx + 1} trajectory with ${experienceLevel} warmup iterations`);
+
+  const thompsonSampler = new ThompsonSampler(flattenedPayoffs.length, flattenedPayoffs);
+  for (let i = 0; i < experienceLevel; i++) {
+    thompsonSampler.step();
+  }
+
+  const trajectory = [];
+  const rewards = [];
+  for (let i = 0; i < numArmPulls; i++) {
+    const stepResult = thompsonSampler.step();
+    trajectory.push(stepResult.arm);
+    rewards.push(stepResult.reward);
+  }
+  const trajectoryData = { trajectory, rewards };
+  verboseLog('Generated trajectory:', trajectory);
+  verboseLog('Generated rewards:', rewards);
+  
+  // Reset game tracking for watch phase
+  resetGameTracking('watch', trajectory.length);
   
   // Hide controls during watch games - user is not actively playing
   updateControlsDisplay("hidden");
@@ -2429,13 +2417,8 @@ function setupWatch(stage) {
               let payoff = bandit[currentR][currentC];
               let outcome;
               
-              if (isInlineMode && trajectoryData) {
-                // Use the pre-generated reward from Thompson sampler
-                outcome = trajectoryData.rewards[currentStep];
-              } else {
-                // Random sampling (file mode)
-                outcome = (Math.random() < payoff) ? 1 : 0;
-              }
+              // Use the pre-generated reward from the inline Thompson sampler.
+              outcome = trajectoryData.rewards[currentStep];
               
               // Log the shoot action from current position (where shot was taken from)
               currentShotsRemaining = totalSteps - currentStep - 1;
@@ -2482,28 +2465,13 @@ function setupWatch(stage) {
                   
                   // After the last step, log complete trajectory data
                   if (currentStep >= totalSteps) {
-                    if (isInlineMode && thompsonSampler) {
-                      // Inline mode: log with config metadata
-                      const demonstratorType = demoData.demonstrator_type;
+                    if (thompsonSampler) {
                       logToMongoDB('trajectory_complete', {
                         demonstrator_actions: JSON.stringify(thompsonSampler.allActions),
                         demonstrator_rewards: JSON.stringify(thompsonSampler.allRewards),
-                        demonstrator_source: demonstratorConfig.source,
-                        demonstrator_experience: demonstratorType === 'expert' 
-                          ? demonstratorConfig.expert_demonstrator_experience 
-                          : demonstratorConfig.novice_demonstrator_experience,
+                        demonstrator_experience: getDemoPriorExperience(demoData, demonstratorConfig),
                         demonstrator_strategy: demonstratorConfig.demonstrator_sampling_strategy,
                         demonstrator_bandit_payoffs: JSON.stringify(demonstratorConfig.bandit_payoffs)
-                      });
-                    } else if (!isInlineMode) {
-                      // File mode: log displayed trajectory only
-                      logToMongoDB('trajectory_complete', {
-                        demonstrator_actions: JSON.stringify(trajectory),
-                        demonstrator_rewards: trajectoryData && trajectoryData.rewards ? JSON.stringify(trajectoryData.rewards) : null,
-                        demonstrator_source: 'file',
-                        demonstrator_experience: null,
-                        demonstrator_strategy: null,
-                        demonstrator_bandit_payoffs: null
                       });
                     }
                   }
@@ -2538,70 +2506,44 @@ function setupIndicate(stage) {
   }
   
   // Use indicate-overlay-message if available, otherwise use default
-  const overlayMessage = stage["indicate-overlay-message"] || 
+  const overlayMessage = stage["indicate-overlay-message"] ||
     "You will now watch the demonstrator indicate their strategy.";
-  
+
   // Get demonstrator data
   const demoData = stage.demonstrator;
-  
-  // Check if we're in inline mode
-  const isInlineMode = demonstratorConfig && demonstratorConfig.source === 'inline';
-  
-  let trajectory;
-  let thompsonSampler = null;
-  let trajectoryData = null;  // Will store {trajectory: [], rewards: []}
-  
-  if (isInlineMode) {
-    // Inline mode: generate trajectory using Thompson sampling
-    const bandit = stage.zone.zone_bandit;
-    const numRows = bandit.length;
-    const numCols = bandit[0].length;
-    const flattenedPayoffs = bandit.flat();
-    const numArmPulls = stage.num_arm_pulls || 6;
-    
-    // Get experience level based on demonstrator type
-    const demonstratorType = demoData.demonstrator_type;
-    const experienceLevel = demonstratorType === 'expert' 
-      ? demonstratorConfig.expert_demonstrator_experience 
-      : demonstratorConfig.novice_demonstrator_experience;
-    
-    // Log bandit payoffs and demonstrator information
-    verboseLog('Bandit payoffs:', flattenedPayoffs);
-    verboseLog('Demonstrator type:', demonstratorType);
-    verboseLog(`Generating ${demonstratorType} trajectory with ${experienceLevel} warmup iterations`);
-    
-    // Initialize Thompson sampler
-    thompsonSampler = new ThompsonSampler(flattenedPayoffs.length, flattenedPayoffs);
-    
-    // Run warmup iterations (not shown to user)
-    for (let i = 0; i < experienceLevel; i++) {
-      thompsonSampler.step();
-    }
-    
-    // Generate trajectory for display
-    trajectory = [];
-    const rewards = [];
-    for (let i = 0; i < numArmPulls; i++) {
-      const stepResult = thompsonSampler.step();
-      trajectory.push(stepResult.arm);
-      rewards.push(stepResult.reward);
-    }
-    
-    trajectoryData = { trajectory, rewards };
-    verboseLog('Generated trajectory:', trajectory);
-    verboseLog('Generated rewards:', rewards);
-  } else {
-    // File mode: use pre-computed trajectory
-    trajectory = demoData.demonstrator_trajectory;
-    trajectoryData = null;
-  }
-  
-  // Reset game tracking for indicate phase
-  resetGameTracking('indicate', trajectory.length);
-  
+
+  // Always inline now — generate trajectory via Thompson sampling.
   const bandit = stage.zone.zone_bandit;
   const numRows = bandit.length;
   const numCols = bandit[0].length;
+  const flattenedPayoffs = bandit.flat();
+  const numArmPulls = stage.num_arm_pulls || 6;
+
+  const demoIdx = demoData.demonstrator_index ?? demoData.demonstrator_session_index;
+  const experienceLevel = getDemoPriorExperience(demoData, demonstratorConfig);
+
+  verboseLog('Bandit payoffs:', flattenedPayoffs);
+  verboseLog('Demonstrator index:', demoIdx);
+  verboseLog(`Generating demo-${demoIdx + 1} trajectory with ${experienceLevel} warmup iterations`);
+
+  const thompsonSampler = new ThompsonSampler(flattenedPayoffs.length, flattenedPayoffs);
+  for (let i = 0; i < experienceLevel; i++) {
+    thompsonSampler.step();
+  }
+
+  const trajectory = [];
+  const rewards = [];
+  for (let i = 0; i < numArmPulls; i++) {
+    const stepResult = thompsonSampler.step();
+    trajectory.push(stepResult.arm);
+    rewards.push(stepResult.reward);
+  }
+  const trajectoryData = { trajectory, rewards };
+  verboseLog('Generated trajectory:', trajectory);
+  verboseLog('Generated rewards:', rewards);
+  
+  // Reset game tracking for indicate phase
+  resetGameTracking('indicate', trajectory.length);
   
   // Hide controls during indicate games - user is not actively playing
   updateControlsDisplay("hidden");
@@ -2771,13 +2713,8 @@ function setupIndicate(stage) {
               let payoff = bandit[currentR][currentC];
               let outcome;
               
-              if (isInlineMode && trajectoryData) {
-                // Use the pre-generated reward from Thompson sampler
-                outcome = trajectoryData.rewards[currentStep];
-              } else {
-                // Random sampling (file mode)
-                outcome = (Math.random() < payoff) ? 1 : 0;
-              }
+              // Use the pre-generated reward from the inline Thompson sampler.
+              outcome = trajectoryData.rewards[currentStep];
               
               // Log the shoot action from current position (where shot was taken from)
               currentShotsRemaining = totalSteps - currentStep - 1;
@@ -2824,28 +2761,13 @@ function setupIndicate(stage) {
                   
                   // After the last step, log complete trajectory data
                   if (currentStep >= totalSteps) {
-                    if (isInlineMode && thompsonSampler) {
-                      // Inline mode: log with config metadata
-                      const demonstratorType = demoData.demonstrator_type;
+                    if (thompsonSampler) {
                       logToMongoDB('trajectory_complete', {
                         demonstrator_actions: JSON.stringify(thompsonSampler.allActions),
                         demonstrator_rewards: JSON.stringify(thompsonSampler.allRewards),
-                        demonstrator_source: demonstratorConfig.source,
-                        demonstrator_experience: demonstratorType === 'expert' 
-                          ? demonstratorConfig.expert_demonstrator_experience 
-                          : demonstratorConfig.novice_demonstrator_experience,
+                        demonstrator_experience: getDemoPriorExperience(demoData, demonstratorConfig),
                         demonstrator_strategy: demonstratorConfig.demonstrator_sampling_strategy,
                         demonstrator_bandit_payoffs: JSON.stringify(demonstratorConfig.bandit_payoffs)
-                      });
-                    } else if (!isInlineMode) {
-                      // File mode: log displayed trajectory only
-                      logToMongoDB('trajectory_complete', {
-                        demonstrator_actions: JSON.stringify(trajectory),
-                        demonstrator_rewards: trajectoryData && trajectoryData.rewards ? JSON.stringify(trajectoryData.rewards) : null,
-                        demonstrator_source: 'file',
-                        demonstrator_experience: null,
-                        demonstrator_strategy: null,
-                        demonstrator_bandit_payoffs: null
                       });
                     }
                   }
@@ -3028,7 +2950,7 @@ function setupChoice(stage) {
   if (!demonstrator1 || Object.keys(demonstrator1).length === 0 || demonstrator1.demonstrator_global_index === undefined) {
     console.warn("Missing or incomplete demonstrator1 data for choice stage. Creating default data.");
     demonstrator1 = {
-      "demonstrator_type": "novice",
+      "demonstrator_index": 0,
       "demonstrator_session_index": 0,
       "demonstrator_global_index": 1
     };
@@ -3037,7 +2959,7 @@ function setupChoice(stage) {
   if (!demonstrator2 || Object.keys(demonstrator2).length === 0 || demonstrator2.demonstrator_global_index === undefined) {
     console.warn("Missing or incomplete demonstrator2 data for choice stage. Creating default data.");
     demonstrator2 = {
-      "demonstrator_type": "expert",
+      "demonstrator_index": 1,
       "demonstrator_session_index": 1,
       "demonstrator_global_index": 2
     };
@@ -3301,11 +3223,11 @@ function setupChoice(stage) {
       // Set global choice variables for logging
       if (index === 0) {
         choiceDemonstratorId = mapDemonstratorImage(demonstrator1.demonstrator_global_index, demonstrator1.demonstrator_style, demonstrator1.demonstrator_color);
-        choiceDemonstratorType = demonstrator1.demonstrator_type;
+        choiceDemonstratorIndex = demonstrator1.demonstrator_index ?? demonstrator1.demonstrator_session_index;
         choiceDemonstratorData = demonstrator1;
       } else if (index === 1) {
         choiceDemonstratorId = mapDemonstratorImage(demonstrator2.demonstrator_global_index, demonstrator2.demonstrator_style, demonstrator2.demonstrator_color);
-        choiceDemonstratorType = demonstrator2.demonstrator_type;
+        choiceDemonstratorIndex = demonstrator2.demonstrator_index ?? demonstrator2.demonstrator_session_index;
         choiceDemonstratorData = demonstrator2;
       }
       
@@ -3795,7 +3717,7 @@ function setupOnlineChoicePhaseChoice(stage) {
       
       // Set global choice variables for logging  
       choiceDemonstratorId = mapDemonstratorImage(selectedCell.data.demonstrator_global_index, selectedCell.data.demonstrator_style, selectedCell.data.demonstrator_color);
-      choiceDemonstratorType = selectedCell.data.demonstrator_type;
+      choiceDemonstratorIndex = selectedCell.data.demonstrator_index ?? selectedCell.data.demonstrator_session_index;
       choiceDemonstratorData = selectedCell.data;
       
       // Log the selection action
@@ -3895,65 +3817,39 @@ function setupOnlineChoicePhaseWatch(stage) {
   
   // Get demonstrator data
   const demoData = selectedDemo.data;
-  
-  // Check if we're in inline mode
-  const isInlineMode = demonstratorConfig && demonstratorConfig.source === 'inline';
-  
-  let trajectory;
-  let thompsonSampler = null;
-  let trajectoryData = null;  // Will store {trajectory: [], rewards: []}
-  
-  if (isInlineMode) {
-    // Inline mode: generate trajectory using Thompson sampling
-    const bandit = stage.zone.zone_bandit;
-    const numRows = bandit.length;
-    const numCols = bandit[0].length;
-    const flattenedPayoffs = bandit.flat();
-    const numArmPulls = stage.num_arm_pulls || 6;
-    
-    // Get experience level based on demonstrator type
-    const demonstratorType = demoData.demonstrator_type;
-    const experienceLevel = demonstratorType === 'expert' 
-      ? demonstratorConfig.expert_demonstrator_experience 
-      : demonstratorConfig.novice_demonstrator_experience;
-    
-    // Log bandit payoffs and demonstrator information
-    verboseLog('Bandit payoffs:', flattenedPayoffs);
-    verboseLog('Demonstrator type:', demonstratorType);
-    verboseLog(`Generating ${demonstratorType} trajectory with ${experienceLevel} warmup iterations`);
-    
-    // Initialize Thompson sampler
-    thompsonSampler = new ThompsonSampler(flattenedPayoffs.length, flattenedPayoffs);
-    
-    // Run warmup iterations (not shown to user)
-    for (let i = 0; i < experienceLevel; i++) {
-      thompsonSampler.step();
-    }
-    
-    // Generate trajectory for display
-    trajectory = [];
-    const rewards = [];
-    for (let i = 0; i < numArmPulls; i++) {
-      const stepResult = thompsonSampler.step();
-      trajectory.push(stepResult.arm);
-      rewards.push(stepResult.reward);
-    }
-    
-    trajectoryData = { trajectory, rewards };
-    verboseLog('Generated trajectory:', trajectory);
-    verboseLog('Generated rewards:', rewards);
-  } else {
-    // File mode: use pre-computed trajectory
-    trajectory = demoData.demonstrator_trajectory;
-    trajectoryData = null;
-  }
-  
-  // Reset game tracking for watch phase  
-  resetGameTracking('watch', trajectory.length);
-  
+
+  // Always inline now — generate trajectory via Thompson sampling.
   const bandit = stage.zone.zone_bandit;
   const numRows = bandit.length;
   const numCols = bandit[0].length;
+  const flattenedPayoffs = bandit.flat();
+  const numArmPulls = stage.num_arm_pulls || 6;
+
+  const demoIdx = demoData.demonstrator_index ?? demoData.demonstrator_session_index;
+  const experienceLevel = getDemoPriorExperience(demoData, demonstratorConfig);
+
+  verboseLog('Bandit payoffs:', flattenedPayoffs);
+  verboseLog('Demonstrator index:', demoIdx);
+  verboseLog(`Generating demo-${demoIdx + 1} trajectory with ${experienceLevel} warmup iterations`);
+
+  const thompsonSampler = new ThompsonSampler(flattenedPayoffs.length, flattenedPayoffs);
+  for (let i = 0; i < experienceLevel; i++) {
+    thompsonSampler.step();
+  }
+
+  const trajectory = [];
+  const rewards = [];
+  for (let i = 0; i < numArmPulls; i++) {
+    const stepResult = thompsonSampler.step();
+    trajectory.push(stepResult.arm);
+    rewards.push(stepResult.reward);
+  }
+  const trajectoryData = { trajectory, rewards };
+  verboseLog('Generated trajectory:', trajectory);
+  verboseLog('Generated rewards:', rewards);
+  
+  // Reset game tracking for watch phase  
+  resetGameTracking('watch', trajectory.length);
   
   // Hide controls during online-choice watch phase - user is not actively playing
   updateControlsDisplay("hidden");
@@ -4105,13 +4001,8 @@ function setupOnlineChoicePhaseWatch(stage) {
               let payoff = bandit[currentR][currentC];
               let outcome;
               
-              if (isInlineMode && trajectoryData) {
-                // Use the pre-generated reward from Thompson sampler
-                outcome = trajectoryData.rewards[currentStep];
-              } else {
-                // Random sampling (file mode)
-                outcome = (Math.random() < payoff) ? 1 : 0;
-              }
+              // Use the pre-generated reward from the inline Thompson sampler.
+              outcome = trajectoryData.rewards[currentStep];
               
               // Log the shoot action from current position (where shot was taken from)
               currentShotsRemaining = totalSteps - currentStep - 1;
@@ -4158,28 +4049,13 @@ function setupOnlineChoicePhaseWatch(stage) {
                   
                   // After the last step, log complete trajectory data
                   if (currentStep >= totalSteps) {
-                    if (isInlineMode && thompsonSampler) {
-                      // Inline mode: log with config metadata
-                      const demonstratorType = demoData.demonstrator_type;
+                    if (thompsonSampler) {
                       logToMongoDB('trajectory_complete', {
                         demonstrator_actions: JSON.stringify(thompsonSampler.allActions),
                         demonstrator_rewards: JSON.stringify(thompsonSampler.allRewards),
-                        demonstrator_source: demonstratorConfig.source,
-                        demonstrator_experience: demonstratorType === 'expert' 
-                          ? demonstratorConfig.expert_demonstrator_experience 
-                          : demonstratorConfig.novice_demonstrator_experience,
+                        demonstrator_experience: getDemoPriorExperience(demoData, demonstratorConfig),
                         demonstrator_strategy: demonstratorConfig.demonstrator_sampling_strategy,
                         demonstrator_bandit_payoffs: JSON.stringify(demonstratorConfig.bandit_payoffs)
-                      });
-                    } else if (!isInlineMode) {
-                      // File mode: log displayed trajectory only
-                      logToMongoDB('trajectory_complete', {
-                        demonstrator_actions: JSON.stringify(trajectory),
-                        demonstrator_rewards: trajectoryData && trajectoryData.rewards ? JSON.stringify(trajectoryData.rewards) : null,
-                        demonstrator_source: 'file',
-                        demonstrator_experience: null,
-                        demonstrator_strategy: null,
-                        demonstrator_bandit_payoffs: null
                       });
                     }
                   }

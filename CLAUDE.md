@@ -40,10 +40,9 @@ client → /api/timeline → spawn(python3, ['models.py', requestId, JSON.string
 
 Concurrency is bounded by `MAX_CONCURRENT_GENERATIONS` (currently 4) in `server.js`. Excess requests sit in `GENERATION_QUEUE` (FIFO) and are processed in `finishGeneration()`. Each spawn has a 30s timeout. Backup files in `timelines/` older than 1 hour are swept on startup and hourly. **All Python `print()` debug output must go to `stderr`** — `stdout` is parsed as JSON by the server.
 
-### Two demonstrator modes (set in the active YAML in `configs/`)
+### Demonstrator trajectories (always inline)
 
-- **`source: "file"`** — load pre-computed Thompson trajectories from `timeline_models/bandits_data.json` (~6MB). Each watch stage gets a sliced trajectory; rewards are sampled randomly at runtime in JS.
-- **`source: "inline"`** — only `bandit_payoffs` are passed; trajectories are generated **in JS at watch time** by `ThompsonSampler` in `main.js` (Beta-Bernoulli, α=β=1). Warmup iters (`expert_demonstrator_experience` / `novice_demonstrator_experience`) run invisibly, then the visible run continues from the warmed-up posterior, so observed rewards causally drive observed actions. Full action/reward arrays (warmup + shown) are logged on a synthesized `action: "trajectory_complete"` row.
+Demonstrator behavior in watch stages is generated **live in JS** by `ThompsonSampler` in `main.js` (Beta-Bernoulli, α=β=1). Warmup iterations (`demo_1_prior_experience` / `demo_2_prior_experience`) run invisibly first, then the visible run continues from the warmed-up posterior — so observed rewards causally drive observed actions. Full action/reward arrays (warmup + shown) are logged on a synthesized `action: "trajectory_complete"` row. The legacy "file mode" that loaded pre-computed trajectories from `bandits_data.json` was removed in the config-driven-rounds refactor.
 
 When adding logged fields, update the schema in `models/gameLog.js` — Mongoose silently drops fields not in the schema.
 
@@ -68,13 +67,16 @@ The `online-choice` game type is one stage in the timeline but logs as **two** g
 
 The experimenter knob is the YAML named by `.env`'s `ACTIVE_CONFIG`, in `configs/`. Full per-field reference: [CONFIG.md](./CONFIG.md). The fields most likely to bite you:
 
+- `round_game_sequence_conditions`: list-of-lists. Each inner list is one ROUND of stage tokens (`play`, `watch-demo-1`, `watch-demo-2`, `choice`, `online-choice`, `blind`, `indicate`, `feedback`). Repeated `num_rounds` times within a session.
+- `session_end_stages`: appended once per session after the round-loop. Pilot uses `[choice, feedback]`.
+- `sampling_method`: `"all_conditions_shuffled"` (each condition once, shuffled) or `"conditions_sampled_uniformly"` (draw `num_sessions` with replacement). Combined with `num_times_conditions_repeat` for outer replication.
+- `demo_1_prior_experience` / `demo_2_prior_experience`: Thompson warmup iterations from α=β=1 priors, per demonstrator slot.
 - `bandit_assignment_mode`: `"session_fixed"` (one zone per session) vs `"round_changing"` (new zone each round).
-- `session_demonstrators`: `"all"` generates 4 patterns (EE/EN/NE/NN) per round-set; `"different"` keeps only mixed pairs.
-- `prop_of_sessions`: float in (0, 1] — fraction of generated sessions kept (≥1.0 = all).
-- `present_demonstrators_apriori`: prepends a `demonstrator_presentation` meta stage to each session (changes the intro overlay text in `models.py`, see `is_first_game` branch).
+- `experience_message_text`: optional secondary overlay shown on watch stages. `null` omits it.
+- `prop_of_sessions`: float — subsamples the session list AFTER `sampling_method` produces it (≥1.0 = keep all).
 - `verbose`: surfaced to client via `/api/config` and gates `verboseLog()` in main.js.
 
-**Directory layout**: `configs/` holds authored YAMLs (one per experimental condition; pilot lives at `configs/pilot.yaml`). `timelines/` holds per-request generated timeline backups (gitignored except for the directory itself). `config.json` is the YAML→JSON build artifact — committed for fresh-clone usability and as a runtime safety net, never authored.
+**Directory layout**: `configs/` holds authored YAMLs (one per experimental condition; pilot D lives at `configs/pilot_D_2026-01-20.yaml`). `timelines/` holds per-request generated timeline backups (gitignored except for the directory itself). `config.json` is the YAML→JSON build artifact — committed for fresh-clone usability and as a runtime safety net, never authored.
 
 ## Deployment
 

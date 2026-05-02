@@ -30,21 +30,22 @@ const gameLogSchema = new mongoose.Schema({
     stage_index: { type: Number, required: true },
     round_index: { type: Number, default: null },
     
-    // Demonstrator info (updated field names)
+    // Demonstrator info
     demonstrator_session_index: { type: Number, default: null },
-    demonstrator_type: { type: String, default: null },
+    demonstrator_index: { type: Number, default: null }, // 0 = demo-1, 1 = demo-2 (replaces demonstrator_type)
+    demonstrator_type: { type: String, default: null }, // legacy field — preserved for old logs; new logs leave null
     demonstrator_global_index: { type: Number, default: null },
-    demonstrator_id: { type: String, default: null }, // Now stores the actual image filename
-    
-    // Demonstrator trajectory data (unified for both inline and file modes)
+    demonstrator_id: { type: String, default: null }, // Stores the actual image filename
+
+    // Demonstrator trajectory data (always inline now)
     demonstrator_actions: { type: String, default: null }, // JSON array of arm indices
     demonstrator_rewards: { type: String, default: null }, // JSON array of rewards (0 or 1)
-    
+
     // Demonstrator configuration metadata
-    demonstrator_source: { type: String, default: null }, // "inline" or "file"
-    demonstrator_experience: { type: Number, default: null }, // Warmup iterations (inline mode only)
-    demonstrator_strategy: { type: String, default: null }, // "thompson" (inline mode only)
-    demonstrator_bandit_payoffs: { type: String, default: null }, // JSON array of payoffs used for inline generation
+    demonstrator_source: { type: String, default: null }, // legacy: "inline"|"file" — kept for old logs
+    demonstrator_experience: { type: Number, default: null }, // Warmup iterations
+    demonstrator_strategy: { type: String, default: null }, // "thompson"
+    demonstrator_bandit_payoffs: { type: String, default: null }, // JSON array of payoffs used for generation
     
     // User play trajectory data (populated for play games only)
     play_actions: { type: String, default: null }, // JSON array of arm indices selected by user
@@ -60,7 +61,8 @@ const gameLogSchema = new mongoose.Schema({
     
     // Choice-specific fields (null for non-choice games)
     choice_demonstrator_id: { type: String, default: null }, // Demonstrator image filename of chosen demonstrator
-    choice_demonstrator_type: { type: String, default: null }, // Type of chosen demonstrator
+    choice_demonstrator_index: { type: Number, default: null }, // 0 or 1 — which slot was chosen
+    choice_demonstrator_type: { type: String, default: null }, // legacy field — preserved for old logs
     
     // Feedback-specific fields (null for non-feedback actions)
     feedback_text: { type: String, default: null }, // User's feedback response
