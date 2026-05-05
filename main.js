@@ -1397,30 +1397,31 @@ function maybeAddSummaryIcon(stage) {
   summaryIcons.push(iconData);
 }
 
-// Called at the very top of loadStage(). When the just-finished stage was a play
-// game, store its final reward on the matching summary-bar icon (drives the "+X"
-// label) and, if the recap flag is on, append it to roundPlayRewards so a later
-// round_recap stage can render the per-play-game breakdown. No-op for any other
-// previous game type.
+// Tag the current play stage's summary icon with its final reward (drives the "+X"
+// label) and, if the recap flag is on, append the reward to roundPlayRewards so a
+// later round_recap stage can render the per-play-game breakdown. Idempotent —
+// the most-recent-unrewarded-icon walk skips already-tagged icons, so it's safe to
+// call this both eagerly (when the last shot resolves) and as a top-of-loadStage
+// fallback. No-op for any non-play stage.
 function capturePreviousPlayReward() {
   const previousStage = window.currentStage;
   if (!previousStage || previousStage.game !== 'play') return;
 
-  // Tag the most recent unrewarded play icon. Walk from the end so back-to-back
-  // play stages each get their own annotation rather than overwriting one.
+  // Walk from the end so back-to-back play stages each get their own annotation
+  // rather than overwriting one. Both the icon-tag and the recap-push live in the
+  // same iteration so the recap doesn't get a duplicate entry on a second call.
   for (let i = summaryIcons.length - 1; i >= 0; i--) {
     if (summaryIcons[i].gameType === 'play' && summaryIcons[i].reward_earned === undefined) {
       summaryIcons[i].reward_earned = currentGameReward;
       redrawSummaryBarDOM();
-      break;
-    }
-  }
-
-  if (reportPlayRewardsBetweenRounds) {
-    const prevRoundIndex = previousStage.round_index;
-    if (typeof prevRoundIndex === 'number') {
-      if (!roundPlayRewards[prevRoundIndex]) roundPlayRewards[prevRoundIndex] = [];
-      roundPlayRewards[prevRoundIndex].push(currentGameReward);
+      if (reportPlayRewardsBetweenRounds) {
+        const roundIdx = previousStage.round_index;
+        if (typeof roundIdx === 'number') {
+          if (!roundPlayRewards[roundIdx]) roundPlayRewards[roundIdx] = [];
+          roundPlayRewards[roundIdx].push(currentGameReward);
+        }
+      }
+      return;
     }
   }
 }
@@ -2298,8 +2299,12 @@ function setupPlayOrPractice(stage, isPractice) {
               play_actions: JSON.stringify(playActions),
               play_rewards: JSON.stringify(pullOutcomes)
             });
+            // Surface the +X reward on the summary icon as soon as the final shot's
+            // outcome is revealed, so the participant sees their per-game tally
+            // before clicking Next. capturePreviousPlayReward is idempotent.
+            capturePreviousPlayReward();
           }
-          
+
           makeNextButton.call(scene, "Next", () => {
             nextStage.call(scene);
         }, "overlay");
@@ -3114,7 +3119,7 @@ function buildRoundRecapMessage(rewards) {
       ? `${items[0]} and ${items[1]}`
       : `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
   }
-  return `Good Job! You earned ${body}. Can you beat that in the next round?`;
+  return `Good Job! You earned ${body}. Can you beat that in the next zone?`;
 }
 
 function setupRoundRecap(stage) {
@@ -3130,7 +3135,7 @@ function setupRoundRecap(stage) {
 
   const rewards = roundPlayRewards[stage.round_index] || [];
   const message = buildRoundRecapMessage(rewards) ||
-    "Good Job! Can you beat that in the next round?";
+    "Good Job! Can you beat that in the next zone?";
 
   this.add.text(W / 2, H / 2 - 60, message, {
     font: '24px Arial',
