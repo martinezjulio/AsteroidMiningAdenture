@@ -1029,7 +1029,7 @@ function mapZoneBanditArmImages(zoneGlobalIndex, imageIndexes) {
 const config = {
   type: Phaser.AUTO,
   width: 1000,
-  height: 700,
+  height: 620,
   parent: 'game-container',
   backgroundColor: '#000000',
   scene: {
@@ -1827,6 +1827,7 @@ function setupIntroduction(stage) {
       // Special handling for main content - just slightly more line spacing
       if (section.type === 'main') {
         textStyle.lineSpacing = 2; // Very small increase for main content
+        textStyle.align = 'left';
       }
       
     this.add.text(
