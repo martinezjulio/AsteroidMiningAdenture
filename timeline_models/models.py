@@ -12,6 +12,15 @@ CHOICE_LIKE_TOKENS = {"choice", "online-choice", "blind", "indicate"}
 META_TOKENS = {"feedback"}
 ALL_TOKENS = set(WATCH_TOKENS.keys()) | PLAY_TOKENS | CHOICE_LIKE_TOKENS | META_TOKENS
 
+# Tokens that imply demonstrators are visible to the participant.
+DEMO_TOKENS = set(WATCH_TOKENS.keys())
+# Session-end tokens that only make sense if the session showed demonstrators.
+DEMO_DEPENDENT_END_TOKENS = CHOICE_LIKE_TOKENS | {"feedback"}
+
+
+def _session_uses_demonstrators(condition: List[str]) -> bool:
+    return any(tok in DEMO_TOKENS for tok in condition)
+
 
 def _validate_tokens(tokens: List[str], where: str) -> None:
     for tok in tokens:
@@ -187,8 +196,18 @@ def generate_timeline(
                 })
                 idx += 1
 
+        # Demo-less sessions (round-sequence has no watch-demo-*) drop demo-dependent
+        # end stages (choice/online-choice/feedback/blind/indicate); keeping them would
+        # ask the participant to choose between, or react to, partners they never saw.
+        if _session_uses_demonstrators(condition):
+            effective_end_tokens = list(session_end_stages)
+        else:
+            effective_end_tokens = [
+                t for t in session_end_stages if t not in DEMO_DEPENDENT_END_TOKENS
+            ]
+
         end_stages: List[Dict[str, Any]] = []
-        for token in session_end_stages:
+        for token in effective_end_tokens:
             end_stages.append(_build_stage_for_token(
                 token,
                 game_index=idx,
@@ -346,8 +365,10 @@ def generate_timeline(
         sess_i = (games[0]["session_index"] if games else end_stages[0]["session_index"])
         dem_ids = session_to_ids[sess_i]
 
-        # 9a) demonstrator_presentation prepended (if enabled)
-        if present_demonstrators_apriori:
+        # 9a) demonstrator_presentation prepended (if enabled AND session has demos).
+        # All-play sessions skip this — there's nothing to present.
+        session_has_demos = any(s.get("game") == "watch" for s in games)
+        if present_demonstrators_apriori and session_has_demos:
             demo1_data = _build_demo_data(0, dem_ids, demo_style_color, demo_names, name_demonstrators)
             demo2_data = _build_demo_data(1, dem_ids, demo_style_color, demo_names, name_demonstrators)
             if total_reward_scope == 'across_sessions' and sess_i > 1:
@@ -380,6 +401,10 @@ def generate_timeline(
         seen_demonstrators = set()
         prev_zone = None
         is_first_game = True
+        # Use the actual presentation insertion (not just the global flag) so all-play
+        # sessions in a config that otherwise opens with a presentation still get the
+        # "This is a new session!" overlay on their first stage.
+        session_has_presentation = bool(games) and games[0].get("stage_type") == "demonstrator_presentation"
         for e in games:
             if "stage_type" in e:
                 continue
@@ -388,7 +413,7 @@ def generate_timeline(
 
             parts: List[str] = []
             if is_first_game:
-                if not present_demonstrators_apriori:
+                if not session_has_presentation:
                     parts.append("This is a new session!")
                 parts.append("You are entering a new zone.")
                 is_first_game = False

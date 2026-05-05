@@ -1192,6 +1192,22 @@ function loadStage() {
     if (currentStageIndex === 0 || lastSessionIndex !== currentSessionIndex) {
       initializeGameSequence();
       lastSessionIndex = currentSessionIndex;
+
+      // Session-boundary init that used to live only in the demonstrator_presentation
+      // handler. Fires regardless of whether the session opens with a presentation,
+      // so all-play sessions also get a fresh totals bucket, the sticky display flag,
+      // and a clean per-round-play-reward map. round_index is reused across sessions
+      // (0..num_rounds-1), so wiping prevents a later round_recap from picking up
+      // plays from a prior session's same round_index.
+      if (currentSessionIndex >= 1) {
+        if (!(currentSessionIndex in sessionTotals)) {
+          sessionTotals[currentSessionIndex] = 0;
+        }
+        if (displayRunningTotalReward) {
+          totalRewardShownThisSession = true;
+        }
+        roundPlayRewards = {};
+      }
     }
 
     // Reset game tracking for new game
@@ -1199,17 +1215,16 @@ function loadStage() {
     resetGameTracking(gameType, numArmPulls);
   }
 
-  // The demonstrator-presentation stage announces the start of a new session — surface
-  // the running total here. In per_session mode the new session's tally starts at 0;
-  // in across_sessions mode prior sessions' tallies are kept and the running sum continues.
+  // demonstrator_presentation isn't in the gameplay-stage list above, so it doesn't
+  // flow through the session-boundary init block. Mirror that init here so the running
+  // total appears during the presentation itself for sessions that open with one.
   if (gameType === 'demonstrator_presentation') {
     if (!(currentSessionIndex in sessionTotals)) {
       sessionTotals[currentSessionIndex] = 0;
     }
-    totalRewardShownThisSession = true;
-    // round_index is reused across sessions (always 0..num_rounds-1), so wipe the
-    // per-round-play-reward map at each session boundary so a later round_recap
-    // doesn't see plays from a prior session's same round_index.
+    if (displayRunningTotalReward) {
+      totalRewardShownThisSession = true;
+    }
     roundPlayRewards = {};
   }
 

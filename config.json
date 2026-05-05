@@ -1,5 +1,5 @@
 {
-    "experiment_config": "configs/pilot_D_2026-01-20.yaml",
+    "experiment_config": "configs/pilot_E.yaml",
     "round_game_sequence_conditions": [
         [
             "watch-demo-1",
@@ -12,13 +12,19 @@
             "play",
             "watch-demo-1",
             "play"
+        ],
+        [
+            "play",
+            "play",
+            "play",
+            "play"
         ]
     ],
     "session_end_stages": [
         "choice",
         "feedback"
     ],
-    "num_rounds": 3,
+    "num_rounds": 2,
     "num_pulls_per_play_game": 6,
     "num_pulls_per_watch_game": 6,
     "sampling_method": "all_conditions_shuffled",
