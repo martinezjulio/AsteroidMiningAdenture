@@ -483,17 +483,17 @@ def generate_timeline(
     # --- 10) Practice session ---
     practice_zone = zone_meta[0]
     intro_message = (
-        "Welcome to \"Asteroid Fortune Frontier\" the asteroid mining adventure.\n\n"
         "[BOLD]PLEASE READ CAREFULLY:[/BOLD]\n\n"
-        "As a player you will pilot a starship to mine ASTEROIDS by shooting them. "
-        "Some asteroids yield rewards more often than others. These reward rates are unknown to you. \n\n"
-        "YOUR GOAL IS FIND THE ASTEROID THAT YIELDS REWARD MOST OFTEN AND MINE FROM IT AS MUCH AS POSSIBLE!  \n\n "
-        "You will encounter multiple asteroid ZONES each indicated by a zone number. "
-        "Sometimes you will repeat the same zone with the same reward payoffs. "
-        "Sometimes you will move into new zones with new asteroids and new unknown reward payoffs.\n\n "
-        "You will also have starship PARTNERS to learn from. "
-        "Pay close attention and try to learn from your observations from them. \n\n"
-        "Welcome to \"Asteroid Fortune Frontier\" – where the universe is yours to mine.\n\n"
+        "Welcome to Fortune Frontier. In this game you will pilot the starship "
+        "\"Prospector One\" and mine ASTEROIDS by shooting them. "
+        "Some asteroids yield more rewards than others.\n\n"
+        "GOAL: Mine as much reward as possible by finding the best asteroids and shooting them.\n\n"
+        "ZONES: You will enter multiple asteroid zones (indicated by the zone number). "
+        "Sometimes you will repeat shooting the same asteroids in the same zone. "
+        "Sometimes you will move on to new zones with different asteroids and different reward yields.\n\n"
+        "STARSHIP PARTNERS: You will sometimes watch starship partners mine for rewards. "
+        "Pay close attention to your partners! "
+        "Try and learn which asteroids are worth mining from to maximize your rewards.\n\n"
         "[RED_BOLD]DO NOT RELOAD PAGE AT ANY TIME DURING GAME![/RED_BOLD]"
     )
 
@@ -522,7 +522,7 @@ def generate_timeline(
         },
         {
             "stage_type": "instructions",
-            "message": "Game Instructions",
+            "message": "How to Play",
             "instructions": {
                 "instruction1": "← move left key",
                 "instruction1_image": "move_left.gif",
@@ -534,11 +534,6 @@ def generate_timeline(
                 "instruction4_image": "successful_mine.png",
                 "instruction5": "red\nindicates no reward",
                 "instruction5_image": "unsuccessful_mine.png",
-                "instruction6": (
-                    "You mine rewards from asteroids by shooting them. "
-                    "To get optimal rewards find the asteroid in each zone that yields rewards most often "
-                    "and mine from it as much as you can!"
-                ),
             },
         },
         {

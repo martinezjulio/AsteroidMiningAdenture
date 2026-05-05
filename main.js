@@ -1847,7 +1847,7 @@ function setupIntroduction(stage) {
   ).setOrigin(0.5);
   }
 
-  makeNextButton.call(this, "Next", () => {
+  makeNextButton.call(this, "Begin Training", () => {
     nextStage.call(this);
   });
 }

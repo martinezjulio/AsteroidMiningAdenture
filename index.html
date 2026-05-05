@@ -124,9 +124,24 @@
       font-size: 16px;
     }
     #prolific-form-overlay button {
-      padding: 8px 16px; 
-      font-size: 16px; 
+      padding: 8px 16px;
+      font-size: 16px;
       cursor: pointer;
+    }
+    #prolific-welcome-title {
+      font-family: 'Courier New', monospace;
+      font-size: 56px;
+      color: #ffffff;
+      margin: 0 0 12px 0;
+      text-align: center;
+    }
+    #prolific-welcome-subtitle {
+      font-family: 'Courier New', monospace;
+      font-size: 36px;
+      color: #ffffff;
+      margin: 0 0 32px 0;
+      text-align: center;
+      font-weight: normal;
     }
 
     /* The overlay for Feedback form */
@@ -250,6 +265,8 @@
 
   <!-- Overlaid Prolific form -->
   <div id="prolific-form-overlay">
+    <h1 id="prolific-welcome-title">Welcome to Fortune Frontier</h1>
+    <h2 id="prolific-welcome-subtitle">The Asteroid Mining Adventure</h2>
     <form onsubmit="return false;">
       <p id="prolific-form-message">Please enter your Prolific ID below:</p>
       <input type="text" id="prolific-id-input" placeholder="Prolific ID"/>
