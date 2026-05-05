@@ -491,9 +491,9 @@ def generate_timeline(
         "ZONES: You will enter multiple asteroid zones (indicated by a zone number). "
         "Sometimes you will repeat the same zone with the same asteroids and hence the same reward yields. "
         "Sometimes you will move on to new zones with different asteroids and different reward yields.\n\n"
-        "STARSHIP PARTNERS: You will sometimes watch starship partners mine for rewards. "
-        "Pay close attention to your partners! "
-        "Try and learn which asteroids are worth mining from to maximize your rewards.\n\n"
+        "STARSHIP PARTNERS: You will also watch starship partners mine rewards. "
+        "Pay close attention to them so that you can improve your reward mining when its your turn.\n\n"
+        "BONUS: You will receive a 10 cent bonus for each point you earn in mining rewards.\n\n"
         "[RED_BOLD]DO NOT RELOAD PAGE AT ANY TIME DURING GAME![/RED_BOLD]"
     )
 

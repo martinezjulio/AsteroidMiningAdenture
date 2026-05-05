@@ -1814,22 +1814,23 @@ function setupIntroduction(stage) {
       const textStyle = {
         font: section.font,
         fill: section.color,
-        align: 'center', 
+        align: 'center',
         wordWrap: { width: section.type === 'main' ? 750 : 700 },
-        lineSpacing: 1  // Just a tiny bit of extra line spacing
+        lineSpacing: 1,  // Just a tiny bit of extra line spacing
+        resolution: window.devicePixelRatio || 2
       };
-      
+
       if (section.background) {
         textStyle.backgroundColor = '#000000';
         textStyle.padding = { x: 10, y: 5 };
       }
-      
+
       // Special handling for main content - just slightly more line spacing
       if (section.type === 'main') {
         textStyle.lineSpacing = 2; // Very small increase for main content
         textStyle.align = 'left';
       }
-      
+
     this.add.text(
       this.sys.game.config.width/2,
         section.y,
@@ -1837,14 +1838,14 @@ function setupIntroduction(stage) {
         textStyle
     ).setOrigin(0.5);
     });
-    
+
   } else {
     // Original behavior for messages without special formatting
   this.add.text(
     this.sys.game.config.width/2,
     this.sys.game.config.height/2,
       message,
-      { font: '20px Courier New', fill: '#ffffff', align: 'center', wordWrap: { width: 600 } }
+      { font: '20px Courier New', fill: '#ffffff', align: 'center', wordWrap: { width: 600 }, resolution: window.devicePixelRatio || 2 }
   ).setOrigin(0.5);
   }
 
@@ -1869,7 +1870,7 @@ function setupInstructions(stage) {
     this.sys.game.config.width / 2,
     50,
     stage.message || "Game Instructions",
-    { font: 'bold 28px Courier New', fill: '#ffffff', align: 'center' }
+    { font: 'bold 28px Courier New', fill: '#ffffff', align: 'center', resolution: window.devicePixelRatio || 2 }
   ).setOrigin(0.5);
 
   // Store reference for loading images
@@ -1979,12 +1980,13 @@ function displayInstructionLayout(instructions, gifImages) {
       x,
       textY, // Position text much closer to images
       instructionText,
-      { 
-        font: '16px Courier New', 
-        fill: '#ffffff', 
+      {
+        font: '16px Courier New',
+        fill: '#ffffff',
         align: 'center',
         wordWrap: { width: maxImageSize + 20 },
-        lineSpacing: 4
+        lineSpacing: 4,
+        resolution: window.devicePixelRatio || 2
       }
     ).setOrigin(0.5);
   }
@@ -2033,12 +2035,13 @@ function displayInstructionLayout(instructions, gifImages) {
       x,
       textY2, // Position text below images with small gap
       instructionText,
-      { 
-        font: '16px Courier New', 
-        fill: '#ffffff', 
+      {
+        font: '16px Courier New',
+        fill: '#ffffff',
         align: 'center',
         wordWrap: { width: maxImageSize + 40 },
-        lineSpacing: 4
+        lineSpacing: 4,
+        resolution: window.devicePixelRatio || 2
       }
     ).setOrigin(0.5);
   }
