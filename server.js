@@ -81,6 +81,8 @@ app.get('/api/config', (req, res) => {
         experiment_id,
         experiment_config_path,
         display_running_total_reward: config.display_running_total_reward || false,
+        total_reward_scope: config.total_reward_scope || 'per_session',
+        report_play_rewards_between_rounds: config.report_play_rewards_between_rounds || false,
         demonstrator_config,
         verbose: config.verbose || false
     });

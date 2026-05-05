@@ -93,8 +93,21 @@ name_demonstrators: true
 # Prepend a `demonstrator_presentation` meta stage at the start of each session.
 present_demonstrators_apriori: true
 
-# Show "TOTAL REWARD: N" in the play tank.
+# Show "TOTAL REWARD: N" beneath the icon row during gameplay.
 display_running_total_reward: true
+
+# Total reward aggregation across sessions:
+#   per_session     → reset to 0 at the start of each session. Display labels each
+#                     session's tally ("Session N — Total Reward: X") and the end
+#                     screen lists each session plus a combined total.
+#   across_sessions → keep one running total throughout the experiment. The end
+#                     screen shows that single value.
+total_reward_scope: across_sessions
+
+# Insert a recap meta stage between rounds inside a session that reports the
+# reward earned in each play game of the round just finished. Only fires for
+# rounds that had at least one play game; never after the last round of a session.
+report_play_rewards_between_rounds: true
 
 # Browser console verbose logging.
 verbose: false

@@ -113,6 +113,8 @@ def generate_timeline(
     name_demonstrators: bool,
     present_demonstrators_apriori: bool,
     demonstrator_sampling_strategy: str,
+    total_reward_scope: str = 'per_session',
+    report_play_rewards_between_rounds: bool = False,
 ) -> List[Any]:
 
     # --- 0) Validation ---
@@ -127,6 +129,10 @@ def generate_timeline(
     for ci, cond in enumerate(round_game_sequence_conditions):
         _validate_tokens(cond, f"round_game_sequence_conditions[{ci}]")
     _validate_tokens(session_end_stages, "session_end_stages")
+    if total_reward_scope not in ('per_session', 'across_sessions'):
+        raise ValueError(
+            f"total_reward_scope must be 'per_session' or 'across_sessions', got {total_reward_scope!r}"
+        )
 
     # --- 1) Sample sessions from conditions ---
     if sampling_method == "all_conditions_shuffled":
@@ -154,8 +160,9 @@ def generate_timeline(
         games: List[Dict[str, Any]] = []
         idx = 0
         for round_idx in range(num_rounds):
+            round_stages: List[Dict[str, Any]] = []
             for token in condition:
-                games.append(_build_stage_for_token(
+                round_stages.append(_build_stage_for_token(
                     token,
                     game_index=idx,
                     round_idx=round_idx,
@@ -163,6 +170,21 @@ def generate_timeline(
                     num_pulls_per_play_game=num_pulls_per_play_game,
                     num_pulls_per_watch_game=num_pulls_per_watch_game,
                 ))
+                idx += 1
+            games.extend(round_stages)
+
+            has_play = any(s.get("game") == "play" for s in round_stages)
+            if (report_play_rewards_between_rounds
+                    and round_idx < num_rounds - 1
+                    and has_play):
+                games.append({
+                    "stage_type": "round_recap",
+                    "game_index": idx,
+                    "stage_index": 0,
+                    "round_index": round_idx,
+                    "session_total_rounds": num_rounds,
+                    "transfer": None,
+                })
                 idx += 1
 
         end_stages: List[Dict[str, Any]] = []
@@ -328,18 +350,28 @@ def generate_timeline(
         if present_demonstrators_apriori:
             demo1_data = _build_demo_data(0, dem_ids, demo_style_color, demo_names, name_demonstrators)
             demo2_data = _build_demo_data(1, dem_ids, demo_style_color, demo_names, name_demonstrators)
+            if total_reward_scope == 'across_sessions' and sess_i > 1:
+                presentation_message = (
+                    "You will now start a new session. Your TOTAL REWARD continues from your "
+                    "previous score. You will experience several watch and play games! You will "
+                    "observe two partners, shown below, during your watch games. Pay close "
+                    "attention to learn from them. You will also be asked to choose between "
+                    "them at the end of the session."
+                )
+            else:
+                presentation_message = (
+                    "You will now start a new session with a starting TOTAL REWARD of 0. "
+                    "You will experience several watch and play games! You will observe two partners, "
+                    "shown below, during your watch games. Pay close attention to learn from them. "
+                    "You will also be asked to choose between them at the end of the session."
+                )
             presentation_stage = {
                 "stage_type": "demonstrator_presentation",
                 "session_index": sess_i,
                 "session_total_rounds": num_rounds,
                 "demonstrator1": demo1_data,
                 "demonstrator2": demo2_data,
-                "message": (
-                    "You will now start a new session with a starting TOTAL REWARD of 0. "
-                    "You will experience several watch and play games! You will observe two partners, "
-                    "shown below, during your watch games. Pay close attention to learn from them. "
-                    "You will also be asked to choose between them at the end of the session."
-                ),
+                "message": presentation_message,
             }
             games.insert(0, presentation_stage)
             print(f"DEBUG: Inserted demonstrator_presentation stage for session {sess_i}", file=sys.stderr)
@@ -536,6 +568,8 @@ if __name__ == "__main__":
     name_demonstrators = config.get('name_demonstrators', False)
     present_demonstrators_apriori = config.get('present_demonstrators_apriori', False)
     demonstrator_sampling_strategy = config.get('demonstrator_sampling_strategy', 'thompson')
+    total_reward_scope = config.get('total_reward_scope', 'per_session')
+    report_play_rewards_between_rounds = config.get('report_play_rewards_between_rounds', False)
 
     # request_id from argv (used to name the backup file)
     if len(sys.argv) > 1:
@@ -562,6 +596,8 @@ if __name__ == "__main__":
         name_demonstrators=name_demonstrators,
         present_demonstrators_apriori=present_demonstrators_apriori,
         demonstrator_sampling_strategy=demonstrator_sampling_strategy,
+        total_reward_scope=total_reward_scope,
+        report_play_rewards_between_rounds=report_play_rewards_between_rounds,
     )
 
     print(json.dumps(tl))

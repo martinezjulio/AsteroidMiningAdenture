@@ -128,7 +128,22 @@ Unknown tokens cause Python to raise `ValueError` at timeline-generation time.
 - **Type**: bool
 - **Default**: `false`.
 - **Read by**: Node (`server.js`), Browser
-- **Effect**: when `true`, shows "TOTAL REWARD: N" in the play tank during play stages.
+- **Effect**: when `true`, shows the running total reward beneath the icon row from the first `demonstrator_presentation` of each session. Stays visible for the rest of the session and is reported on the end-of-game screen before the Prolific return button.
+
+### `total_reward_scope`
+- **Type**: string — `'per_session'` or `'across_sessions'`.
+- **Default**: `'per_session'`.
+- **Read by**: Node (`server.js`), Browser, Python (`models.py`).
+- **Effect**: controls how the running total aggregates and is presented when `display_running_total_reward: true`.
+  - `'per_session'`: tally resets at the start of each session. The in-game display labels each session's tally (`Session 1 — Total Reward: X`); once a session ends its tally freezes and the next session's live tally appears beside/below it. The end-of-game screen lists every session's tally plus a `Combined Total`.
+  - `'across_sessions'`: a single running total that never resets. The in-game display shows just `TOTAL REWARD: N`. Python emits a different `demonstrator_presentation` message at the start of session 2+ ("Your TOTAL REWARD continues from your previous score…") so the on-screen wording matches the actual carryover.
+- Ignored when `display_running_total_reward: false`.
+
+### `report_play_rewards_between_rounds`
+- **Type**: bool
+- **Default**: `false`.
+- **Read by**: Python (`models.py`), Browser.
+- **Effect**: when `true`, Python injects a `round_recap` meta stage between rounds inside a session (i.e. after every round except the last). The browser's `setupRoundRecap` reads the per-play-game rewards tracked at runtime and renders a message that lists each play game's reward in the order they happened — e.g. *"Good Job! You earned 4 rewards in your first play game and 6 rewards in your second play game. Can you beat that in the next round?"* The number of clauses scales with however many `play` tokens the round contained. Recap is skipped for any round that had zero play games.
 
 ### `verbose`
 - **Type**: bool
@@ -163,6 +178,8 @@ experience_message_text: null
 name_demonstrators: true
 present_demonstrators_apriori: true
 display_running_total_reward: true
+total_reward_scope: per_session
+report_play_rewards_between_rounds: false
 verbose: false
 ```
 

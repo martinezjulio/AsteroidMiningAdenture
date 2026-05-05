@@ -56,8 +56,11 @@ let lastTrackedSessionIndex = -1; // Track session changes to regenerate session
 let experimentID = null; // Will be fetched from server
 let experimentConfigPath = null; // Will be fetched from server
 let displayRunningTotalReward = false; // Config flag for displaying total reward
+let totalRewardScope = 'per_session'; // 'per_session' | 'across_sessions' (from config)
+let reportPlayRewardsBetweenRounds = false; // Config flag for inter-round recap stage
 let currentGameStep = 0; // Reset for each game
-let userTotalReward = 0; // Cumulative across all games
+let sessionTotals = {}; // { [sessionIndex]: number } — current session live, completed sessions frozen
+let roundPlayRewards = {}; // { [roundIndex]: number[] } — per-play-game rewards within a round
 let totalRewardShownThisSession = false; // Once true, the total reward display stays visible until session reset
 let currentGameReward = 0; // Reset for each game
 let refreshCount = parseInt(localStorage.getItem('refreshCount') || '0', 10);
@@ -214,15 +217,29 @@ async function fetchExperimentConfig() {
     experimentID = config.experiment_id;
     experimentConfigPath = config.experiment_config_path;
     displayRunningTotalReward = config.display_running_total_reward || false;
+    totalRewardScope = config.total_reward_scope || 'per_session';
+    reportPlayRewardsBetweenRounds = config.report_play_rewards_between_rounds || false;
     demonstratorConfig = config.demonstrator_config || null;
-    
+
     verboseLog('Demonstrator config:', demonstratorConfig);
   } catch (error) {
     console.error('Error fetching experiment config:', error);
     experimentID = 'unknown'; // fallback
     experimentConfigPath = 'data/timeline.json'; // fallback
     displayRunningTotalReward = false; // fallback
+    totalRewardScope = 'per_session';
+    reportPlayRewardsBetweenRounds = false;
   }
+}
+
+// Returns the running total reward, scoped per the active config:
+//   per_session     → just the current session's tally
+//   across_sessions → sum across every session's tally
+function getUserTotalReward() {
+  if (totalRewardScope === 'across_sessions') {
+    return Object.values(sessionTotals).reduce((a, b) => a + b, 0);
+  }
+  return sessionTotals[currentSessionIndex] || 0;
 }
 
 // MongoDB Logging Function
@@ -242,7 +259,7 @@ async function logToMongoDB(action, additionalData = {}) {
     shots_remaining: currentShotsRemaining,
     game: currentGameType,
     game_total_reward: currentGameReward,
-    user_total_reward: userTotalReward,
+    user_total_reward: getUserTotalReward(),
     reward_generated: additionalData.reward_generated || false,
     shot: action === 'shoot',
     transfer: stage.transfer || false,
@@ -1075,7 +1092,14 @@ function update(time, delta) {
  ****************************************************/
 function loadStage() {
   if (!timelineData) return;
-  
+
+  // If the just-finished stage was a play game, capture its final reward BEFORE any
+  // early-return path or resetGameTracking clobbers currentGameReward. Two consumers:
+  //   1. The "+X" annotation under that play game's icon in the summary bar.
+  //   2. roundPlayRewards (only when reportPlayRewardsBetweenRounds is on).
+  // Putting this at the very top covers the last-play-game-before-end-of-game case.
+  capturePreviousPlayReward();
+
   // Check if we've reached the end of all sessions
   if (currentSessionIndex >= timelineData.length) {
     showEndOfGameMessage.call(this);
@@ -1158,7 +1182,6 @@ function loadStage() {
 
   const stage = currentStageContainer[effectiveStageIndex];
 
-
   // Store the current stage for reference in other functions if needed
   window.currentStage = stage;
 
@@ -1176,11 +1199,18 @@ function loadStage() {
     resetGameTracking(gameType, numArmPulls);
   }
 
-  // The demonstrator-presentation stage announces the start of a new round/session and
-  // tells the user "starting TOTAL REWARD of 0" — surface the running total here and zero it out.
+  // The demonstrator-presentation stage announces the start of a new session — surface
+  // the running total here. In per_session mode the new session's tally starts at 0;
+  // in across_sessions mode prior sessions' tallies are kept and the running sum continues.
   if (gameType === 'demonstrator_presentation') {
-    userTotalReward = 0;
+    if (!(currentSessionIndex in sessionTotals)) {
+      sessionTotals[currentSessionIndex] = 0;
+    }
     totalRewardShownThisSession = true;
+    // round_index is reused across sessions (always 0..num_rounds-1), so wipe the
+    // per-round-play-reward map at each session boundary so a later round_recap
+    // doesn't see plays from a prior session's same round_index.
+    roundPlayRewards = {};
   }
 
   updateTotalRewardDisplay();
@@ -1234,6 +1264,9 @@ function loadStage() {
     case 'demonstrator_presentation':
       setupDemonstratorPresentation.call(this, stage);
       break;
+    case 'round_recap':
+      setupRoundRecap.call(this, stage);
+      break;
     case 'watch':
       setupWatch.call(this, stage);
       break;
@@ -1285,18 +1318,24 @@ function maybeAddSummaryIcon(stage) {
     summaryIcons.push({
       imageKey: null, // Will be updated when user selects
       zone: 'Choice',
-      color: stage.zone && stage.zone.color ? stage.zone.color : '#888888'
+      color: stage.zone && stage.zone.color ? stage.zone.color : '#888888',
+      gameType: stageType,
+      session_index: stage.session_index,
+      round_index: stage.round_index
     });
       return;
     }
-    
+
   // For online-choice games, add an icon that will be updated when user makes choice
   if (stageType === 'online-choice') {
     // Add a placeholder icon that will be updated when user selects demonstrator
     summaryIcons.push({
       imageKey: null, // Will be updated when user selects
       zone: stage.zone && stage.zone.zone_global_index ? stage.zone.zone_global_index : 0,
-      color: stage.zone && stage.zone.zone_global_index ? generateZoneColor(stage.zone.zone_global_index) : '#888888'
+      color: stage.zone && stage.zone.zone_global_index ? generateZoneColor(stage.zone.zone_global_index) : '#888888',
+      gameType: stageType,
+      session_index: stage.session_index,
+      round_index: stage.round_index
     });
     return;
   }
@@ -1329,7 +1368,10 @@ function maybeAddSummaryIcon(stage) {
     imageKey: imageKey,
     zone: stage.zone.zone_global_index,
     zone_color: zoneColorValue,
-    color: zoneColorValue // Keep color for backward compatibility
+    color: zoneColorValue, // Keep color for backward compatibility
+    gameType: stageType,
+    session_index: stage.session_index,
+    round_index: stage.round_index
   };
   
   // Add name if available
@@ -1340,15 +1382,48 @@ function maybeAddSummaryIcon(stage) {
   summaryIcons.push(iconData);
 }
 
+// Called at the very top of loadStage(). When the just-finished stage was a play
+// game, store its final reward on the matching summary-bar icon (drives the "+X"
+// label) and, if the recap flag is on, append it to roundPlayRewards so a later
+// round_recap stage can render the per-play-game breakdown. No-op for any other
+// previous game type.
+function capturePreviousPlayReward() {
+  const previousStage = window.currentStage;
+  if (!previousStage || previousStage.game !== 'play') return;
+
+  // Tag the most recent unrewarded play icon. Walk from the end so back-to-back
+  // play stages each get their own annotation rather than overwriting one.
+  for (let i = summaryIcons.length - 1; i >= 0; i--) {
+    if (summaryIcons[i].gameType === 'play' && summaryIcons[i].reward_earned === undefined) {
+      summaryIcons[i].reward_earned = currentGameReward;
+      redrawSummaryBarDOM();
+      break;
+    }
+  }
+
+  if (reportPlayRewardsBetweenRounds) {
+    const prevRoundIndex = previousStage.round_index;
+    if (typeof prevRoundIndex === 'number') {
+      if (!roundPlayRewards[prevRoundIndex]) roundPlayRewards[prevRoundIndex] = [];
+      roundPlayRewards[prevRoundIndex].push(currentGameReward);
+    }
+  }
+}
+
 function updateTotalRewardDisplay() {
   const el = document.getElementById('total-reward-display');
   if (!el) return;
-  if (displayRunningTotalReward && totalRewardShownThisSession) {
-    el.textContent = `TOTAL REWARD: ${userTotalReward}`;
-    el.style.display = 'block';
-  } else {
+  if (!displayRunningTotalReward || !totalRewardShownThisSession) {
     el.style.display = 'none';
+    return;
   }
+  // Live in-game display is single-line in both modes:
+  //   per_session     → just the current session's tally
+  //   across_sessions → the running sum across every session
+  // (End-of-game screen still renders the per-session breakdown in per_session mode.)
+  const value = getUserTotalReward();
+  el.innerHTML = `TOTAL REWARD: ${value}`;
+  el.style.display = 'block';
 }
 
 /**
@@ -1363,90 +1438,141 @@ function redrawSummaryBarDOM() {
   bar.innerHTML = "";
   if (summaryIcons.length === 0) return;
 
+  // Group consecutive renderable icons by (session, round, "choice"-vs-zone). Each
+  // group renders as a column: cells row → underline → single label (Zone N or Choice X).
+  // A dashed vertical separator is drawn between groups.
+  const groups = [];
+  let active = null;
+  const renderable = [];
   const lastIndex = summaryIcons.length - 1;
   for (let i = 0; i < summaryIcons.length; i++) {
-    const iconData = summaryIcons[i];
-    
-    // Skip icons with null imageKey (placeholders for choice/online-choice)
-    if (iconData.imageKey === null) continue;
-
-    // Create a container div
-    const cellDiv = document.createElement("div");
-    cellDiv.style.textAlign = "center"; 
-    cellDiv.style.opacity = (i === lastIndex) ? "1" : "0.5";
-    cellDiv.style.display = "flex";  // Use flexbox for better centering
-    cellDiv.style.flexDirection = "column";
-    cellDiv.style.alignItems = "center"; // Center children horizontally
-    cellDiv.style.justifyContent = "flex-start"; // Align to top
-    cellDiv.style.minHeight = "70px"; // Consistent cell height
-    // No fixed width - let it size based on content
-    cellDiv.style.padding = "8px"; // Padding for spacing
-
-    // Give it a border of the zone color - use zone_color property directly when available
-    const borderColor = iconData.zone_color || iconData.color || "#ffffff";
-    cellDiv.style.border = `3px solid ${borderColor}`;
-
-    // The image
-    const img = document.createElement("img");
-    if (iconData.imageKey.startsWith('demonstrator_') || iconData.imageKey.startsWith('styles/')) {
-      // The imageKey is already a mapped demonstrator filename (without .png)
-      // Don't map it again - just use it directly
-      img.src = `assets/demonstrators/${iconData.imageKey}.png`;
-    } else if (iconData.imageKey.startsWith('choice_demonstrator_')) {
-      // For choice demonstrator keys, we need to be more cautious
-      // The key format is something like 'choice_demonstrator_0'
-      img.src = `assets/${iconData.imageKey}`; // Use the imageKey directly
-    } else {
-      img.src = `assets/${iconData.imageKey}.png`;
+    const ic = summaryIcons[i];
+    if (ic.imageKey === null) continue;
+    const isChoice = ic.zone === 'Choice' || ic.gameType === 'choice';
+    const groupKey = `${ic.session_index}|${ic.round_index}|${isChoice ? 'C' : 'Z'}`;
+    if (!active || active.key !== groupKey) {
+      active = { key: groupKey, isChoice, icons: [] };
+      groups.push(active);
     }
-    img.style.width = "40px";
-    img.style.maxHeight = "40px"; // Limit height to keep cells consistent
-    img.style.objectFit = "contain"; // Maintain aspect ratio
-    img.style.display = "block";
-    img.style.margin = "0 auto"; // Center horizontally
-
-    // Add name label if available (between image and zone label)
-    if (iconData.name) {
-      const nameLabel = document.createElement("div");
-      nameLabel.textContent = iconData.name;
-      nameLabel.style.color = "#fff";
-      nameLabel.style.fontSize = "10px"; // Smaller font as requested
-      nameLabel.style.fontWeight = "bold";
-      nameLabel.style.marginTop = "2px";
-      nameLabel.style.textAlign = "center";
-      cellDiv.appendChild(img);
-      cellDiv.appendChild(nameLabel);
-    } else {
-      cellDiv.appendChild(img);
-    }
-
-    // The zone label - use custom label if provided
-    const label = document.createElement("div");
-        // Check if we have a custom label (for online-choice sub-stages)
-    if (iconData.label) {
-      label.textContent = iconData.label;
-    } 
-    // Handle special case for Choice zone - show choice letter if available
-    else if (iconData.zone === 'Choice') {
-      if (iconData.choiceLetter) {
-        label.textContent = `Choice ${iconData.choiceLetter}`;
-      } else {
-        label.textContent = "Choice";
-      }
-    } 
-    // Handle numeric zones (like online-choice) with choice letters
-    else if (iconData.choiceLetter) {
-      label.textContent = `Zone ${iconData.zone} (Choice ${iconData.choiceLetter})`;
-    } else {
-    label.textContent = "Zone " + iconData.zone;
-    }
-    label.style.color = "#fff";
-    label.style.marginTop = "4px";
-    label.style.textAlign = "center"; // Center text
-
-    cellDiv.appendChild(label);
-    bar.appendChild(cellDiv);
+    active.icons.push({ ic, isLast: i === lastIndex });
+    renderable.push(ic);
   }
+
+  groups.forEach((group, gIdx) => {
+    if (gIdx > 0) {
+      const sep = document.createElement("div");
+      sep.style.borderLeft = "2px dashed rgba(255, 255, 255, 0.4)";
+      sep.style.alignSelf = "stretch";
+      sep.style.margin = "0 4px";
+      bar.appendChild(sep);
+    }
+
+    const groupDiv = document.createElement("div");
+    groupDiv.style.display = "flex";
+    groupDiv.style.flexDirection = "column";
+    groupDiv.style.alignItems = "stretch";
+
+    // Row of icon cells (uniform height, no per-cell zone label).
+    const cellsRow = document.createElement("div");
+    cellsRow.style.display = "flex";
+    cellsRow.style.flexDirection = "row";
+    cellsRow.style.justifyContent = "center";
+    cellsRow.style.gap = "6px";
+    group.icons.forEach(({ ic, isLast }) => {
+      cellsRow.appendChild(buildSummaryCell(ic, isLast));
+    });
+    groupDiv.appendChild(cellsRow);
+
+    // Underline that visually ties the cells in the group together.
+    const underline = document.createElement("div");
+    underline.style.borderTop = "2px solid rgba(255, 255, 255, 0.65)";
+    underline.style.marginTop = "4px";
+    groupDiv.appendChild(underline);
+
+    // Single label below the underline.
+    const groupLabel = document.createElement("div");
+    let labelText;
+    if (group.isChoice) {
+      const letterIcon = group.icons.find(o => o.ic.choiceLetter);
+      labelText = letterIcon ? `Choice ${letterIcon.ic.choiceLetter}` : 'Choice';
+    } else {
+      const firstIc = group.icons[0].ic;
+      labelText = `Zone ${firstIc.zone}`;
+    }
+    groupLabel.textContent = labelText;
+    groupLabel.style.color = "#fff";
+    groupLabel.style.textAlign = "center";
+    groupLabel.style.fontSize = "12px";
+    groupLabel.style.fontWeight = "bold";
+    groupLabel.style.marginTop = "3px";
+    groupDiv.appendChild(groupLabel);
+
+    bar.appendChild(groupDiv);
+  });
+}
+
+// Build one summary-bar cell with fixed height so play (with +X) and non-play cells
+// align vertically. The "+X" reward slot is always rendered (with &nbsp; placeholder
+// for non-play or pre-completion play cells) so heights stay uniform.
+function buildSummaryCell(iconData, isLast) {
+  const cellDiv = document.createElement("div");
+  cellDiv.style.display = "flex";
+  cellDiv.style.flexDirection = "column";
+  cellDiv.style.alignItems = "center";
+  cellDiv.style.justifyContent = "flex-start";
+  cellDiv.style.boxSizing = "border-box";
+  cellDiv.style.padding = "6px";
+  cellDiv.style.width = "80px";
+  cellDiv.style.height = "88px";
+  cellDiv.style.opacity = isLast ? "1" : "0.5";
+
+  const borderColor = iconData.zone_color || iconData.color || "#ffffff";
+  cellDiv.style.border = `3px solid ${borderColor}`;
+
+  const img = document.createElement("img");
+  if (iconData.imageKey.startsWith('demonstrator_') || iconData.imageKey.startsWith('styles/')) {
+    img.src = `assets/demonstrators/${iconData.imageKey}.png`;
+  } else if (iconData.imageKey.startsWith('choice_demonstrator_')) {
+    img.src = `assets/${iconData.imageKey}`;
+  } else {
+    img.src = `assets/${iconData.imageKey}.png`;
+  }
+  img.style.width = "36px";
+  img.style.maxHeight = "36px";
+  img.style.objectFit = "contain";
+  img.style.display = "block";
+  img.style.margin = "0 auto";
+  cellDiv.appendChild(img);
+
+  if (iconData.name) {
+    const nameLabel = document.createElement("div");
+    nameLabel.textContent = iconData.name;
+    nameLabel.style.color = "#fff";
+    nameLabel.style.fontSize = "10px";
+    nameLabel.style.fontWeight = "bold";
+    nameLabel.style.marginTop = "2px";
+    nameLabel.style.textAlign = "center";
+    nameLabel.style.lineHeight = "1.1";
+    nameLabel.style.wordBreak = "break-word";
+    cellDiv.appendChild(nameLabel);
+  }
+
+  // Reward slot — always rendered for height uniformity; pinned to the bottom.
+  const rewardLabel = document.createElement("div");
+  rewardLabel.style.fontSize = "13px";
+  rewardLabel.style.fontWeight = "bold";
+  rewardLabel.style.marginTop = "auto";
+  rewardLabel.style.minHeight = "16px";
+  if (iconData.gameType === 'play' && typeof iconData.reward_earned === 'number') {
+    rewardLabel.textContent = `+${iconData.reward_earned}`;
+    rewardLabel.style.color = "#00ff00";
+    rewardLabel.style.textShadow = "1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000";
+  } else {
+    rewardLabel.innerHTML = "&nbsp;";
+  }
+  cellDiv.appendChild(rewardLabel);
+
+  return cellDiv;
 }
 
 /*******************************************************
@@ -2122,7 +2248,8 @@ function setupPlayOrPractice(stage, isPractice) {
         currentGameReward++;
         // Only increment total reward for play games, not practice
         if (currentGameType === 'play') {
-          userTotalReward++;
+          if (!(currentSessionIndex in sessionTotals)) sessionTotals[currentSessionIndex] = 0;
+          sessionTotals[currentSessionIndex]++;
           updateTotalRewardDisplay();
         }
       }
@@ -2455,7 +2582,8 @@ function setupWatch(stage) {
                 currentGameReward++;
                 // Only increment total reward for play games, not practice or watch
                 if (currentGameType === 'play') {
-                  userTotalReward++;
+                  if (!(currentSessionIndex in sessionTotals)) sessionTotals[currentSessionIndex] = 0;
+                  sessionTotals[currentSessionIndex]++;
                   updateTotalRewardDisplay();
                 }
               }
@@ -2752,7 +2880,8 @@ function setupIndicate(stage) {
                 currentGameReward++;
                 // Only increment total reward for play games, not practice or watch
                 if (currentGameType === 'play') {
-                  userTotalReward++;
+                  if (!(currentSessionIndex in sessionTotals)) sessionTotals[currentSessionIndex] = 0;
+                  sessionTotals[currentSessionIndex]++;
                   updateTotalRewardDisplay();
                 }
               }
@@ -2943,12 +3072,86 @@ function setupDemonstratorPresentation(stage) {
       nextStage.call(currentScene);
     }, "overlay");
   });
-  
+
   this.load.start();
 }
 
 /**
- * CHOICE stage - user chooses between demonstrators 
+ * ROUND RECAP stage — between rounds within a session, summarize the reward
+ * earned in each play game of the round just finished. Number of play games
+ * is variable (read from roundPlayRewards[stage.round_index]).
+ */
+function buildRoundRecapMessage(rewards) {
+  const ord = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
+  const rewardWord = (n) => `${n} reward${n === 1 ? '' : 's'}`;
+
+  if (!rewards || rewards.length === 0) return null;
+
+  let body;
+  if (rewards.length === 1) {
+    body = `${rewardWord(rewards[0])} in your play game`;
+  } else {
+    const items = rewards.map((r, i) => {
+      const label = ord[i] || `${i + 1}th`;
+      return `${rewardWord(r)} in your ${label} play game`;
+    });
+    body = items.length === 2
+      ? `${items[0]} and ${items[1]}`
+      : `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
+  }
+  return `Good Job! You earned ${body}. Can you beat that in the next round?`;
+}
+
+function setupRoundRecap(stage) {
+  updateControlsDisplay("hidden");
+
+  const W = this.sys.game.config.width;
+  const H = this.sys.game.config.height;
+
+  this.children.removeAll();
+
+  const overlay = this.add.rectangle(0, 0, W, H, 0x000000, 0.85);
+  overlay.setOrigin(0, 0);
+
+  const rewards = roundPlayRewards[stage.round_index] || [];
+  const message = buildRoundRecapMessage(rewards) ||
+    "Good Job! Can you beat that in the next round?";
+
+  this.add.text(W / 2, H / 2 - 60, message, {
+    font: '24px Arial',
+    fill: '#ffffff',
+    align: 'center',
+    wordWrap: { width: W - 120 }
+  }).setOrigin(0.5);
+
+  const buttonY = H / 2 + 80;
+  const buttonBg = this.add.rectangle(W / 2, buttonY, 240, 50, 0x4CAF50)
+    .setOrigin(0.5)
+    .setInteractive();
+
+  this.add.text(W / 2, buttonY, "Continue to Next Round", {
+    font: '18px Arial',
+    fill: '#ffffff',
+    align: 'center'
+  }).setOrigin(0.5);
+
+  const currentScene = this;
+  buttonBg.on('pointerover', () => {
+    buttonBg.setFillStyle(0x45a049);
+    document.body.style.cursor = 'pointer';
+  });
+  buttonBg.on('pointerout', () => {
+    buttonBg.setFillStyle(0x4CAF50);
+    document.body.style.cursor = 'default';
+  });
+  buttonBg.on('pointerdown', () => {
+    document.body.style.cursor = 'default';
+    nextStage.call(currentScene);
+  });
+}
+
+/**
+ * CHOICE stage - user chooses between demonstrators
  */
 function setupChoice(stage) {
   // Stage verification logs (uncomment for debugging):
@@ -4041,7 +4244,8 @@ function setupOnlineChoicePhaseWatch(stage) {
                 currentGameReward++;
                 // Only increment total reward for play games, not practice or watch
                 if (currentGameType === 'play') {
-                  userTotalReward++;
+                  if (!(currentSessionIndex in sessionTotals)) sessionTotals[currentSessionIndex] = 0;
+                  sessionTotals[currentSessionIndex]++;
                   updateTotalRewardDisplay();
                 }
               }
@@ -4266,62 +4470,69 @@ function showEndOfGameMessage() {
   // Clear the game screen
   this.children.removeAll();
 
+  const W = this.sys.game.config.width;
+  const H = this.sys.game.config.height;
+
   // Add a semi-transparent overlay
-  const overlay = this.add.rectangle(
-    0, 0, 
-    this.sys.game.config.width, 
-    this.sys.game.config.height, 
-    0x000000, 0.7
-  );
+  const overlay = this.add.rectangle(0, 0, W, H, 0x000000, 0.7);
   overlay.setOrigin(0, 0);
 
-  // Add the end of game message
-  const message = this.add.text(
-    this.sys.game.config.width / 2,
-    this.sys.game.config.height / 2 - 110,
-    "Game has ended",
-    {
-      font: '32px Arial',
-      fill: '#ffffff',
-      align: 'center'
-    }
-  ).setOrigin(0.5);
+  // Lay out vertically: "Game has ended" header, optional reward lines, return button.
+  const lineHeight = 36;
+  const headerY = H / 2 - 110;
 
-  // Report final total reward (only when the running total feature is enabled)
+  this.add.text(W / 2, headerY, "Game has ended", {
+    font: '32px Arial',
+    fill: '#ffffff',
+    align: 'center'
+  }).setOrigin(0.5);
+
+  let y = headerY + 60;
+  const greenStyle = {
+    font: 'bold 26px Arial',
+    fill: '#00ff00',
+    stroke: '#000000',
+    strokeThickness: 4,
+    align: 'center'
+  };
+
   if (displayRunningTotalReward) {
-    this.add.text(
-      this.sys.game.config.width / 2,
-      this.sys.game.config.height / 2 - 50,
-      `Total Reward: ${userTotalReward}`,
-      {
-        font: 'bold 28px Arial',
-        fill: '#00ff00',
-        stroke: '#000000',
-        strokeThickness: 4,
-        align: 'center'
-      }
-    ).setOrigin(0.5);
+    if (totalRewardScope === 'across_sessions') {
+      const total = Object.values(sessionTotals).reduce((a, b) => a + b, 0);
+      this.add.text(W / 2, y, `Total Reward: ${total}`, greenStyle).setOrigin(0.5);
+      y += lineHeight;
+    } else {
+      const keys = Object.keys(sessionTotals).sort((a, b) => Number(a) - Number(b));
+      keys.forEach(k => {
+        this.add.text(W / 2, y, `Session ${k} — Total Reward: ${sessionTotals[k]}`, greenStyle).setOrigin(0.5);
+        y += lineHeight;
+      });
+      const combined = keys.reduce((a, k) => a + sessionTotals[k], 0);
+      this.add.text(W / 2, y, `Combined Total: ${combined}`, greenStyle).setOrigin(0.5);
+      y += lineHeight;
+    }
   }
 
-  // Create a button to return to Prolific
+  // Return-to-Prolific button below whatever lines we rendered.
   const returnUrl = timelineData.return_url || "https://app.prolific.com/submissions/complete?cc=CTVM94DF";
   const buttonWidth = 250;
   const buttonHeight = 50;
-  
+  const buttonY = y + 30;
+
   const buttonBackground = this.add.rectangle(
-    this.sys.game.config.width / 2,
-    this.sys.game.config.height / 2 + 30,
+    W / 2,
+    buttonY,
     buttonWidth,
     buttonHeight,
     0x4CAF50
   ).setOrigin(0.5).setInteractive();
-  
+
   const buttonText = this.add.text(
-    this.sys.game.config.width / 2,
-    this.sys.game.config.height / 2 + 30,
+    W / 2,
+    buttonY,
     "Click here to return to Prolific",
-    { 
-      font: '18px Arial', 
+    {
+      font: '18px Arial',
       fill: '#ffffff',
       align: 'center'
     }
