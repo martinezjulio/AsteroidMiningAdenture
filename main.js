@@ -4490,6 +4490,11 @@ function showEndOfGameMessage() {
   // Clear the game screen
   this.children.removeAll();
 
+  // The end-of-game canvas renders its own total-reward summary, so hide the
+  // always-on DOM running-total bar to avoid showing the value twice.
+  const totalRewardEl = document.getElementById('total-reward-display');
+  if (totalRewardEl) totalRewardEl.style.display = 'none';
+
   const W = this.sys.game.config.width;
   const H = this.sys.game.config.height;
 
