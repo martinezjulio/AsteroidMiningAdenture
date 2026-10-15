@@ -20,6 +20,7 @@ let prolificSessionID = null;     // SESSION_ID from the Prolific URL, if presen
 
 // We'll store summary icons (one per "game" stage).
 let summaryIcons = [];
+let summaryCurrentDone = false; // true once the participant clicks Next on the game the last summary icon stands for (icon dims)
 
 // Demonstrator config from server
 let demonstratorConfig = null; 
@@ -66,7 +67,8 @@ let roundPlayRewards = {}; // { [roundIndex]: { zone, rewards: number[] } } — 
 let totalRewardShownThisSession = false; // Once true, the total reward display stays visible until session reset
 let rewardBreakdownDisplay = 'none'; // 'none' | 'per_game' (from config) — reward ledger under the summary bar
 let ledgerSessions = []; // sessions (expeditions) that have started, in order — rows exist before their first play game
-let playGames = {}; // "s{session}:g{game_index}" -> { session, zone, gameIndex, shots, outcomes: [], status }, insertion-ordered
+let playGames = {}; // "s{session}:g{game_index}" -> { session, zone, gameIndex, kind, label, shots, outcomes: [] }, insertion-ordered
+let ledgerLiveKey = null; // key of the game in progress (bright ledger box); cleared when the participant clicks Next
 let currentGameReward = 0; // Reset for each game
 let refreshCount = parseInt(localStorage.getItem('refreshCount') || '0', 10);
 
@@ -556,15 +558,95 @@ const OUTCOME_TRACK_OFFSET = 8;  // thin line this far above each asteroid row; 
 let outcomePips = {};              // "row,col" -> number of pips drawn so far (reset per stage)
 
 // Logical game size. The canvas is created at GAME_W*DPR × GAME_H*DPR and the main
-// camera is zoomed by DPR, so every coordinate in this file stays in 1000×620 space
+// camera is zoomed by DPR, so every coordinate in this file stays in 1000×600 space
 // while text and sprites render at device resolution (Phaser ignores devicePixelRatio).
 const GAME_W = 1000;
-const GAME_H = 620;
+const GAME_H = 600;
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 
 // All canvas text goes through here so it rasterizes at device resolution.
 function addText(scene, x, y, text, style = {}) {
   return scene.add.text(x, y, text, { resolution: DPR, ...style });
+}
+
+// Centered, word-wrapped paragraph in which given words (partner names) take their
+// own color. Phaser text has no per-word color, so this lays the words out itself:
+// greedy wrap at style.wordWrap.width, one text object per same-colored run.
+// `highlights` is [{ name, color }]; a word matches when, after any leading
+// punctuation, it starts with a name that is not followed by another letter
+// ("Orion," "(Orion)" "Orion's"). Only the name itself is colored; attached
+// punctuation keeps the paragraph color.
+// `originY` works like setOrigin's y (0 = top at y, 0.5 = vertically centered).
+function addRichText(scene, cx, y, text, style, highlights, originY = 0.5) {
+  const base = { resolution: DPR, font: style.font, fill: style.fill };
+  const wrapW = (style.wordWrap && style.wordWrap.width) || GAME_W;
+  const lineSpacing = style.lineSpacing || 0;
+  // Split one whitespace-delimited word into colored pieces: [{ text, color }].
+  const pieces = (word) => {
+    const lead = (word.match(/^[^\w]*/) || [''])[0];
+    const rest = word.slice(lead.length);
+    const h = highlights.find(x => x.name && rest.startsWith(x.name) && !/\w/.test(rest.charAt(x.name.length)));
+    if (!h) return [{ text: word, color: style.fill }];
+    const out = [];
+    if (lead) out.push({ text: lead, color: style.fill });
+    out.push({ text: h.name, color: h.color });
+    const trail = rest.slice(h.name.length);
+    if (trail) out.push({ text: trail, color: style.fill });
+    return out;
+  };
+  const meter = scene.add.text(0, 0, '', base).setVisible(false);
+  const measure = (s) => { meter.setText(s); return meter.width; };
+  const spaceW = measure('a b') - measure('ab');
+  const lineH = measure('Ag') ? meter.height : 0;
+
+  // Wrap into lines of words (explicit newlines start new lines).
+  const lines = [];
+  text.split('\n').forEach(par => {
+    let line = [], w = 0;
+    par.split(/\s+/).filter(Boolean).forEach(word => {
+      const ww = measure(word);
+      if (line.length && w + spaceW + ww > wrapW) { lines.push(line); line = []; w = 0; }
+      w += (line.length ? spaceW : 0) + ww;
+      line.push(word);
+    });
+    lines.push(line);
+  });
+  meter.destroy();
+
+  const totalH = lines.length * (lineH + lineSpacing) - lineSpacing;
+  const y0 = y - totalH * originY;
+  const objects = [];
+  lines.forEach((line, li) => {
+    // Flatten words into pieces (a space precedes each word but not the pieces
+    // inside it), then merge consecutive same-colored pieces into runs.
+    const runs = [];
+    line.forEach((word, wi) => {
+      pieces(word).forEach((pc, pi) => {
+        const gap = wi > 0 && pi === 0;
+        const last = runs[runs.length - 1];
+        if (last && last.color === pc.color) last.text += (gap ? ' ' : '') + pc.text;
+        else runs.push({ color: pc.color, text: pc.text, gap });
+      });
+    });
+    const texts = runs.map(r => scene.add.text(0, 0, r.text, { ...base, fill: r.color }).setOrigin(0, 0));
+    const lineW = texts.reduce((a, t, i) => a + t.width + (runs[i].gap ? spaceW : 0), 0);
+    let x = cx - lineW / 2;
+    texts.forEach((t, i) => {
+      if (runs[i].gap) x += spaceW;
+      t.setPosition(x, y0 + li * (lineH + lineSpacing));
+      x += t.width;
+    });
+    objects.push(...texts);
+  });
+  return { objects, height: totalH, destroy: () => objects.forEach(o => o.destroy()) };
+}
+
+// [{ name, color }] for every demonstrator attached to a stage (watch: `demonstrator`;
+// presentation/choice: `demonstrator1`/`demonstrator2`).
+function partnerHighlights(stage) {
+  return [stage.demonstrator, stage.demonstrator1, stage.demonstrator2]
+    .filter(d => d && d.demonstrator_name)
+    .map(d => ({ name: d.demonstrator_name, color: partnerColor(d) || THEME.text }));
 }
 
 // Visual theme shared by the Phaser scene; mirrors the CSS variables in index.html.
@@ -587,6 +669,23 @@ const THEME = {
   overlay: 0x05070c,
   neutralBorderHex: '#262c38'
 };
+
+// Partner (demonstrator) name colors, keyed by `demonstrator_color` — the same value
+// that picks the ship PNG (assets/demonstrators/styles/*/<color>.png). Sampled from
+// the ships' dominant hue and lightened slightly for legibility on the dark theme.
+// Used wherever a partner's name stands alone as a label (names inside sentences
+// stay in the regular text color).
+const PARTNER_COLORS = {
+  red: '#f04a3e',
+  orange: '#fb923c',
+  yellow: '#facc15',
+  green: '#4ade80',
+  blue: '#3b9ff5',
+  purple: '#b073ec'
+};
+function partnerColor(demo) {
+  return (demo && PARTNER_COLORS[demo.demonstrator_color]) || null;
+}
 
 // Function to test if an image exists (with error suppression)
 async function imageExists(imagePath) {
@@ -1063,6 +1162,24 @@ function getMappedZoneBackgroundFromFilename(filename) {
   return getMappedZoneBackgroundImage(0);
 }
 
+// Hue band reserved for the reward green (THEME.success, hue ≈142): no zone border,
+// summary cell or ledger box may look like "reward". Zone hues that would fall in it
+// are skipped, so the sequence stays golden-angle separated without that green.
+const ZONE_HUE_EXCLUDED = [95, 170];
+
+// Hue of the n-th zone: the n-th golden-angle hue (k * 137.5° mod 360) outside the
+// excluded band. Zone 0 (practice) stays red; zones 1.. become purple, yellow, cyan,
+// pink, blue, orange, … Virtual choice zones (1000+) walk the same sequence.
+function zoneHue(zoneGlobalIndex) {
+  let accepted = -1;
+  for (let k = 0; ; k++) {
+    const hue = (k * 137.5) % 360;
+    if (hue >= ZONE_HUE_EXCLUDED[0] && hue <= ZONE_HUE_EXCLUDED[1]) continue;
+    accepted++;
+    if (accepted === zoneGlobalIndex) return hue;
+  }
+}
+
 // Generate unique zone color for each zone
 function generateZoneColor(zoneGlobalIndex) {
   if (zoneColorMapping[zoneGlobalIndex]) {
@@ -1070,8 +1187,7 @@ function generateZoneColor(zoneGlobalIndex) {
   }
   
   // Generate HSV colors with good separation
-  const maxZones = 20; // Assume max 20 zones
-  const hue = (zoneGlobalIndex * 137.5) % 360; // Use golden angle for good separation
+  const hue = zoneHue(zoneGlobalIndex);
   const saturation = 0.7;
   const value = 0.9;
   
@@ -1159,7 +1275,7 @@ const config = {
   height: GAME_H * DPR,
   parent: 'game-container',
   backgroundColor: '#000000',
-  // Keep 1000×620 game coordinates; scale the canvas to fit #game-container so the
+  // Keep 1000×600 game coordinates; scale the canvas to fit #game-container so the
   // page fits smaller laptop screens without scrolling.
   scale: {
     mode: Phaser.Scale.FIT,
@@ -1330,6 +1446,7 @@ function loadStage() {
 
   // Store the current stage for reference in other functions if needed
   window.currentStage = stage;
+  ledgerLiveKey = null; // re-set by ledgerGameStarted below if this stage is a play/watch game
 
   // Initialize logging for gameplay stages
   const gameType = stage.stage_type || stage.game;
@@ -1360,7 +1477,7 @@ function loadStage() {
     // Reset game tracking for new game
     const numArmPulls = stage.num_arm_pulls || 0;
     resetGameTracking(gameType, numArmPulls);
-    if (gameType === 'play') ledgerGameStarted(stage);
+    if (gameType === 'play' || gameType === 'watch') ledgerGameStarted(stage);
   }
 
   // demonstrator_presentation isn't in the gameplay-stage list above, so it doesn't
@@ -1516,7 +1633,7 @@ function maybeAddSummaryIcon(stage) {
     }
   } else if (stageType === 'play' || stageType === 'practice' || stageType === 'blind') {
     // Add player name for play stages
-    iconName = 'Prospector One';
+    iconName = 'Prospector';
   }
 
   // Add the icon with proper imageKey - generate zone color
@@ -1527,6 +1644,7 @@ function maybeAddSummaryIcon(stage) {
     zone: stage.zone.zone_global_index,
     zone_color: zoneColorValue,
     color: zoneColorValue, // Keep color for backward compatibility
+    nameColor: partnerColor(stage.demonstrator), // null for the player's own games
     gameType: stageType,
     session_index: stage.session_index,
     round_index: stage.round_index
@@ -1538,6 +1656,7 @@ function maybeAddSummaryIcon(stage) {
   }
   
   summaryIcons.push(iconData);
+  summaryCurrentDone = false;
 }
 
 // Tag the current play stage's summary icon with its final reward (drives the "+X"
@@ -1549,7 +1668,6 @@ function maybeAddSummaryIcon(stage) {
 function capturePreviousPlayReward() {
   const previousStage = window.currentStage;
   if (!previousStage || previousStage.game !== 'play') return;
-  ledgerGameDone(previousStage);
 
   // Walk from the end so back-to-back play stages each get their own annotation
   // rather than overwriting one. Both the icon-tag and the recap-push live in the
@@ -1594,20 +1712,46 @@ function updateTotalRewardDisplay() {
   //   across_sessions → the running sum across every session
   // (End-of-game screen still renders the per-session breakdown in per_session mode.)
   const value = getUserTotalReward();
+  el.innerHTML = '';
   if (rewardBreakdownDisplay === 'per_game') {
-    el.innerHTML = '';
     el.appendChild(buildRewardLedgerDOM());
   } else {
-    el.textContent = `TOTAL REWARD: ${value}`;
+    el.appendChild(document.createTextNode(`TOTAL REWARD: ${value}`));
+    const bonus = buildBonusLineDOM(value);
+    if (bonus) el.appendChild(bonus);
   }
   el.style.visibility = 'visible';
 }
 
+// bonus_per_reward from the YAML (via /api/config); null hides every bonus line.
+function bonusRate() {
+  return gameConfig && typeof gameConfig.bonus_per_reward === 'number' ? gameConfig.bonus_per_reward : null;
+}
+
+function bonusMoney(v) {
+  const cur = (gameConfig && gameConfig.bonus_currency) || '$';
+  return `${cur}${v.toFixed(2)}`;
+}
+
+// "Bonus $0.52" under the running total, so participants can glance at what the
+// total is worth. Returns null when no bonus rate is configured.
+function buildBonusLineDOM(totalReward) {
+  const rate = bonusRate();
+  if (rate === null) return null;
+  const d = document.createElement('div');
+  d.className = 'ledger-bonus';
+  d.textContent = `Bonus ${bonusMoney(totalReward * rate)}`;
+  return d;
+}
+
 /*****************************************
  * Reward ledger (reward_breakdown_display: per_game)
- * One row per expedition (session), one mini Reward Tank per play game: a box
- * outlined in the game's zone color with one slot per shot, filled green for
- * each reward earned. A game's box appears when that game starts.
+ * One row per expedition (session), one box per play or watch game, outlined in
+ * the game's zone color. Play boxes are mini Reward Tanks (one slot per shot,
+ * filled green per reward earned); watch boxes are same-size placeholders showing
+ * the watched partner's name, so every expedition's boxes line up. A box appears
+ * when its game starts. Only the current game's box is bright; the EXPEDITION
+ * caption dims once the expedition is over.
  ****************************************/
 function flattenSession(session) {
   return Array.isArray(session[0]) ? session.flat() : session;
@@ -1626,18 +1770,27 @@ function ledgerGameStarted(stage) {
   if (!stage || !stage.zone || stage.session_index < 1) return;
   const key = ledgerKey(stage);
   if (!playGames[key]) {
+    const demoName = stage.demonstrator && stage.demonstrator.demonstrator_name;
     playGames[key] = {
       session: stage.session_index,
       zone: stage.zone.zone_global_index,
       gameIndex: stage.game_index,
+      kind: stage.game,
+      label: stage.game === 'watch' ? (demoName || 'WATCH') : null,
+      labelColor: stage.game === 'watch' ? partnerColor(stage.demonstrator) : null,
       shots: stage.num_arm_pulls || 0,
-      outcomes: [],
-      status: 'active'
+      outcomes: []
     };
   } else {
-    playGames[key].status = 'active';
     playGames[key].outcomes = [];
   }
+  ledgerLiveKey = key;
+}
+
+// The box whose game is in progress: bright from the moment the game starts until
+// the participant clicks Next (nextStage clears the key before any transition slide).
+function ledgerIsCurrent(g) {
+  return ledgerLiveKey === `s${g.session}:g${g.gameIndex}`;
 }
 
 function ledgerRecordShot(outcome) {
@@ -1649,17 +1802,12 @@ function ledgerRecordShot(outcome) {
   updateTotalRewardDisplay();
 }
 
-function ledgerGameDone(stage) {
-  const g = playGames[ledgerKey(stage)];
-  if (g) g.status = 'done';
-}
-
-// Number of expeditions that contain a play game — fixes the ledger's height up front.
+// Number of expeditions that contain a play or watch game — fixes the ledger's height up front.
 function ledgerSessionCount() {
   if (!timelineData) return 0;
   let n = 0;
   for (let i = 1; i < timelineData.length; i++) {
-    if (flattenSession(timelineData[i]).some(st => st.game === 'play')) n++;
+    if (flattenSession(timelineData[i]).some(st => st.game === 'play' || st.game === 'watch')) n++;
   }
   return n;
 }
@@ -1669,6 +1817,7 @@ function ledgerSessionCount() {
 function setLedgerRowHeight() {
   let h = 60;
   if (rewardBreakdownDisplay === 'per_game') h = ledgerSessionCount() * 26 + 64;
+  if (bonusRate() !== null) h += 18; // .ledger-bonus line under the total
   document.documentElement.style.setProperty('--reward-rows-h', `${h}px`);
 }
 
@@ -1696,20 +1845,28 @@ function buildRewardLedgerDOM() {
   const mk = (cls) => { const d = document.createElement('div'); d.className = cls; return d; };
   const wrap = mk('ledger');
   ledgerRows(true).forEach(row => {
-    const r = mk('ledger-row' + (row.dimmed ? ' dimmed' : ''));
-    const cap = mk('ledger-cap');
+    const r = mk('ledger-row');
+    const cap = mk('ledger-cap' + (row.dimmed ? ' dimmed' : ''));
     cap.textContent = `EXPEDITION ${row.session}`;
     r.appendChild(cap);
     row.groups.forEach(grp => {
       const z = mk('ledger-zone');
       grp.games.forEach(g => {
-        const box = mk('ledger-box ' + g.status);
+        const box = mk('ledger-box ' + g.kind + (ledgerIsCurrent(g) ? ' active' : ' dimmed'));
         box.style.borderColor = grp.color;
-        const earned = g.outcomes.reduce((a, b) => a + b, 0);
-        box.title = `Zone ${grp.zone}: ${earned} / ${g.shots}`;
-        for (let i = 0; i < g.shots; i++) {
-          const cls = g.outcomes[i] === 1 ? ' hit' : (g.outcomes[i] === 0 ? ' miss' : '');
-          box.appendChild(mk('ledger-slot' + cls));
+        if (g.kind === 'watch') {
+          // Same outer size as a play box with the same shot count (8px slots + 1px gaps).
+          box.style.width = `${g.shots * 9 - 1}px`;
+          box.textContent = g.label;
+          if (g.labelColor) box.style.color = g.labelColor;
+          box.title = `Zone ${grp.zone}: watched ${g.label}`;
+        } else {
+          const earned = g.outcomes.reduce((a, b) => a + b, 0);
+          box.title = `Zone ${grp.zone}: ${earned} / ${g.shots}`;
+          for (let i = 0; i < g.shots; i++) {
+            const cls = g.outcomes[i] === 1 ? ' hit' : (g.outcomes[i] === 0 ? ' miss' : '');
+            box.appendChild(mk('ledger-slot' + cls));
+          }
         }
         z.appendChild(box);
       });
@@ -1720,6 +1877,8 @@ function buildRewardLedgerDOM() {
   const total = mk('ledger-total');
   total.textContent = `TOTAL REWARD ${getUserTotalReward()}`;
   wrap.appendChild(total);
+  const bonus = buildBonusLineDOM(getUserTotalReward());
+  if (bonus) wrap.appendChild(bonus);
   return wrap;
 }
 
@@ -1751,12 +1910,18 @@ function drawRewardLedgerCanvas(scene, cx, y) {
         const w = boxWidth(g);
         gfx.fillStyle(THEME.panel, 0.95);
         gfx.fillRoundedRect(x, ry, w, boxH, 5);
-        gfx.lineStyle(border, color, g.status === 'upcoming' ? 0.45 : 1);
+        gfx.lineStyle(border, color, 1);
         gfx.strokeRoundedRect(x + border / 2, ry + border / 2, w - border, boxH - border, 5);
-        for (let i = 0; i < g.shots; i++) {
-          const fill = g.outcomes[i] === 1 ? THEME.success : (g.outcomes[i] === 0 ? THEME.fail : THEME.slotEmpty);
-          gfx.fillStyle(fill, 1);
-          gfx.fillRoundedRect(x + border + pad + i * (slotW + slotGap), ry + border + pad, slotW, slotH, 2);
+        if (g.kind === 'watch') {
+          addText(scene, x + w / 2, ry + boxH / 2, g.label, {
+            font: `600 10px ${THEME.fontBody}`, fill: g.labelColor || THEME.textMuted
+          }).setOrigin(0.5, 0.5);
+        } else {
+          for (let i = 0; i < g.shots; i++) {
+            const fill = g.outcomes[i] === 1 ? THEME.success : (g.outcomes[i] === 0 ? THEME.fail : THEME.slotEmpty);
+            gfx.fillStyle(fill, 1);
+            gfx.fillRoundedRect(x + border + pad + i * (slotW + slotGap), ry + border + pad, slotW, slotH, 2);
+          }
         }
         x += w + boxGap;
       });
@@ -1772,8 +1937,8 @@ function drawRewardLedgerCanvas(scene, cx, y) {
 
 /**
  * Re-draw the summary bar (#summary-bar in HTML).
- * Past icons are dimmed, the current icon is bright.
- * We also apply the zone color as a border for each cell.
+ * Past icons are dimmed, the current icon is bright until the participant clicks
+ * Next on its stage (summaryCurrentDone). We also apply the zone color as a border.
  */
 function redrawSummaryBarDOM() {
   const bar = document.getElementById('summary-bar');
@@ -1846,7 +2011,7 @@ function redrawSummaryBarDOM() {
 // for non-play or pre-completion play cells) so heights stay uniform.
 function buildSummaryCell(iconData, isLast) {
   const cellDiv = document.createElement("div");
-  cellDiv.className = isLast ? "sb-cell current" : "sb-cell";
+  cellDiv.className = (isLast && !summaryCurrentDone) ? "sb-cell current" : "sb-cell";
   cellDiv.style.borderColor = iconData.zone_color || iconData.color || "#ffffff";
 
   const img = document.createElement("img");
@@ -1864,6 +2029,7 @@ function buildSummaryCell(iconData, isLast) {
     const nameLabel = document.createElement("div");
     nameLabel.className = "sb-name";
     nameLabel.textContent = iconData.name;
+    if (iconData.nameColor) nameLabel.style.color = iconData.nameColor;
     cellDiv.appendChild(nameLabel);
   }
 
@@ -1971,6 +2137,7 @@ function setupFeedback(stage) {
   const partnerNameDiv = document.getElementById('feedback-partner-name');
   if (choiceDemonstratorData && choiceDemonstratorData.demonstrator_name) {
     partnerNameDiv.textContent = choiceDemonstratorData.demonstrator_name;
+    partnerNameDiv.style.color = partnerColor(choiceDemonstratorData) || '';
     partnerNameDiv.style.display = 'block';
   } else {
     partnerNameDiv.style.display = 'none';
@@ -2430,11 +2597,11 @@ function setupPlayOrPractice(stage, isPractice) {
     .setDepth(9999);
   setSpriteDisplaySizeWithAspectRatio(userSprite, DEMO_SPRITE_SIZE);
 
-  // Add "Prospector One" name label below player sprite
+  // Add "Prospector" name label below player sprite
   let userNameText = addText(this, 
     initX,
     initY + DEMO_SPRITE_SIZE / 2 + 15,
-    'Prospector One',
+    'Prospector',
     { 
       font: `bold 14px ${THEME.fontBody}`, 
       fill: '#ffffff',
@@ -2718,7 +2885,7 @@ function setupWatch(stage) {
     demoData && demoData.demonstrator_name ? `WATCHING ${demoData.demonstrator_name.toUpperCase()}` : "WATCHING PARTNER",
     {
       font: `bold 20px ${THEME.fontDisplay}`,
-      fill: THEME.text,
+      fill: partnerColor(demoData) || THEME.text,
       backgroundColor: 'rgba(5, 7, 12, 0.75)',
       padding: { x: 14, y: 6 }
     }
@@ -2791,7 +2958,7 @@ function setupWatch(stage) {
         stage.demonstrator.demonstrator_name,
         { 
           font: `bold 14px ${THEME.fontBody}`, 
-          fill: '#ffffff',
+          fill: partnerColor(stage.demonstrator) || '#ffffff',
           align: 'center',
           stroke: '#000000',
           strokeThickness: 3
@@ -3020,7 +3187,7 @@ function setupIndicate(stage) {
     demoData && demoData.demonstrator_name ? `WATCHING ${demoData.demonstrator_name.toUpperCase()}` : "WATCHING PARTNER",
     {
       font: `bold 20px ${THEME.fontDisplay}`,
-      fill: THEME.text,
+      fill: partnerColor(demoData) || THEME.text,
       backgroundColor: 'rgba(5, 7, 12, 0.75)',
       padding: { x: 14, y: 6 }
     }
@@ -3093,7 +3260,7 @@ function setupIndicate(stage) {
         stage.demonstrator.demonstrator_name,
         { 
           font: `bold 14px ${THEME.fontBody}`, 
-          fill: '#ffffff',
+          fill: partnerColor(stage.demonstrator) || '#ffffff',
           align: 'center',
           stroke: '#000000',
           strokeThickness: 3
@@ -3299,18 +3466,20 @@ function setupDemonstratorPresentation(stage) {
       wordWrap: { width: 820 }
     }).setOrigin(0.5);
   }
-  const titleText = addText(this,
+  // Partner names inside the paragraph take their ship's color.
+  addRichText(this,
     GAME_W / 2,
     stage.title ? 100 : 150,
     stage.message || "You will now start a new expedition with several watch and play games. These two partner starships come along for the watch games:",
     {
       font: `20px ${THEME.fontBody}`,
       fill: THEME.text,
-      align: 'center',
       wordWrap: { width: 760 },
       lineSpacing: 4
-    }
-  ).setOrigin(0.5, 0);
+    },
+    partnerHighlights(stage),
+    0
+  );
   
   // Create cells for each demonstrator
   const cells = [];
@@ -3382,7 +3551,7 @@ function setupDemonstratorPresentation(stage) {
           cell.demonstrator.demonstrator_name,
           { 
             font: `bold 14px ${THEME.fontBody}`, 
-            fill: '#ffffff',
+            fill: partnerColor(cell.demonstrator) || '#ffffff',
             align: 'center',
             stroke: '#000000',
             strokeThickness: 3
@@ -3701,7 +3870,7 @@ function setupChoice(stage) {
           demonstrator.demonstrator_name,
           { 
             font: `bold 14px ${THEME.fontBody}`, 
-            fill: '#ffffff',
+            fill: partnerColor(demonstrator) || '#ffffff',
             align: 'center',
             stroke: '#000000',
             strokeThickness: 3
@@ -3958,7 +4127,8 @@ function addChoiceSelectionToSummary(imageKey, zoneColor, choiceLetter) {
     const stage = window.currentStage;
     let demoImage = null;
     let demoName = null;
-    
+    let demoColor = null;
+
     if (stage && stage.demonstrator1 && stage.demonstrator2) {
       // Determine which demonstrator was selected based on the demoIndex
       if (demoIndex === '0' && stage.demonstrator1.demonstrator_global_index !== undefined) {
@@ -3967,6 +4137,7 @@ function addChoiceSelectionToSummary(imageKey, zoneColor, choiceLetter) {
         // Get demonstrator name if available
         if (stage.demonstrator1.demonstrator_name) {
           demoName = stage.demonstrator1.demonstrator_name;
+          demoColor = partnerColor(stage.demonstrator1);
         }
       } else if (demoIndex === '1' && stage.demonstrator2.demonstrator_global_index !== undefined) {
         const mappedImage = mapDemonstratorImage(stage.demonstrator2.demonstrator_global_index, stage.demonstrator2.demonstrator_style, stage.demonstrator2.demonstrator_color);
@@ -3974,6 +4145,7 @@ function addChoiceSelectionToSummary(imageKey, zoneColor, choiceLetter) {
         // Get demonstrator name if available
         if (stage.demonstrator2.demonstrator_name) {
           demoName = stage.demonstrator2.demonstrator_name;
+          demoColor = partnerColor(stage.demonstrator2);
         }
       }
     }
@@ -3990,6 +4162,7 @@ function addChoiceSelectionToSummary(imageKey, zoneColor, choiceLetter) {
     // Store the demonstrator name if available
     if (demoName) {
       summaryIcons[choiceIconIndex].name = demoName;
+      summaryIcons[choiceIconIndex].nameColor = demoColor;
     }
     
     // Redraw the summary bar to show the change
@@ -4171,7 +4344,7 @@ function setupOnlineChoicePhaseChoice(stage) {
           cell.data.demonstrator_name,
           { 
             font: `bold 14px ${THEME.fontBody}`, 
-            fill: '#ffffff',
+            fill: partnerColor(cell.data) || '#ffffff',
             align: 'center',
             stroke: '#000000',
             strokeThickness: 3
@@ -4675,6 +4848,13 @@ function updateOnlineChoiceSummaryIcon(imageKey, zoneColor, choiceLetter) {
  * Utility
  ************************************************/
 function nextStage() {
+  // The game just left is over: dim its ledger box and summary icon now, before any
+  // transition slide.
+  ledgerLiveKey = null;
+  updateTotalRewardDisplay();
+  summaryCurrentDone = true;
+  redrawSummaryBarDOM();
+
   // Simple approach: increment stage index and let loadStage handle the complex logic
   currentStageIndex++;
   
@@ -4897,16 +5077,15 @@ function showEndOfGameMessage() {
 
 /**
  * Bonus calculation under the total on the end screen:
- *   BONUS £0.82
- *   41 rewards × £0.02 each
+ *   BONUS $0.82
+ *   41 rewards × $0.02 each
  * Reads bonus_per_reward / bonus_currency from the YAML (via /api/config); draws
  * nothing and returns 0 when no rate is configured. Returns the height used.
  */
 function drawBonusLines(scene, x, y, totalReward) {
-  const rate = gameConfig && typeof gameConfig.bonus_per_reward === 'number' ? gameConfig.bonus_per_reward : null;
+  const rate = bonusRate();
   if (rate === null) return 0;
-  const cur = (gameConfig && gameConfig.bonus_currency) || '£';
-  const money = (v) => `${cur}${v.toFixed(2)}`;
+  const money = bonusMoney;
   addText(scene, x, y, `BONUS ${money(totalReward * rate)}`, {
     font: `bold 28px ${THEME.fontDisplay}`, fill: THEME.text, stroke: '#000000', strokeThickness: 3
   }).setOrigin(0.5, 0);
@@ -5412,18 +5591,20 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
       wordWrap: { width: 820 }
     }).setOrigin(0.5);
   }
-  const messageText = addText(scene,
+  // Partner names inside the body take their ship's color.
+  addRichText(scene,
     GAME_W / 2,
-    overlayTitle ? 150 : 150,
+    150,
     message,
     {
       font: `21px ${THEME.fontBody}`,
       fill: THEME.text,
-      align: 'center',
       wordWrap: { width: 680 },
       lineSpacing: 4
-    }
-  ).setOrigin(0.5);
+    },
+    partnerHighlights(nextStage),
+    0.5
+  );
   
   // Add secondary message if it exists (for watch games)
   let secondaryMessage = null;
@@ -5623,11 +5804,13 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
         
         // Add name text below the player image if available
         let nameText = '';
+        let nameColor = '#ffffff';
         if (stageType === 'practice' || stageType === 'play' || stageType === 'blind') {
-            nameText = 'Prospector One';
-        } else if ((stageType === 'watch' || stageType === 'indicate') && 
+            nameText = 'Prospector';
+        } else if ((stageType === 'watch' || stageType === 'indicate') &&
                    nextStage.demonstrator && nextStage.demonstrator.demonstrator_name) {
             nameText = nextStage.demonstrator.demonstrator_name;
+            nameColor = partnerColor(nextStage.demonstrator) || nameColor;
         }
         
         if (nameText) {
@@ -5637,7 +5820,7 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
                 nameText,
                 { 
                     font: `bold 14px ${THEME.fontBody}`, 
-                    fill: '#ffffff',
+                    fill: nameColor,
                     align: 'center',
                     stroke: '#000000',
                     strokeThickness: 2

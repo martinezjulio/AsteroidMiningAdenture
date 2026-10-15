@@ -58,6 +58,6 @@
     "verbose": false,
     "prolific_completion_url": "https://app.prolific.com/submissions/complete?cc=CTVM94DF",
     "bonus_per_reward": 0.02,
-    "bonus_currency": "£",
+    "bonus_currency": "$",
     "reward_breakdown_display": "per_game"
 }

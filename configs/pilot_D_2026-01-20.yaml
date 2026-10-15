@@ -118,4 +118,4 @@ prolific_completion_url: https://app.prolific.com/submissions/complete?cc=CTVM94
 # Bonus shown on the final screen: TOTAL REWARD × bonus_per_reward, formatted with
 # bonus_currency. Omit bonus_per_reward to hide the bonus line.
 bonus_per_reward: 0.02
-bonus_currency: "£"
+bonus_currency: "$"

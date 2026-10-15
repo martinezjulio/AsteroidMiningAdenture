@@ -63,7 +63,8 @@
       box-sizing: content-box;
       /* Floor of 660px: below that the asteroids get too small, so a very short
          viewport scrolls the secondary rows instead of shrinking the canvas further. */
-      width: max(660px, min(1000px, calc(100vw - 80px), calc((100vh - 246px - var(--reward-rows-h, 60px)) * 1000 / 620)));
+      /* 254px = body padding (22) + row gaps (24) + frame border (32) + #summary-bar (106) + #controls-display (70). */
+      width: max(660px, min(1000px, calc(100vw - 80px), calc((100vh - 254px - var(--reward-rows-h, 60px)) * 1000 / 600)));
       border: var(--zone-border-w) solid var(--border-neutral);
       border-radius: var(--radius);
       background: #000;
@@ -74,7 +75,7 @@
     #game-container {
       position: relative;
       width: 100%;
-      aspect-ratio: 1000 / 620;
+      aspect-ratio: 1000 / 600;
       overflow: hidden;
     }
     #game-container canvas { display: block; }
@@ -84,7 +85,7 @@
     #summary-bar {
       width: 100%;
       max-width: 1140px;
-      min-height: 112px;
+      min-height: 106px;
       display: flex;
       flex-direction: row;
       align-items: flex-start;
@@ -102,15 +103,16 @@
       align-items: center;
       justify-content: flex-start;
       width: 80px;
-      height: 90px;
-      padding: 6px;
+      /* Inner 65px = image 36 + name 13 + reward slot 16: no slack between name and reward. */
+      height: 82px;
+      padding: 5px 6px 4px;
       border: 3px solid #fff;
       border-radius: 8px;
       background: rgba(22, 26, 35, 0.8);
       opacity: 0.45;
     }
     .sb-cell.current { opacity: 1; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.15); }
-    .sb-cell img { width: 36px; max-height: 36px; object-fit: contain; display: block; }
+    .sb-cell img { width: 36px; height: 36px; object-fit: contain; display: block; }
     .sb-name {
       color: var(--text);
       font-size: 10px;
@@ -154,7 +156,9 @@
     }
 
     /* Reward ledger (reward_breakdown_display: per_game): one row per expedition,
-       one mini Reward Tank per play game, total underneath. */
+       one mini Reward Tank per play game and a same-size named placeholder per
+       watch game, total underneath. Only the current game's box is bright; the
+       caption dims once its expedition is over. */
     .ledger {
       display: inline-flex;
       flex-direction: column;
@@ -164,7 +168,7 @@
     }
     .ledger-row { display: flex; align-items: center; gap: 4px; height: 22px; }
     .ledger { gap: 4px; }
-    .ledger-row.dimmed { opacity: 0.55; }
+    .ledger-cap.dimmed { opacity: 0.4; }
     .ledger-cap {
       width: 104px;
       margin-right: 8px;
@@ -185,8 +189,20 @@
       border-radius: 5px;
       background: rgba(22, 26, 35, 0.9);
     }
-    .ledger-box.upcoming { opacity: 0.45; }
+    .ledger-box.dimmed { opacity: 0.3; }
     .ledger-box.active { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35); }
+    /* Watch placeholder: height matches a slot so the box is the same size as a play box. */
+    .ledger-box.watch {
+      box-sizing: content-box;
+      justify-content: center;
+      align-items: center;
+      height: 14px;
+      font: 600 9px var(--font-body);
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
     .ledger-slot { width: 8px; height: 14px; border-radius: 2px; background: #2a3140; }
     .ledger-slot.hit { background: var(--success); }
     .ledger-slot.miss { background: var(--fail); }
@@ -201,10 +217,21 @@
       color: var(--success);
       text-shadow: 0 0 14px rgba(34, 197, 94, 0.45);
     }
+    /* "Bonus £X.XX" under the total (bonus_per_reward × total). Small and blue so it
+       can be glanced at without competing with TOTAL REWARD. */
+    .ledger-bonus {
+      align-self: center;
+      margin-top: 2px;
+      font: 600 12px var(--font-body);
+      line-height: 1.2;
+      letter-spacing: 0.08em;
+      color: var(--accent);
+      text-shadow: none;
+    }
 
     /* Controls hint row */
     #controls-display {
-      min-height: 56px;
+      min-height: 70px; /* two-line "Shoot asteroid / or click" hint */
       display: flex;
       flex-direction: row;
       align-items: flex-start;

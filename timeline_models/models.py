@@ -558,7 +558,7 @@ def generate_timeline(
     intro_message = (
         "[BOLD]PLEASE READ CAREFULLY:[/BOLD]\n\n"
         "Welcome to Fortune Frontier. In this game you will pilot the starship "
-        "\"Prospector One\" and mine ASTEROIDS by shooting them. "
+        "\"Prospector\" and mine ASTEROIDS by shooting them. "
         "Some asteroids yield more rewards than others.\n\n"
         "GOAL: Mine as much reward as possible by finding the best asteroids and shooting them.\n\n"
         "EXPEDITIONS: Your trip is split into expeditions. Each expedition takes you through "

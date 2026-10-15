@@ -150,7 +150,7 @@ Unknown tokens cause Python to raise `ValueError` at timeline-generation time.
 - **Type**: string — `'none'` or `'per_game'`.
 - **Default**: `'none'`.
 - **Read by**: Node (`server.js`), Browser.
-- **Effect**: with `display_running_total_reward: true`, `'per_game'` replaces the single `TOTAL REWARD: N` line with a **reward ledger**: one row per expedition (session), one mini Reward Tank per play game (a box outlined in the game's zone color with one slot per shot, filled green per reward earned), and the total underneath. When an expedition starts, all of its play games appear as empty boxes (so the row shows how many games remain); future expeditions are not shown until they begin. The end-of-game screen draws the same ledger with zone labels. **Design note**: the ledger keeps per-game, per-zone reward information visible across expeditions (the summary bar's per-game "+N" clears each session) and reveals the number of play games in the current expedition — leave it `'none'` for conditions where that should not be shown.
+- **Effect**: with `display_running_total_reward: true`, `'per_game'` replaces the single `TOTAL REWARD: N` line with a **reward ledger**: one row per expedition (session), one box per play or watch game, and the total underneath. A play box is a mini Reward Tank (outlined in the game's zone color, one slot per shot, filled green per reward earned). A watch box is a same-size placeholder showing the watched partner's name (`"WATCH"` when `name_demonstrators` is false), so every expedition has the same number of boxes in the same columns; the boxes only line up exactly when `num_pulls_per_watch_game` equals `num_pulls_per_play_game`. `online-choice` stages get no box. A box appears when its game starts; only the current game's box is bright and every other box is dimmed, while the `EXPEDITION n` caption dims only once that expedition is over. Future expeditions are not shown until they begin. The end-of-game screen draws the same ledger with zone labels and nothing dimmed. **Design note**: the ledger keeps per-game, per-zone reward information visible across expeditions (the summary bar's per-game "+N" clears each session) and reveals the number of play games in the current expedition — leave it `'none'` for conditions where that should not be shown.
 - Participant-facing copy calls a session an **expedition** (transition slides, ledger captions, end screen); config/logs/timeline JSON keep `session`.
 - **Zone numbering**: played zones are numbered consecutively in play order across sessions (zone 0 = practice). End-of-session `choice`/`feedback` stages carry a virtual zone `1000 + session_index` (own border color, never played) so they don't create gaps; their log rows have `zone_global_index` ≥ 1001.
 
@@ -162,9 +162,9 @@ Unknown tokens cause Python to raise `ValueError` at timeline-generation time.
 
 ### `bonus_per_reward` / `bonus_currency`
 - **Type**: number (money per reward point) / string (currency prefix).
-- **Default**: no bonus line / `£`.
+- **Default**: no bonus line / `$`.
 - **Read by**: Node (`server.js`), Browser.
-- **Effect**: the final screen shows `BONUS £0.82` and `41 rewards × £0.02 each` under the total, computed as TOTAL REWARD × `bonus_per_reward`. Omit `bonus_per_reward` to hide the line. Display only — it does not affect what Prolific pays; keep it in sync with the study's bonus rule.
+- **Effect**: the final screen shows `BONUS $0.82` and `41 rewards × $0.02 each` under the total, computed as TOTAL REWARD × `bonus_per_reward`. While playing, a small blue `Bonus $0.82` line sits under the running total (either display mode). Omit `bonus_per_reward` to hide both. Display only — it does not affect what Prolific pays; keep it in sync with the study's bonus rule.
 
 ### `verbose`
 - **Type**: bool

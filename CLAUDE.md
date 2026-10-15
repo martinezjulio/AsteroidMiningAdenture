@@ -57,7 +57,7 @@ Adding a new stage means: extend the `gameLog.js` enum, write a `setup<Type>(sta
 
 ### Visual theme
 
-Colors/fonts for canvas text come from the `THEME` object in `main.js`, which mirrors the CSS variables in `index.html`; buttons go through `makeButton()`. Phaser's `font` shorthand splits on spaces, so font family names must be single tokens (`Inter`, `Orbitron`). The canvas is `1000×620` game units scaled with `Phaser.Scale.FIT`; anything positioned in the DOM over the canvas must convert via the canvas's bounding rect (see `displayInstructionLayout`).
+Colors/fonts for canvas text come from the `THEME` object in `main.js`, which mirrors the CSS variables in `index.html`; buttons go through `makeButton()`. Phaser's `font` shorthand splits on spaces, so font family names must be single tokens (`Inter`, `Orbitron`). The canvas is `1000×600` game units scaled with `Phaser.Scale.FIT`; anything positioned in the DOM over the canvas must convert via the canvas's bounding rect (see `displayInstructionLayout`).
 
 ### Participant-facing naming
 
