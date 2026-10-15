@@ -83,6 +83,7 @@
     /* Rows below the canvas keep a fixed minimum height even when empty so the canvas
        never jumps between stages. */
     #summary-bar {
+      position: relative; /* z-index is raised on the Prolific page so the partner row shows above the overlay */
       width: 100%;
       max-width: 1140px;
       min-height: 106px;
@@ -140,6 +141,20 @@
       margin-top: 4px;
     }
     .sb-sep { border-left: 2px dashed rgba(255, 255, 255, 0.25); align-self: stretch; margin: 0 8px; }
+
+    /* Decorative partner row shown in #summary-bar on intro/instructions only.
+       Wrap + max-height + overflow:hidden = centred single row; the rest is clipped. */
+    .partner-row {
+      display: flex; flex-wrap: wrap; justify-content: center;
+      gap: 14px; padding: 6px 0; max-height: 88px; overflow: hidden;
+    }
+    .partner-row img {
+      width: 76px; height: 76px; object-fit: contain; display: block;
+      filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.6));
+    }
+    .partner-row--single { max-height: none; padding: 3px 0; } /* 76 img + name fits the 106px bar */
+    .partner-cell { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+    .partner-name { font-size: 13px; font-weight: 700; color: var(--text); letter-spacing: 0.02em; }
 
     /* Running total reward, beneath the summary bar. Toggled with visibility so it
        keeps its space. */
@@ -341,6 +356,7 @@
       margin: 0 0 28px;
       text-align: center;
     }
+    #prolific-content { display: flex; flex-direction: column; align-items: center; }
     #prolific-id-row { display: flex; gap: 8px; align-items: stretch; }
     #prolific-id-row .btn { margin-top: 0; white-space: nowrap; }
     #prolific-id-hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
@@ -394,6 +410,7 @@
 
   <!-- Overlaid Prolific form -->
   <div id="prolific-form-overlay" class="overlay">
+   <div id="prolific-content">
     <h1 id="prolific-welcome-title">Fortune Frontier</h1>
     <h2 id="prolific-welcome-subtitle">The Asteroid Mining Adventure</h2>
     <form class="panel" onsubmit="return false;">
@@ -405,6 +422,7 @@
       <p id="prolific-id-hint" hidden>We filled this in from your Prolific link. Check it and press Start.</p>
       <p class="form-error" id="prolific-form-error" hidden></p>
     </form>
+   </div>
   </div>
 
   <!-- Overlaid Feedback form -->

@@ -44,6 +44,7 @@ let demonstratorStyleColorMapping = {}; // Maps demonstrator_global_index -> {st
 let usedStyleColorCombos = new Set(); // Track used combos to ensure uniqueness
 const AVAILABLE_STYLES = ['style1', 'style2', 'style3', 'style4', 'style5', 'style6'];
 const AVAILABLE_COLORS = ['red', 'orange', 'blue', 'green', 'yellow', 'purple'];
+let partnerRowOrder = null; // shuffled once per page load; see showPartnerRow()
 
 // Zone color and ID mappings - generated on the fly
 let zoneColorMapping = {}; // Maps zone_global_index -> unique color
@@ -1441,6 +1442,8 @@ function loadStage() {
   clearScene(this);
   outcomePips = {};
   document.getElementById('prolific-form-overlay').style.visibility = 'hidden';
+  document.getElementById('game-frame').style.visibility = ''; // hidden only on the Prolific page
+  document.getElementById('summary-bar').style.zIndex = '';   // lifted above the overlay only on the Prolific page
 
   const stage = currentStageContainer[effectiveStageIndex];
 
@@ -1940,6 +1943,60 @@ function drawRewardLedgerCanvas(scene, cx, y) {
  * Past icons are dimmed, the current icon is bright until the participant clicks
  * Next on its stage (summaryCurrentDone). We also apply the zone color as a border.
  */
+/**
+ * Decorative starship row under the canvas, shown only before practice. It lives in
+ * #summary-bar (empty until then) so it takes no extra space and is wiped by
+ * redrawSummaryBarDOM() on the next stage. The row spans the game frame.
+ *  - 'roster' (Prolific form + introduction): shuffled partner images; CSS clips to
+ *    one centred line so only as many as fit are shown.
+ *  - 'prospector' (instructions): the player's ship with its name underneath.
+ */
+function showPartnerRow(mode = 'roster') {
+  const bar = document.getElementById('summary-bar');
+  const frame = document.getElementById('game-frame');
+  if (!bar || !frame) return;
+
+  if (mode === 'prospector') {
+    bar.innerHTML = "";
+    const row = document.createElement('div');
+    row.className = 'partner-row partner-row--single';
+    const cell = document.createElement('div');
+    cell.className = 'partner-cell';
+    const img = document.createElement('img');
+    img.src = 'assets/user.png';
+    img.alt = '';
+    const name = document.createElement('div');
+    name.className = 'partner-name';
+    name.textContent = 'Prospector';
+    cell.appendChild(img);
+    cell.appendChild(name);
+    row.appendChild(cell);
+    bar.appendChild(row);
+    return;
+  }
+
+  if (!partnerRowOrder) {
+    partnerRowOrder = [];
+    AVAILABLE_STYLES.forEach(style => AVAILABLE_COLORS.forEach(color => partnerRowOrder.push({ style, color })));
+    for (let i = partnerRowOrder.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [partnerRowOrder[i], partnerRowOrder[j]] = [partnerRowOrder[j], partnerRowOrder[i]];
+    }
+  }
+
+  bar.innerHTML = "";
+  const row = document.createElement('div');
+  row.className = 'partner-row';
+  row.style.width = `${frame.getBoundingClientRect().width}px`;
+  partnerRowOrder.forEach(({ style, color }) => {
+    const img = document.createElement('img');
+    img.src = `assets/demonstrators/styles/${style}/${color}.png`;
+    img.alt = '';
+    row.appendChild(img);
+  });
+  bar.appendChild(row);
+}
+
 function redrawSummaryBarDOM() {
   const bar = document.getElementById('summary-bar');
   if (!bar) return;
@@ -2053,7 +2110,20 @@ function setupProlificIdForm(stage) {
   // Hide controls during prolific ID form
   updateControlsDisplay("hidden");
 
-  document.getElementById('prolific-form-overlay').style.visibility = 'visible';
+  // The fixed overlay covers the page; hide the empty game frame behind it. The
+  // partner row goes in #summary-bar (lifted above the overlay) so it sits in exactly
+  // the same spot as on the introduction page, and the form is centred within the
+  // frame's area so it lands just above the row.
+  const frame = document.getElementById('game-frame');
+  const overlay = document.getElementById('prolific-form-overlay');
+  frame.style.visibility = 'hidden';
+  overlay.style.visibility = 'visible';
+  showPartnerRow('roster');
+  document.getElementById('summary-bar').style.zIndex = '10000';
+  const frameRect = frame.getBoundingClientRect();
+  const content = document.getElementById('prolific-content');
+  overlay.style.justifyContent = 'flex-start';
+  overlay.style.paddingTop = `${Math.max(0, frameRect.top + (frameRect.height - content.offsetHeight) / 2)}px`;
   const msgEl = document.getElementById('prolific-form-message');
   msgEl.innerText = stage.message || "Please enter your Prolific ID:";
 
@@ -2198,6 +2268,7 @@ function setupIntroduction(stage) {
   
   // Hide controls during introduction
   updateControlsDisplay("hidden");
+  showPartnerRow('roster');
   
   // Parse the message into distinct sections
   const redBoldRegex = /\[RED_BOLD\](.*?)\[\/RED_BOLD\]/s;
@@ -2326,11 +2397,12 @@ function setupInstructions(stage) {
   
   // Update controls display for single-row mode since all games appear to be asteroid mode
   updateControlsDisplay("single-row");
+  showPartnerRow('prospector');
   
   // Display title
   addText(this, 
     GAME_W / 2,
-    50,
+    38,
     stage.message || "Game Instructions",
     { font: `bold 26px ${THEME.fontDisplay}`, fill: '#ffffff', align: 'center', resolution: window.devicePixelRatio || 2 }
   ).setOrigin(0.5);
@@ -2399,8 +2471,8 @@ function displayInstructionLayout(instructions, gifImages) {
   const columnSpacing = 28; // Spacing between columns
 
   // Simple positioning - images at fixed Y positions, text positioned relative to images
-  const row1ImagesY = 85;      // First row images top edge
-  const row3ImagesY = 325;     // Second row images top edge
+  const row1ImagesY = 66;      // First row images top edge
+  const row3ImagesY = 302;     // Second row images top edge (captions end ~26px above the Next button)
   
   // First section: 3 instructions in 3 columns (move left, move right, mine)
   const topSectionWidth = 3 * maxImageSize + 2 * columnSpacing;
