@@ -10,6 +10,10 @@ WATCH_TOKENS = {"watch-demo-1": 0, "watch-demo-2": 1}
 PLAY_TOKENS = {"play"}
 CHOICE_LIKE_TOKENS = {"choice", "online-choice", "blind", "indicate"}
 META_TOKENS = {"feedback"}
+
+# End-of-session stages (choice/feedback) never show asteroids. They get a virtual
+# zone id (CHOICE_ZONE_BASE + session) so played zones stay consecutively numbered.
+CHOICE_ZONE_BASE = 1000
 ALL_TOKENS = set(WATCH_TOKENS.keys()) | PLAY_TOKENS | CHOICE_LIKE_TOKENS | META_TOKENS
 
 # Tokens that imply demonstrators are visible to the participant.
@@ -81,6 +85,17 @@ def _build_stage_for_token(
             "transfer": True if round_idx is None else None,
         }
     raise ValueError(f"Unhandled token {token!r}")
+
+
+def _join_names(names):
+    """'X' / 'both X and Y' / 'X, Y and Z' for participant-facing copy."""
+    if not names:
+        return ""
+    if len(names) == 1:
+        return names[0]
+    if len(names) == 2:
+        return f"both {names[0]} and {names[1]}"
+    return ", ".join(names[:-1]) + f" and {names[-1]}"
 
 
 def _build_demo_data(
@@ -221,12 +236,14 @@ def generate_timeline(
         raw_sessions.append([games, end_stages])
 
     # --- 3) Assign session_index + zone numbering ---
+    # Played zones are numbered consecutively in play order across sessions.
     zone_idx = 1
     for sess_i, (games, end_stages) in enumerate(raw_sessions, start=1):
         if bandit_assignment_mode == "session_fixed":
             for e in games:
                 e["session_index"] = sess_i
                 e["zone"] = {"zone_global_index": zone_idx}
+            zone_idx += 1
         elif bandit_assignment_mode == "round_changing":
             current_round = -1
             round_zone_idx = zone_idx
@@ -242,17 +259,12 @@ def generate_timeline(
         else:
             raise ValueError(f"Invalid bandit_assignment_mode: {bandit_assignment_mode!r}")
 
-        # End-of-session choice-like stage (if any) advances to a new zone (transfer=True).
-        # Other end stages (e.g. feedback) inherit the choice's zone.
-        choice_stage = next((s for s in end_stages if s.get("game") in CHOICE_LIKE_TOKENS), None)
-        if choice_stage is not None:
-            zone_idx += 1
-        choice_zone = zone_idx
+        # End-of-session stages (choice + feedback) share a virtual zone: it has its
+        # own color and payoff entry but is never played and doesn't consume a number.
+        choice_zone = CHOICE_ZONE_BASE + sess_i
         for stage in end_stages:
             stage["session_index"] = sess_i
             stage["zone"] = {"zone_global_index": choice_zone}
-
-        zone_idx += 1  # advance for next session's first zone
 
     # --- 4) Collect zones (incl. 0 for practice) ---
     all_zones = {0}
@@ -311,7 +323,7 @@ def generate_timeline(
         'Voyager', 'Pioneer', 'Explorer', 'Seeker', 'Hunter', 'Ranger',
         'Mercury', 'Jupiter', 'Saturn', 'Neptune', 'Pluto', 'Mars',
         'Pulsar', 'Quasar', 'Galaxy', 'Meteor', 'Stellar', 'Lunar',
-        'Solar', 'Celestial', 'Horizon', 'Odyssey', 'Venture', 'Frontier'
+        'Solar', 'Celestial', 'Horizon', 'Odyssey', 'Venture', 'Zapper'
     ]
     available_names = STARSHIP_NAMES.copy()
     random.shuffle(available_names)
@@ -406,7 +418,7 @@ def generate_timeline(
                 "message": (
                     f"You're heading {zones_into}. {partners} "
                     f"You'll watch each of them shoot, then take your own shots in {same_zones}. "
-                    f"At the end of the expedition you'll choose one of them. {_reward_line(sess_i)}"
+                    f"At the end of the expedition you'll be asked which one you'd pick as a partner. {_reward_line(sess_i)}"
                 ),
             }
             games.insert(0, presentation_stage)
@@ -417,6 +429,9 @@ def generate_timeline(
         prev_zone = None
         prev_game = None
         is_first_game = True
+        plays_in_zone = 0          # how many times the participant has played in the current zone
+        watched_in_zone = []       # display names of every partner watched in the current zone, in order
+        ordinals = ["first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth"]
         session_has_presentation = bool(games) and games[0].get("stage_type") == "demonstrator_presentation"
         for e in games:
             if "stage_type" in e:
@@ -425,6 +440,9 @@ def generate_timeline(
             z = e["zone"]["zone_global_index"]
             e["zone"] = zone_meta[z]
             new_zone = is_first_game or z != prev_zone
+            if new_zone:
+                plays_in_zone = 0
+                watched_in_zone = []
 
             title = ""
             body = ""
@@ -440,10 +458,18 @@ def generate_timeline(
                 n = num_pulls_per_watch_game
                 if did in seen_demonstrators:
                     title = f"WATCH · {label} AGAIN"
-                    if new_zone:
-                        body = f"New zone. {who} takes {n} shots here. Watch which asteroids it chooses and what it gets."
+                    if who in watched_in_zone:
+                        # Already watched this partner in this very zone.
+                        body = (f"You'll watch {who} again in the same zone. {who} takes {n} more shots. "
+                                "Keep tracking its choices and outcomes.")
+                    elif new_zone:
+                        body = (f"You'll watch {who} again, but this time in a new zone. {who} takes {n} shots here. "
+                                "Watch which asteroids it chooses and what it gets.")
                     else:
-                        body = f"Same zone. {who} takes {n} more shots. Keep tracking its choices and outcomes."
+                        # Zone unchanged since the last stage, but this partner was only
+                        # watched in an earlier zone — its first shots here.
+                        body = (f"You've watched {who} before in an earlier zone; now you'll watch it in this zone. "
+                                f"{who} takes {n} shots here. Watch which asteroids it chooses and what it gets.")
                 else:
                     title = f"WATCH · {label}"
                     if new_zone:
@@ -451,6 +477,9 @@ def generate_timeline(
                     else:
                         body = f"Same zone, different partner. {who} takes {n} shots. Watch which asteroids it chooses and what it gets."
                     seen_demonstrators.add(did)
+
+                if who not in watched_in_zone:
+                    watched_in_zone.append(who)
 
                 if experience_message_text:
                     e["secondary-overlay-message"] = experience_message_text
@@ -460,10 +489,32 @@ def generate_timeline(
                 if new_zone:
                     title = "YOUR TURN · NEW ZONE"
                     body = f"New zone, new asteroids. You have {n} shots. Every shot counts toward your TOTAL REWARD."
+                    plays_in_zone += 1
                 else:
                     title = "YOUR TURN"
-                    lead = "Same zone as the partner you just watched." if prev_game == "watch" else "Same zone."
+                    just_watched = prev_game == "watch"
+                    # Every partner watched in this zone is named (never just the latest
+                    # one) so the copy doesn't nudge the participant toward one of them.
+                    names = _join_names(watched_in_zone)
+                    if plays_in_zone == 0:
+                        # First time mining in this zone.
+                        if len(watched_in_zone) == 1 and just_watched:
+                            lead = "Same zone as the partner you just watched."
+                        elif watched_in_zone:
+                            lead = f"Same zone where you watched {names} mine."
+                        else:
+                            lead = "Same zone."
+                    else:
+                        # Played here before.
+                        nth = ordinals[plays_in_zone] if plays_in_zone < len(ordinals) else f"{plays_in_zone + 1}th"
+                        if watched_in_zone:
+                            lead = (f"It's your turn to play in the same zone again: you've mined here, "
+                                    f"and you've watched {names} mine here too. Use what you've learned.")
+                        else:
+                            lead = (f"It's your turn to play in the same zone again. This is your {nth} "
+                                    "time mining here. Use what you've learned.")
                     body = f"{lead} You have {n} shots. Every shot counts toward your TOTAL REWARD."
+                    plays_in_zone += 1
             # choice-like / feedback inside a round: no overlay copy — rare and the
             # experimenter is on their own. Stage still gets zone_meta from the dict swap above.
 
@@ -487,12 +538,6 @@ def generate_timeline(
             prev_game = e["game"]
 
         # 9c) End stages (choice + feedback) — zone, demo data, overlay copy
-        last_round_zone = None
-        for e in reversed(games):
-            if "stage_type" not in e and "zone" in e and isinstance(e["zone"], dict):
-                last_round_zone = e["zone"]["zone_global_index"]
-                break
-
         for stage in end_stages:
             cz = stage["zone"]["zone_global_index"]
             stage["zone"] = zone_meta[cz]
@@ -500,14 +545,12 @@ def generate_timeline(
             stage["demonstrator2"] = _build_demo_data(1, dem_ids, demo_style_color, demo_names, name_demonstrators)
 
             if stage.get("game") in CHOICE_LIKE_TOKENS:
-                if last_round_zone is not None and cz == last_round_zone:
-                    where = "the same zone"
-                else:
-                    where = "a brand-new zone"
                 stage["overlay-title"] = "END OF EXPEDITION · CHOOSE A PARTNER"
+                # Hypothetical: the participant never actually watches the chosen partner,
+                # and the choice zone is always a new, unplayed one.
                 stage["overlay-message"] = (
-                    f"You'll play again in {where}. "
-                    "Which starship would you rather watch first to help you earn more there?"
+                    "Imagine you were about to play again in a brand-new zone and could watch one partner shoot first. "
+                    "Which starship would you choose?"
                 )
 
     # --- 10) Practice session ---

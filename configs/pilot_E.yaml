@@ -40,5 +40,10 @@ verbose: false
 # Where participants are sent after the final screen (Prolific completion URL).
 prolific_completion_url: https://app.prolific.com/submissions/complete?cc=CTVM94DF
 
-# Reward display: none | per_zone (segmented bar by zone, grouped by expedition).
-reward_breakdown_display: per_zone
+# Bonus shown on the final screen: TOTAL REWARD × bonus_per_reward, formatted with
+# bonus_currency. Omit bonus_per_reward to hide the bonus line.
+bonus_per_reward: 0.02
+bonus_currency: "£"
+
+# Reward display: none | per_game (ledger: one row per expedition, one mini tank per play game).
+reward_breakdown_display: per_game

@@ -53,7 +53,7 @@ The timeline mixes two stage shapes; the dispatcher in `loadStage()` (main.js ~1
 - **Meta stages** use `stage_type`: `prolific_id_form`, `introduction`, `instructions`, `feedback`, `demonstrator_presentation`. No `game_index`/`session_index`.
 - **Game stages** use `game`: `practice`, `play`, `watch`, `choice`, `online-choice`, `blind`, `indicate`. Carry full `game_index`/`stage_index`/`session_index`/`round_index`.
 
-Adding a new stage means: extend the `gameLog.js` enum, write a `setup<Type>(stage)` function, add a `case` to `loadStage()`, and add a button label in `makeNextButton()` (~main.js 4743).
+Adding a new stage means: extend the `gameLog.js` enum, write a `setup<Type>(stage)` function, add a `case` to `loadStage()`, and add a button label in `makeNextButton()` (~main.js 4743). Every stage change goes through `clearScene()` (destroys objects, kills timers/tweens/loader callbacks) — never `children.removeAll()`, which leaves hit areas and timers alive across stages.
 
 ### Visual theme
 
@@ -61,7 +61,7 @@ Colors/fonts for canvas text come from the `THEME` object in `main.js`, which mi
 
 ### Participant-facing naming
 
-A *session* is called an **expedition** in everything the participant reads (transition slides, reward captions, end screen); config, logs, timeline JSON and code keep `session`. Transition copy is generated in `models.py` (`overlay-title` + `overlay-message`), not in the client. The action verb is **shoot** (shots, not pulls); the meter is the **Reward Tank**.
+A *session* is called an **expedition** in everything the participant reads (transition slides, reward captions, end screen); config, logs, timeline JSON and code keep `session`. Transition copy is generated in `models.py` (`overlay-title` + `overlay-message`), not in the client. A round is never named on screen either: the recap slide and header talk about **zones** (`EXPEDITION n` top-left, `ZONE n` top-right). Played zones number consecutively; choice/feedback stages use virtual zone `1000 + session` (see CONFIG.md). The action verb is **shoot** (shots, not pulls); the meter is the **Reward Tank**. The running-total row under the canvas is the reward ledger (`reward_breakdown_display: per_game`, `playGames` in main.js); its height is reserved from the timeline before the first stage renders so the canvas never moves.
 
 ### Demonstrator visual identity
 

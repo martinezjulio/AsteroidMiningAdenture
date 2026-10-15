@@ -62,10 +62,11 @@ let totalRewardScope = 'per_session'; // 'per_session' | 'across_sessions' (from
 let reportPlayRewardsBetweenRounds = false; // Config flag for inter-round recap stage
 let currentGameStep = 0; // Reset for each game
 let sessionTotals = {}; // { [sessionIndex]: number } — current session live, completed sessions frozen
-let roundPlayRewards = {}; // { [roundIndex]: number[] } — per-play-game rewards within a round
+let roundPlayRewards = {}; // { [roundIndex]: { zone, rewards: number[] } } — per-play-game rewards within a round
 let totalRewardShownThisSession = false; // Once true, the total reward display stays visible until session reset
-let rewardBreakdownDisplay = 'none'; // 'none' | 'per_zone' (from config) — segmented reward bar by zone
-let zoneRewards = {}; // "s{session}:z{zone}" -> { session, zone, reward }, insertion-ordered (play games only)
+let rewardBreakdownDisplay = 'none'; // 'none' | 'per_game' (from config) — reward ledger under the summary bar
+let ledgerSessions = []; // sessions (expeditions) that have started, in order — rows exist before their first play game
+let playGames = {}; // "s{session}:g{game_index}" -> { session, zone, gameIndex, shots, outcomes: [], status }, insertion-ordered
 let currentGameReward = 0; // Reset for each game
 let refreshCount = parseInt(localStorage.getItem('refreshCount') || '0', 10);
 
@@ -332,8 +333,11 @@ async function logToMongoDB(action, additionalData = {}) {
  * the queue to drain before offering the Prolific link.
  ****************************************/
 const LOG_QUEUE = [];           // { data, resolve, reject, attempts }
-const LOG_MAX_ATTEMPTS = 8;     // ~1 min of retries before an item is given up on
+const LOG_MAX_ATTEMPTS = 5;     // retries per row before it is given up on
+const LOG_BACKOFF_MIN_MS = 500;
+const LOG_BACKOFF_MAX_MS = 4000;
 let logQueueBusy = false;
+let logBackoffMs = LOG_BACKOFF_MIN_MS; // current delay; grows on failure, resets on success
 let logDeadLetters = 0;         // rows that exhausted their retries (never expected)
 
 function enqueueLog(data) {
@@ -372,21 +376,24 @@ async function flushLogQueue() {
 
       if (ok) {
         LOG_QUEUE.shift();
+        logBackoffMs = LOG_BACKOFF_MIN_MS;
         item.resolve(true);
         continue;
       }
 
       item.attempts++;
       if (item.attempts >= LOG_MAX_ATTEMPTS) {
+        // Give up on this row but keep the current backoff for the next one, so a
+        // dead server doesn't make every queued row start its retries from scratch.
         console.error('Giving up on log row after repeated failures:', detail, item.data.action);
         LOG_QUEUE.shift();
         logDeadLetters++;
         item.reject(new Error(`log failed: ${detail}`));
         continue;
       }
-      const delay = Math.min(500 * 2 ** (item.attempts - 1), 8000);
-      console.warn(`Log POST failed (${detail}); retrying in ${delay}ms`);
-      await new Promise(r => setTimeout(r, delay));
+      console.warn(`Log POST failed (${detail}); retrying in ${logBackoffMs}ms`);
+      await new Promise(r => setTimeout(r, logBackoffMs));
+      logBackoffMs = Math.min(logBackoffMs * 2, LOG_BACKOFF_MAX_MS);
     }
   } finally {
     logQueueBusy = false;
@@ -535,7 +542,9 @@ function setSpriteDisplaySizeWithAspectRatio(sprite, maxSize) {
 const MARKER_DOT_RADIUS = 4;
 const TANK_SLOT_SIZE = 24;         // Size of each slot in the reward tank
 const TANK_SLOT_PADDING = 2;       // Padding between tank slots
-const TANK_MARGIN_TOP = 150;       // Space between grid bottom and tank (increased for starship name)
+const TANK_MARGIN_TOP = 158;       // Space between grid bottom and tank (ship + name sit in between)
+const GRID_TOP_Y = 200;            // Top edge of the asteroid grid (pips + underline sit above it)
+const BULLET_FLIGHT_MS = 150;      // Bullet travel time from ship to asteroid before the outcome shows
 const CELL_PADDING = 10;           // Spacing between cells (in pixels)
 const BASE_CELL_SIZE = (400 / 12) * 1.85; // ~85% larger than before
 const WATCH_START_DELAY = 500;     // Delay before starting watch demonstrations (ms)
@@ -543,6 +552,7 @@ const WATCH_START_DELAY = 500;     // Delay before starting watch demonstrations
 // Outcome tally pips drawn above each asteroid (one per pull on that cell).
 const PIP_RADIUS = 4;
 const PIP_SPACING = 10;
+const OUTCOME_TRACK_OFFSET = 8;  // thin line this far above each asteroid row; pips sit above it
 let outcomePips = {};              // "row,col" -> number of pips drawn so far (reset per stage)
 
 // Logical game size. The canvas is created at GAME_W*DPR × GAME_H*DPR and the main
@@ -1203,6 +1213,7 @@ function create() {
     })
     .then(jsonData => {
       timelineData = jsonData;
+      setLedgerRowHeight();
       loadStage.call(this);
     })
     .catch(err => {
@@ -1311,7 +1322,7 @@ function loadStage() {
     return;
   }
 
-  this.children.removeAll();
+  clearScene(this);
   outcomePips = {};
   document.getElementById('prolific-form-overlay').style.visibility = 'hidden';
 
@@ -1342,13 +1353,14 @@ function loadStage() {
           totalRewardShownThisSession = true;
         }
         roundPlayRewards = {};
+        ledgerSessionStarted(currentSessionIndex);
       }
     }
 
     // Reset game tracking for new game
     const numArmPulls = stage.num_arm_pulls || 0;
     resetGameTracking(gameType, numArmPulls);
-    if (gameType === 'play') recordZoneReward(0);
+    if (gameType === 'play') ledgerGameStarted(stage);
   }
 
   // demonstrator_presentation isn't in the gameplay-stage list above, so it doesn't
@@ -1362,6 +1374,7 @@ function loadStage() {
       totalRewardShownThisSession = true;
     }
     roundPlayRewards = {};
+    ledgerSessionStarted(currentSessionIndex);
   }
 
   updateTotalRewardDisplay();
@@ -1536,6 +1549,7 @@ function maybeAddSummaryIcon(stage) {
 function capturePreviousPlayReward() {
   const previousStage = window.currentStage;
   if (!previousStage || previousStage.game !== 'play') return;
+  ledgerGameDone(previousStage);
 
   // Walk from the end so back-to-back play stages each get their own annotation
   // rather than overwriting one. Both the icon-tag and the recap-push live in the
@@ -1547,8 +1561,13 @@ function capturePreviousPlayReward() {
       if (reportPlayRewardsBetweenRounds) {
         const roundIdx = previousStage.round_index;
         if (typeof roundIdx === 'number') {
-          if (!roundPlayRewards[roundIdx]) roundPlayRewards[roundIdx] = [];
-          roundPlayRewards[roundIdx].push(currentGameReward);
+          if (!roundPlayRewards[roundIdx]) {
+            roundPlayRewards[roundIdx] = {
+              zone: previousStage.zone ? previousStage.zone.zone_global_index : null,
+              rewards: []
+            };
+          }
+          roundPlayRewards[roundIdx].rewards.push(currentGameReward);
         }
       }
       return;
@@ -1575,9 +1594,9 @@ function updateTotalRewardDisplay() {
   //   across_sessions → the running sum across every session
   // (End-of-game screen still renders the per-session breakdown in per_session mode.)
   const value = getUserTotalReward();
-  if (rewardBreakdownDisplay === 'per_zone') {
+  if (rewardBreakdownDisplay === 'per_game') {
     el.innerHTML = '';
-    el.appendChild(buildRewardBarDOM());
+    el.appendChild(buildRewardLedgerDOM());
   } else {
     el.textContent = `TOTAL REWARD: ${value}`;
   }
@@ -1585,131 +1604,170 @@ function updateTotalRewardDisplay() {
 }
 
 /*****************************************
- * Reward breakdown (reward_breakdown_display: per_zone)
- * One segment per zone in that zone's color, grouped by session ("expedition").
+ * Reward ledger (reward_breakdown_display: per_game)
+ * One row per expedition (session), one mini Reward Tank per play game: a box
+ * outlined in the game's zone color with one slot per shot, filled green for
+ * each reward earned. A game's box appears when that game starts.
  ****************************************/
-function recordZoneReward(amount) {
+function flattenSession(session) {
+  return Array.isArray(session[0]) ? session.flat() : session;
+}
+
+function ledgerKey(stage) {
+  return `s${stage.session_index}:g${stage.game_index}`;
+}
+
+function ledgerSessionStarted(sessionIndex) {
+  if (sessionIndex < 1 || ledgerSessions.includes(sessionIndex)) return;
+  ledgerSessions.push(sessionIndex);
+}
+
+function ledgerGameStarted(stage) {
+  if (!stage || !stage.zone || stage.session_index < 1) return;
+  const key = ledgerKey(stage);
+  if (!playGames[key]) {
+    playGames[key] = {
+      session: stage.session_index,
+      zone: stage.zone.zone_global_index,
+      gameIndex: stage.game_index,
+      shots: stage.num_arm_pulls || 0,
+      outcomes: [],
+      status: 'active'
+    };
+  } else {
+    playGames[key].status = 'active';
+    playGames[key].outcomes = [];
+  }
+}
+
+function ledgerRecordShot(outcome) {
   const stage = window.currentStage;
-  if (!stage || !stage.zone || stage.game !== 'play') return;
-  const zone = stage.zone.zone_global_index;
-  const key = `s${currentSessionIndex}:z${zone}`;
-  if (!zoneRewards[key]) zoneRewards[key] = { session: currentSessionIndex, zone, reward: 0 };
-  zoneRewards[key].reward += amount;
+  if (!stage || stage.game !== 'play') return;
+  const g = playGames[ledgerKey(stage)];
+  if (!g) return;
+  g.outcomes.push(outcome);
+  updateTotalRewardDisplay();
 }
 
-// [{ session, subtotal, expanded, zones: [{ zone, reward }] }] in play order.
-// collapsePrevious: earlier sessions keep only their subtotal (per_session scope).
-function getRewardGroups(collapsePrevious) {
-  const groups = [];
-  Object.values(zoneRewards).forEach(entry => {
-    let g = groups.find(x => x.session === entry.session);
-    if (!g) {
-      g = { session: entry.session, subtotal: 0, zones: [], expanded: true };
-      groups.push(g);
+function ledgerGameDone(stage) {
+  const g = playGames[ledgerKey(stage)];
+  if (g) g.status = 'done';
+}
+
+// Number of expeditions that contain a play game — fixes the ledger's height up front.
+function ledgerSessionCount() {
+  if (!timelineData) return 0;
+  let n = 0;
+  for (let i = 1; i < timelineData.length; i++) {
+    if (flattenSession(timelineData[i]).some(st => st.game === 'play')) n++;
+  }
+  return n;
+}
+
+// Reserve the reward row's final height before the first stage renders so the
+// canvas never moves when rows appear. #game-frame's fit formula reads the same var.
+function setLedgerRowHeight() {
+  let h = 60;
+  if (rewardBreakdownDisplay === 'per_game') h = ledgerSessionCount() * 26 + 64;
+  document.documentElement.style.setProperty('--reward-rows-h', `${h}px`);
+}
+
+// [{ session, subtotal, dimmed, groups: [{ zone, color, games: [...] }] }] in play order.
+function ledgerRows(dimPrevious) {
+  const rows = ledgerSessions.map(si => ({ session: si, subtotal: sessionTotals[si] || 0, dimmed: false, groups: [] }));
+  Object.values(playGames).forEach(g => {
+    let row = rows.find(r => r.session === g.session);
+    if (!row) {
+      row = { session: g.session, subtotal: sessionTotals[g.session] || 0, dimmed: false, groups: [] };
+      rows.push(row);
     }
-    g.zones.push({ zone: entry.zone, reward: entry.reward });
-    g.subtotal += entry.reward;
+    let grp = row.groups[row.groups.length - 1];
+    if (!grp || grp.zone !== g.zone) {
+      grp = { zone: g.zone, color: generateZoneColor(g.zone), games: [] };
+      row.groups.push(grp);
+    }
+    grp.games.push(g);
   });
-  // sessionTotals is the source of truth for the subtotal (zoneRewards only sees play games)
-  groups.forEach(g => {
-    if (typeof sessionTotals[g.session] === 'number') g.subtotal = sessionTotals[g.session];
-    if (collapsePrevious && g.session !== currentSessionIndex) g.expanded = false;
-  });
-  return groups;
+  rows.forEach(r => { r.dimmed = dimPrevious && r.session !== currentSessionIndex; });
+  return rows;
 }
 
-// Pixels per reward point: fixed, shrinking only if the bar would overflow maxWidth.
-function rewardScale(groups, maxWidth, basePx) {
-  const points = groups.reduce((a, g) => a + (g.expanded ? g.zones.reduce((b, z) => b + z.reward, 0) : 0), 0);
-  const slivers = groups.reduce((a, g) => a + (g.expanded ? g.zones.filter(z => z.reward === 0).length : 0), 0);
-  const fixed = slivers * 8 + Math.max(0, groups.length - 1) * 14;
-  if (points === 0) return basePx;
-  return Math.min(basePx, Math.max(2, (maxWidth - fixed) / points));
-}
-
-function buildRewardBarDOM() {
-  const total = getUserTotalReward();
-  const groups = getRewardGroups(totalRewardScope === 'per_session');
-  const wrap = document.createElement('div');
-  wrap.className = 'reward-wrap';
-
-  const totalEl = document.createElement('div');
-  totalEl.className = 'reward-total';
-  totalEl.textContent = `TOTAL REWARD ${total}`;
-  wrap.appendChild(totalEl);
-
-  const bar = document.createElement('div');
-  bar.className = 'reward-bar';
-  const ppp = rewardScale(groups, 640, 14);
-  groups.forEach(g => {
-    const sess = document.createElement('div');
-    sess.className = 'reward-session' + (g.session === currentSessionIndex ? ' current' : '');
-    const cap = document.createElement('div');
-    cap.className = 'reward-session-cap';
-    cap.textContent = `Expedition ${g.session} · ${g.subtotal}`;
-    sess.appendChild(cap);
-    if (g.expanded) {
-      const segs = document.createElement('div');
-      segs.className = 'reward-segs';
-      g.zones.forEach(z => {
-        const seg = document.createElement('div');
-        const color = generateZoneColor(z.zone);
-        const width = z.reward === 0 ? 8 : Math.max(10, Math.round(z.reward * ppp));
-        seg.className = 'reward-seg' + (z.reward === 0 ? ' empty' : '');
-        seg.style.width = `${width}px`;
-        seg.style.background = z.reward === 0 ? 'transparent' : color;
-        seg.style.borderColor = color;
-        seg.title = `Zone ${z.zone}: ${z.reward}`;
-        if (width >= 48) seg.textContent = `Z${z.zone} · ${z.reward}`;
-        else if (width >= 20) seg.textContent = `${z.reward}`;
-        segs.appendChild(seg);
+function buildRewardLedgerDOM() {
+  const mk = (cls) => { const d = document.createElement('div'); d.className = cls; return d; };
+  const wrap = mk('ledger');
+  ledgerRows(true).forEach(row => {
+    const r = mk('ledger-row' + (row.dimmed ? ' dimmed' : ''));
+    const cap = mk('ledger-cap');
+    cap.textContent = `EXPEDITION ${row.session}`;
+    r.appendChild(cap);
+    row.groups.forEach(grp => {
+      const z = mk('ledger-zone');
+      grp.games.forEach(g => {
+        const box = mk('ledger-box ' + g.status);
+        box.style.borderColor = grp.color;
+        const earned = g.outcomes.reduce((a, b) => a + b, 0);
+        box.title = `Zone ${grp.zone}: ${earned} / ${g.shots}`;
+        for (let i = 0; i < g.shots; i++) {
+          const cls = g.outcomes[i] === 1 ? ' hit' : (g.outcomes[i] === 0 ? ' miss' : '');
+          box.appendChild(mk('ledger-slot' + cls));
+        }
+        z.appendChild(box);
       });
-      sess.appendChild(segs);
-    }
-    bar.appendChild(sess);
+      r.appendChild(z);
+    });
+    wrap.appendChild(r);
   });
-  wrap.appendChild(bar);
+  const total = mk('ledger-total');
+  total.textContent = `TOTAL REWARD ${getUserTotalReward()}`;
+  wrap.appendChild(total);
   return wrap;
 }
 
-// Canvas version for the end screen. Draws centered at cx starting at y; returns height used.
-function drawRewardBarCanvas(scene, cx, y, maxWidth) {
-  const groups = getRewardGroups(false);
-  if (groups.length === 0) return 0;
-  const segH = 26;
-  const capH = 18;
-  const gap = 14;
-  const ppp = rewardScale(groups, maxWidth, 16);
-  const widths = groups.map(g => g.zones.reduce((a, z) => a + (z.reward === 0 ? 8 : Math.max(10, Math.round(z.reward * ppp))) + 2, -2));
-  const totalW = widths.reduce((a, b) => a + b, 0) + gap * (groups.length - 1);
-  let x = cx - totalW / 2;
-  const g = scene.add.graphics();
-  groups.forEach((group, gi) => {
-    addText(scene, x + widths[gi] / 2, y, `EXPEDITION ${group.session} · ${group.subtotal}`, {
-      font: `bold 12px ${THEME.fontBody}`, fill: THEME.textMuted, align: 'center'
-    }).setOrigin(0.5, 0);
-    let sx = x;
-    group.zones.forEach(z => {
-      const color = parseInt(generateZoneColor(z.zone).replace('#', '0x'));
-      const w = z.reward === 0 ? 8 : Math.max(10, Math.round(z.reward * ppp));
-      if (z.reward === 0) {
-        g.lineStyle(2, color, 1);
-        g.strokeRoundedRect(sx, y + capH + 4, w, segH, 4);
-      } else {
-        g.fillStyle(color, 1);
-        g.fillRoundedRect(sx, y + capH + 4, w, segH, 4);
-        const label = w >= 52 ? `Z${z.zone} · ${z.reward}` : (w >= 22 ? `${z.reward}` : '');
-        if (label) {
-          addText(scene, sx + w / 2, y + capH + 4 + segH / 2, label, {
-            font: `bold 12px ${THEME.fontBody}`, fill: '#0b0d12', align: 'center'
-          }).setOrigin(0.5);
+// Canvas version for the end screen (larger, with zone labels). Returns height used.
+function drawRewardLedgerCanvas(scene, cx, y) {
+  const rows = ledgerRows(false);
+  if (rows.length === 0) return 0;
+  const slotW = 12, slotH = 18, slotGap = 2, pad = 3, border = 2;
+  const boxGap = 6, zoneGap = 18, capW = 120, capGap = 14, labelH = 16;
+  const boxH = slotH + pad * 2 + border * 2;
+  const rowH = boxH + labelH + 8;
+  const boxWidth = (g) => g.shots * (slotW + slotGap) - slotGap + pad * 2 + border * 2;
+  const rowWidth = (row) => row.groups.reduce((a, grp) =>
+    a + grp.games.reduce((b, g) => b + boxWidth(g) + boxGap, -boxGap) + zoneGap, -zoneGap);
+  const maxRowW = Math.max(...rows.map(rowWidth));
+  const x0 = cx - (capW + capGap + maxRowW) / 2;
+
+  const gfx = scene.add.graphics();
+  rows.forEach((row, ri) => {
+    const ry = y + ri * rowH;
+    addText(scene, x0 + capW, ry + boxH / 2, `EXPEDITION ${row.session}`, {
+      font: `bold 13px ${THEME.fontBody}`, fill: THEME.textMuted
+    }).setOrigin(1, 0.5);
+    let x = x0 + capW + capGap;
+    row.groups.forEach(grp => {
+      const color = parseInt(grp.color.replace('#', '0x'));
+      const gx = x;
+      grp.games.forEach(g => {
+        const w = boxWidth(g);
+        gfx.fillStyle(THEME.panel, 0.95);
+        gfx.fillRoundedRect(x, ry, w, boxH, 5);
+        gfx.lineStyle(border, color, g.status === 'upcoming' ? 0.45 : 1);
+        gfx.strokeRoundedRect(x + border / 2, ry + border / 2, w - border, boxH - border, 5);
+        for (let i = 0; i < g.shots; i++) {
+          const fill = g.outcomes[i] === 1 ? THEME.success : (g.outcomes[i] === 0 ? THEME.fail : THEME.slotEmpty);
+          gfx.fillStyle(fill, 1);
+          gfx.fillRoundedRect(x + border + pad + i * (slotW + slotGap), ry + border + pad, slotW, slotH, 2);
         }
-      }
-      sx += w + 2;
+        x += w + boxGap;
+      });
+      x -= boxGap;
+      addText(scene, (gx + x) / 2, ry + boxH + 3, `ZONE ${grp.zone}`, {
+        font: `bold 11px ${THEME.fontBody}`, fill: grp.color
+      }).setOrigin(0.5, 0);
+      x += zoneGap;
     });
-    x += widths[gi] + gap;
   });
-  return capH + 4 + segH;
+  return rows.length * rowH;
 }
 
 /**
@@ -1931,7 +1989,7 @@ function setupFeedback(stage) {
   const submitBtn = document.getElementById('feedback-submit-btn');
   submitBtn.disabled = false;
   submitBtn.innerText = 'Submit';
-  submitBtn.onclick = async () => {
+  submitBtn.onclick = () => {
     const feedbackText = textInput.value.trim();
     if (!feedbackText) {
       showError("Please write a short answer before submitting.");
@@ -1943,36 +2001,27 @@ function setupFeedback(stage) {
     submitBtn.disabled = true;
     submitBtn.innerText = 'Submitting...';
 
-    try {
-      // Log feedback to main gamelogs collection only. Resolves once the row is
-      // actually accepted by the server (the log queue retries transient errors).
-      await logToMongoDB('feedback', {
-        feedback_text: feedbackText
-      });
+    // Queue the feedback row and move on. Delivery is handled by the retrying log
+    // queue (in order, behind any earlier rows); the end screen waits for the queue
+    // to drain and tells the participant if anything could not be saved. Awaiting
+    // delivery here would hang the form for minutes whenever the server is down.
+    logToMongoDB('feedback', {
+      feedback_text: feedbackText
+    });
+    verboseLog('Feedback queued');
 
-      verboseLog('Feedback submitted successfully');
+    // Hide the feedback overlay
+    document.getElementById('feedback-form-overlay').style.visibility = 'hidden';
 
-      // Hide the feedback overlay
-      document.getElementById('feedback-form-overlay').style.visibility = 'hidden';
+    // Check if this is the last session
+    const isLastSession = currentSessionIndex >= timelineData.length - 1;
 
-      // Check if this is the last session
-      const isLastSession = currentSessionIndex >= timelineData.length - 1;
-
-      if (isLastSession) {
-        // Show end of game message with Prolific redirect
-        showEndOfGameMessage.call(this);
-      } else {
-        // Continue to next stage/session
-        nextStage.call(this);
-      }
-
-    } catch (error) {
-      console.error('Error submitting feedback:', error);
-      showError('We could not save your answer. Please check your connection and try again.');
-
-      // Re-enable button
-      submitBtn.disabled = false;
-      submitBtn.innerText = 'Submit';
+    if (isLastSession) {
+      // Show end of game message with Prolific redirect
+      showEndOfGameMessage.call(this);
+    } else {
+      // Continue to next stage/session
+      nextStage.call(this);
     }
   };
 }
@@ -2354,11 +2403,11 @@ function setupPlayOrPractice(stage, isPractice) {
   
   // Center the grid in the full container width
   const gridOriginX = (GAME_W - totalGridWidth) / 2;
-  const gridOriginY = 100 + (400 - totalGridHeight) / 2;
+  const gridOriginY = GRID_TOP_Y;
   const gridBottomY = gridOriginY + totalGridHeight;
 
   // Add zone labels
-  addZoneLabels(this, stage.zone.zone_global_index);
+  addZoneLabels(this, stage.zone.zone_global_index, stage.session_index);
 
   // zone background
   createZoneBackgroundMask.call(this, stage, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
@@ -2403,6 +2452,7 @@ function setupPlayOrPractice(stage, isPractice) {
   highlightCurrentCell(highlightRect, cursorR, cursorC, gridOriginX, gridOriginY, cellWidth, cellHeight);
 
   let pullsRemaining = num_arm_pulls;
+  let gameFinished = false; // end-of-game block (NEXT, trajectory log) runs exactly once
   
   // Store reference to scene for use in closures
   const sceneRef = this;
@@ -2501,13 +2551,15 @@ function setupPlayOrPractice(stage, isPractice) {
         if (currentGameType === 'play') {
           if (!(currentSessionIndex in sessionTotals)) sessionTotals[currentSessionIndex] = 0;
           sessionTotals[currentSessionIndex]++;
-          recordZoneReward(1);
           updateTotalRewardDisplay();
         }
       }
       
-      // Create a simple flash effect (just one flash)
+      // Bullet from the ship to the asteroid, then a flash
+      const target = getCellCenter(gridOriginX, gridOriginY, cellWidth, cellHeight, row, col);
+      fireBullet(scene, userSprite.x, userSprite.y - DEMO_SPRITE_SIZE / 2, target.x, target.y);
     let g = scene.add.graphics();
+      g.setAlpha(0);
       g.fillStyle(HIGHLIGHT_COLOR, 0.55);
       g.fillRect(
       gridOriginX + col*(cellWidth + CELL_PADDING),
@@ -2518,17 +2570,24 @@ function setupPlayOrPractice(stage, isPractice) {
       // Fade out only to get a single flash
     scene.tweens.add({
         targets: g,
-        alpha: 0,
+        alpha: { from: 1, to: 0 },
+        delay: BULLET_FLIGHT_MS,
       duration: 200, // Reduced from 400 to 200
         onComplete: () => {
           g.destroy();
           
           // Record outcome and update tank
           pullOutcomes.push(outcome);
+          if (currentGameType === 'play') ledgerRecordShot(outcome);
         drawMarkerDot.call(scene, gridOriginX, gridOriginY, cellWidth, cellHeight, row, col, outcome);
         drawRewardTank.call(scene, rewardTankContainer, num_arm_pulls, pullOutcomes);
 
-      if (pullsRemaining <= 0) {
+      // Finish only when every outcome has been revealed. The shot debounce (200 ms)
+      // is shorter than the flash (BULLET_FLIGHT_MS + 200), so the last two shots can
+      // overlap; keying on pullsRemaining here created two stacked NEXT buttons and
+      // logged trajectory_complete twice (the first time with a reward missing).
+      if (pullOutcomes.length >= num_arm_pulls && !gameFinished) {
+          gameFinished = true;
           // Log complete trajectory for play games
           if (currentGameType === 'play') {
             logToMongoDB('trajectory_complete', {
@@ -2675,11 +2734,11 @@ function setupWatch(stage) {
   
   // Center the grid in the full container width
   const gridOriginX = (GAME_W - totalGridWidth) / 2;
-  const gridOriginY = 100 + (400 - totalGridHeight) / 2;
+  const gridOriginY = GRID_TOP_Y;
   const gridBottomY = gridOriginY + totalGridHeight;
 
   // Add zone labels
-  addZoneLabels(this, stage.zone.zone_global_index);
+  addZoneLabels(this, stage.zone.zone_global_index, stage.session_index);
   
   // zone background
   createZoneBackgroundMask.call(this, stage, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
@@ -2837,13 +2896,15 @@ function setupWatch(stage) {
                 if (currentGameType === 'play') {
                   if (!(currentSessionIndex in sessionTotals)) sessionTotals[currentSessionIndex] = 0;
                   sessionTotals[currentSessionIndex]++;
-          recordZoneReward(1);
                   updateTotalRewardDisplay();
                 }
               }
               
-              // Create a simple flash effect
+              // Bullet from the partner's ship to the asteroid, then a flash
+              const target = getCellCenter(gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC);
+              fireBullet(this, dSprite.x, dSprite.y - DEMO_SPRITE_SIZE / 2, target.x, target.y);
               let g = this.add.graphics();
+              g.setAlpha(0);
               g.fillStyle(HIGHLIGHT_COLOR, 0.55);
               g.fillRect(
                 gridOriginX + currentC*(cellWidth + CELL_PADDING),
@@ -2854,7 +2915,8 @@ function setupWatch(stage) {
               // Fade out only
               this.tweens.add({
                 targets: g,
-                alpha: 0,
+                alpha: { from: 1, to: 0 },
+                delay: BULLET_FLIGHT_MS,
                 duration: 200,
                 onComplete: () => {
                   g.destroy();
@@ -2974,11 +3036,11 @@ function setupIndicate(stage) {
   
   // Center the grid in the full container width
   const gridOriginX = (GAME_W - totalGridWidth) / 2;
-  const gridOriginY = 100 + (400 - totalGridHeight) / 2;
+  const gridOriginY = GRID_TOP_Y;
   const gridBottomY = gridOriginY + totalGridHeight;
 
   // Add zone labels
-  addZoneLabels(this, stage.zone.zone_global_index);
+  addZoneLabels(this, stage.zone.zone_global_index, stage.session_index);
   
   // zone background
   createZoneBackgroundMask.call(this, stage, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
@@ -3133,13 +3195,15 @@ function setupIndicate(stage) {
                 if (currentGameType === 'play') {
                   if (!(currentSessionIndex in sessionTotals)) sessionTotals[currentSessionIndex] = 0;
                   sessionTotals[currentSessionIndex]++;
-          recordZoneReward(1);
                   updateTotalRewardDisplay();
                 }
               }
               
-              // Create a simple flash effect
+              // Bullet from the partner's ship to the asteroid, then a flash
+              const target = getCellCenter(gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC);
+              fireBullet(this, dSprite.x, dSprite.y - DEMO_SPRITE_SIZE / 2, target.x, target.y);
               let g = this.add.graphics();
+              g.setAlpha(0);
               g.fillStyle(HIGHLIGHT_COLOR, 0.55);
               g.fillRect(
                 gridOriginX + currentC*(cellWidth + CELL_PADDING),
@@ -3150,7 +3214,8 @@ function setupIndicate(stage) {
               // Fade out only
               this.tweens.add({
                 targets: g,
-                alpha: 0,
+                alpha: { from: 1, to: 0 },
+                delay: BULLET_FLIGHT_MS,
                 duration: 200,
                 onComplete: () => {
                   g.destroy();
@@ -3342,27 +3407,52 @@ function setupDemonstratorPresentation(stage) {
  * earned in each play game of the round just finished. Number of play games
  * is variable (read from roundPlayRewards[stage.round_index]).
  */
-function buildRoundRecapMessage(rewards) {
-  const ord = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
+// Participants never see the word "round": in round_changing mode each round is a
+// zone, so the recap talks about zones. Returns { title, body, button }.
+function buildZoneRecapCopy(roundIdx, nextZone) {
   const rewardWord = (n) => `${n} reward${n === 1 ? '' : 's'}`;
-
-  if (!rewards || rewards.length === 0) return null;
-
-  let body;
-  if (rewards.length === 1) {
-    body = `${rewardWord(rewards[0])} in your play game`;
-  } else {
-    const items = rewards.map((r, i) => {
-      const label = ord[i] || `${i + 1}th`;
-      return `${rewardWord(r)} in your ${label} play game`;
-    });
-    body = items.length === 2
-      ? `${items[0]} and ${items[1]}`
-      : `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
+  const sessionFixed = gameConfig && gameConfig.bandit_assignment_mode === 'session_fixed';
+  const sums = [];
+  for (let r = 0; r <= roundIdx; r++) {
+    const entry = roundPlayRewards[r];
+    if (entry) sums.push({ zone: entry.zone, total: entry.rewards.reduce((a, b) => a + b, 0) });
   }
-  // In session_fixed mode the next round stays in the same zone.
-  const nextThing = (gameConfig && gameConfig.bandit_assignment_mode === 'session_fixed') ? 'next round' : 'next zone';
-  return `Good job! You earned ${body}. Can you beat that in the ${nextThing}?`;
+  const current = sums.length ? sums[sums.length - 1] : { zone: null, total: 0 };
+  const zoneName = (z) => (z === null || z === undefined) ? 'this zone' : `zone ${z}`;
+
+  if (sessionFixed) {
+    // Same zone continues next round: no "complete", no "next zone".
+    const soFar = sums.reduce((a, x) => a + x.total, 0);
+    return {
+      title: current.zone !== null ? `ZONE ${current.zone} · KEEP GOING` : 'KEEP GOING',
+      body: `You've earned ${rewardWord(soFar)} in ${zoneName(current.zone)} so far. Can you keep it up?`,
+      button: 'Continue'
+    };
+  }
+
+  const items = sums.map(x => `${rewardWord(x.total)} in ${zoneName(x.zone)}`);
+  const list = items.length <= 1 ? (items[0] || 'your rewards')
+    : items.length === 2 ? `${items[0]} and ${items[1]}`
+    : `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
+  const next = (nextZone === null || nextZone === undefined) ? 'the next zone' : `zone ${nextZone}`;
+  return {
+    title: current.zone !== null ? `ZONE ${current.zone} COMPLETE` : 'ZONE COMPLETE',
+    body: `Good job! You earned ${list}. Can you beat that in ${next}?`,
+    button: 'Continue to next zone'
+  };
+}
+
+// Zone of the next gameplay stage after the current one in this session (or null).
+function nextZoneAfterCurrentStage() {
+  if (!timelineData || currentSessionIndex >= timelineData.length) return null;
+  const flat = flattenSession(timelineData[currentSessionIndex]);
+  for (let i = currentStageIndex + 1; i < flat.length; i++) {
+    const st = flat[i];
+    if (st.game && st.zone && st.zone.zone_global_index !== undefined && st.game !== 'choice') {
+      return st.zone.zone_global_index;
+    }
+  }
+  return null;
 }
 
 function setupRoundRecap(stage) {
@@ -3371,22 +3461,20 @@ function setupRoundRecap(stage) {
   const W = GAME_W;
   const H = GAME_H;
 
-  this.children.removeAll();
+  clearScene(this);
 
   const overlay = this.add.rectangle(0, 0, W, H, THEME.overlay, 0.85);
   overlay.setOrigin(0, 0);
 
-  const rewards = roundPlayRewards[stage.round_index] || [];
-  const message = buildRoundRecapMessage(rewards) ||
-    "Good job! Can you beat that in the next round?";
+  const copy = buildZoneRecapCopy(stage.round_index, nextZoneAfterCurrentStage());
 
-  addText(this, W / 2, H / 2 - 110, "ROUND COMPLETE", {
+  addText(this, W / 2, H / 2 - 110, copy.title, {
     font: `bold 26px ${THEME.fontDisplay}`,
     fill: THEME.text,
     align: 'center'
   }).setOrigin(0.5);
 
-  addText(this, W / 2, H / 2 - 40, message, {
+  addText(this, W / 2, H / 2 - 40, copy.body, {
     font: `22px ${THEME.fontBody}`,
     fill: THEME.text,
     align: 'center',
@@ -3394,7 +3482,7 @@ function setupRoundRecap(stage) {
     lineSpacing: 6
   }).setOrigin(0.5);
 
-  makeButton(this, W / 2, H / 2 + 70, "Continue to Next Round", () => {
+  makeButton(this, W / 2, H / 2 + 70, copy.button, () => {
     nextStage.call(this);
   }, { width: 300 });
 }
@@ -3489,7 +3577,7 @@ function setupChoice(stage) {
     GAME_W / 2,
     118,
     stage["overlay-message"] ||
-      `You'll play again in ${transferText}. Which starship would you rather watch first to help you earn more there?`,
+      `Imagine you were about to play again in ${transferText} and could watch one partner shoot first. Which starship would you choose?`,
     {
       font: `18px ${THEME.fontBody}`,
       fill: '#ffffff',
@@ -4348,11 +4436,11 @@ function setupOnlineChoicePhaseWatch(stage) {
   
   // Center the grid in the full container width
   const gridOriginX = (GAME_W - totalGridWidth) / 2;
-  const gridOriginY = 100 + (400 - totalGridHeight) / 2;
+  const gridOriginY = GRID_TOP_Y;
   const gridBottomY = gridOriginY + totalGridHeight;
 
   // Add zone labels
-  addZoneLabels(this, stage.zone.zone_global_index);
+  addZoneLabels(this, stage.zone.zone_global_index, stage.session_index);
   
   // zone background
   createZoneBackgroundMask.call(this, stage, gridOriginX, gridOriginY, numRows, numCols, cellWidth, cellHeight);
@@ -4489,13 +4577,15 @@ function setupOnlineChoicePhaseWatch(stage) {
                 if (currentGameType === 'play') {
                   if (!(currentSessionIndex in sessionTotals)) sessionTotals[currentSessionIndex] = 0;
                   sessionTotals[currentSessionIndex]++;
-          recordZoneReward(1);
                   updateTotalRewardDisplay();
                 }
               }
               
-              // Create a simple flash effect
+              // Bullet from the partner's ship to the asteroid, then a flash
+              const target = getCellCenter(gridOriginX, gridOriginY, cellWidth, cellHeight, currentR, currentC);
+              fireBullet(currentScene, dSprite.x, dSprite.y - DEMO_SPRITE_SIZE / 2, target.x, target.y);
               let g = currentScene.add.graphics();
+              g.setAlpha(0);
               g.fillStyle(HIGHLIGHT_COLOR, 0.55);
               g.fillRect(
                 gridOriginX + currentC*(cellWidth + CELL_PADDING),
@@ -4506,7 +4596,8 @@ function setupOnlineChoicePhaseWatch(stage) {
               // Fade out only
               currentScene.tweens.add({
                 targets: g,
-                alpha: 0,
+                alpha: { from: 1, to: 0 },
+                delay: BULLET_FLIGHT_MS,
                 duration: 200,
                 onComplete: () => {
                   g.destroy();
@@ -4712,7 +4803,7 @@ function getCurrentStageObject() {
 
 function showEndOfGameMessage() {
   // Clear the game screen
-  this.children.removeAll();
+  clearScene(this);
 
   // The end-of-game canvas renders its own total-reward summary, so hide the
   // always-on DOM running-total bar to avoid showing the value twice.
@@ -4729,9 +4820,11 @@ function showEndOfGameMessage() {
   const overlay = this.add.rectangle(0, 0, W, H, THEME.overlay, 0.85);
   overlay.setOrigin(0, 0);
 
-  // Lay out vertically: header, optional reward lines, saving status, return button.
+  // Lay out vertically: header, optional reward lines, bonus, saving status, return
+  // button. The header sits high so a three-expedition ledger, the total and the
+  // bonus calculation all fit above the button.
   const lineHeight = 36;
-  const headerY = H / 2 - 130;
+  const headerY = 70;
 
   addText(this, W / 2, headerY, "ALL EXPEDITIONS COMPLETE", {
     font: `bold 30px ${THEME.fontDisplay}`,
@@ -4750,11 +4843,14 @@ function showEndOfGameMessage() {
 
   if (displayRunningTotalReward) {
     const combined = Object.values(sessionTotals).reduce((a, b) => a + b, 0);
-    if (rewardBreakdownDisplay === 'per_zone') {
-      // Total line, then the same segmented bar as the in-game display (all sessions expanded).
-      addText(this, W / 2, y, `Total Reward: ${combined}`, greenStyle).setOrigin(0.5);
-      y += lineHeight + 4;
-      y += drawRewardBarCanvas(this, W / 2, y, 760) + 10;
+    if (rewardBreakdownDisplay === 'per_game') {
+      // Same ledger as the in-game display, then the total underneath it.
+      y += drawRewardLedgerCanvas(this, W / 2, y) + 6;
+      addText(this, W / 2, y, `TOTAL REWARD ${combined}`, {
+        font: `bold 40px ${THEME.fontDisplay}`, fill: THEME.successHex, stroke: '#000000', strokeThickness: 3
+      }).setOrigin(0.5, 0);
+      y += 56;
+      y += drawBonusLines(this, W / 2, y, combined);
     } else if (totalRewardScope === 'across_sessions') {
       addText(this, W / 2, y, `Total Reward: ${combined}`, greenStyle).setOrigin(0.5);
       y += lineHeight;
@@ -4766,6 +4862,9 @@ function showEndOfGameMessage() {
       });
       addText(this, W / 2, y, `Combined Total: ${combined}`, greenStyle).setOrigin(0.5);
       y += lineHeight;
+    }
+    if (rewardBreakdownDisplay !== 'per_game') {
+      y += drawBonusLines(this, W / 2, y - lineHeight / 2 + 10, combined);
     }
   }
 
@@ -4794,6 +4893,27 @@ function showEndOfGameMessage() {
       window.location.href = returnUrl;
     }, { width: 280 });
   });
+}
+
+/**
+ * Bonus calculation under the total on the end screen:
+ *   BONUS £0.82
+ *   41 rewards × £0.02 each
+ * Reads bonus_per_reward / bonus_currency from the YAML (via /api/config); draws
+ * nothing and returns 0 when no rate is configured. Returns the height used.
+ */
+function drawBonusLines(scene, x, y, totalReward) {
+  const rate = gameConfig && typeof gameConfig.bonus_per_reward === 'number' ? gameConfig.bonus_per_reward : null;
+  if (rate === null) return 0;
+  const cur = (gameConfig && gameConfig.bonus_currency) || '£';
+  const money = (v) => `${cur}${v.toFixed(2)}`;
+  addText(scene, x, y, `BONUS ${money(totalReward * rate)}`, {
+    font: `bold 28px ${THEME.fontDisplay}`, fill: THEME.text, stroke: '#000000', strokeThickness: 3
+  }).setOrigin(0.5, 0);
+  addText(scene, x, y + 38, `${totalReward} reward${totalReward === 1 ? '' : 's'} × ${money(rate)} each`, {
+    font: `17px ${THEME.fontBody}`, fill: THEME.textMuted
+  }).setOrigin(0.5, 0);
+  return 70;
 }
 
 /** 
@@ -4913,6 +5033,18 @@ function createLandscapeBackground(landscapeKey, gridX, gridY, numRows, numCols,
  * Helper function to create asteroid backgrounds
  */
 function createAsteroidBackgrounds(imageKeys, gridX, gridY, numRows, numCols, cellWidth, cellHeight) {
+  // Outcome underline: one short line above each asteroid; that asteroid's hit/miss
+  // pips are drawn above it, so it reads as an underline for the tally.
+  const track = this.add.graphics().setDepth(2);
+  track.lineStyle(1, 0xffffff, 0.45);
+  for (let r = 0; r < numRows; r++) {
+    const ly = gridY + r * (cellHeight + CELL_PADDING) - OUTCOME_TRACK_OFFSET;
+    for (let c = 0; c < numCols; c++) {
+      const lx = gridX + c * (cellWidth + CELL_PADDING);
+      track.lineBetween(lx + 6, ly, lx + cellWidth - 6, ly);
+    }
+  }
+
   // Place asteroids in each cell
   let index = 0;
   for (let r = 0; r < numRows; r++) {
@@ -4983,10 +5115,10 @@ function drawRewardTank(container, totalSlots, outcomes) {
   g.setDepth(1);
   container.add(g);
 
-  // Title with pull counter above the housing
+  // Title above the housing, shot counter below it
   const earned = outcomes.reduce((a, b) => a + b, 0);
-  const tankTitle = addText(this, 0, -34, `REWARD TANK   ${earned} earned  ·  ${outcomes.length} / ${totalSlots} shots`, {
-    font: `bold 14px ${THEME.fontBody}`,
+  const tankTitle = addText(this, 0, -30, 'REWARD TANK', {
+    font: `bold 14px ${THEME.fontDisplay}`,
     fill: THEME.text,
     stroke: '#000000',
     strokeThickness: 4
@@ -4994,6 +5126,15 @@ function drawRewardTank(container, totalSlots, outcomes) {
   tankTitle.setOrigin(0.5, 0.5);
   tankTitle.setDepth(2);
   container.add(tankTitle);
+  const tankCounter = addText(this, 0, 24, `${earned} earned  ·  ${outcomes.length} / ${totalSlots} shots`, {
+    font: `600 14px ${THEME.fontBody}`,
+    fill: THEME.text,
+    stroke: '#000000',
+    strokeThickness: 4
+  });
+  tankCounter.setOrigin(0.5, 0.5);
+  tankCounter.setDepth(2);
+  container.add(tankCounter);
 }
 
 /**
@@ -5013,7 +5154,7 @@ function drawMarkerDot(gridX, gridY, cellWidth, cellHeight, row, col, outcome) {
   const cellLeft = gridX + col * (cellWidth + CELL_PADDING);
   const cellTop = gridY + row * (cellHeight + CELL_PADDING);
   const x = cellLeft + 1 + PIP_RADIUS + pipCol * PIP_SPACING;
-  const y = cellTop - 6 - PIP_RADIUS - pipRow * PIP_SPACING;
+  const y = cellTop - OUTCOME_TRACK_OFFSET - 8 - PIP_RADIUS - pipRow * PIP_SPACING;
   const color = (outcome === 1) ? THEME.success : THEME.fail;
 
   const pip = this.add.circle(x, y, PIP_RADIUS, color);
@@ -5026,14 +5167,33 @@ function drawMarkerDot(gridX, gridY, cellWidth, cellHeight, row, col, outcome) {
 }
 
 /** 
- * place the sprite ~30px below the bottom edge of the cell
+ * place the sprite ~42px below the bottom edge of the cell
  */
 function getCellBelow(gridX, gridY, cellWidth, cellHeight, row, col) {
   // Calculate position with padding
   const x = gridX + col * (cellWidth + CELL_PADDING) + (cellWidth/2);
   const cellBottom = gridY + row * (cellHeight + CELL_PADDING) + cellHeight;
-  const y = cellBottom + 30;
+  const y = cellBottom + 42;
   return { x, y };
+}
+
+/**
+ * Red bullet from the ship's nose to the asteroid, BULLET_FLIGHT_MS long. The
+ * shot's flash/outcome is delayed by the same amount at the call sites.
+ */
+function fireBullet(scene, fromX, fromY, toX, toY) {
+  const bullet = scene.add.container(fromX, fromY).setDepth(99990);
+  const glow = scene.add.rectangle(0, 0, 8, 18, 0xff3b3b, 0.35);
+  const core = scene.add.rectangle(0, 0, 4, 14, 0xff3b3b, 1);
+  bullet.add([glow, core]);
+  scene.tweens.add({
+    targets: bullet,
+    x: toX,
+    y: toY,
+    duration: BULLET_FLIGHT_MS,
+    ease: 'Quad.In',
+    onComplete: () => bullet.destroy()
+  });
 }
 
 /**
@@ -5051,9 +5211,8 @@ function getCellCenter(gridX, gridY, cellWidth, cellHeight, row, col) {
  * uses the new lighter color + alpha
  */
 function createHighlightRect(cellWidth, cellHeight) {
-  // Bright outline + faint fill so the current asteroid is obvious on any background.
-  let highlightRect = this.add.rectangle(0, 0, cellWidth + 6, cellHeight + 6, HIGHLIGHT_COLOR, 0.12);
-  highlightRect.setStrokeStyle(3, 0xffffff, 0.95);
+  // Translucent white square over the current asteroid (no outline).
+  let highlightRect = this.add.rectangle(0, 0, cellWidth - 2, cellHeight - 2, HIGHLIGHT_COLOR, HIGHLIGHT_ALPHA);
   highlightRect.setDepth(9998).setOrigin(0.5);
   return highlightRect;
 }
@@ -5155,17 +5314,16 @@ function makeButton(scene, x, y, label, onClick, opts = {}) {
  * Zone label pill in the top-left corner of the canvas (the colored border carries
  * the zone identity everywhere else).
  */
-function addZoneLabels(scene, zoneIndex) {
-  addText(scene, 
-    16, 14,
-    `ZONE ${zoneIndex}`,
-    {
-      font: `bold 20px ${THEME.fontDisplay}`,
-      fill: THEME.text,
-      backgroundColor: 'rgba(5, 7, 12, 0.75)',
-      padding: { x: 12, y: 6 }
-    }
-  ).setDepth(10000);
+function addZoneLabels(scene, zoneIndex, sessionIndex) {
+  const pill = {
+    font: `bold 20px ${THEME.fontDisplay}`,
+    fill: THEME.text,
+    backgroundColor: 'rgba(5, 7, 12, 0.75)',
+    padding: { x: 12, y: 6 }
+  };
+  const left = (sessionIndex === 0 || sessionIndex === undefined) ? 'PRACTICE' : `EXPEDITION ${sessionIndex}`;
+  addText(scene, 16, 14, left, pill).setDepth(10000);
+  addText(scene, GAME_W - 16, 14, `ZONE ${zoneIndex}`, pill).setOrigin(1, 0).setDepth(10000);
 }
 
 /**
@@ -5174,9 +5332,23 @@ function addZoneLabels(scene, zoneIndex) {
  * @param {object} nextStage - The stage that will be shown next
  * @param {function} startCallback - Function to call when the user clicks the button
  */
+/**
+ * Tear down the current stage completely. The display list's removeAll() only
+ * unlinks objects: interactive objects stay hit-testable, timers and tweens keep
+ * firing, and loader callbacks still run — so a stale button from an earlier
+ * stage could advance the game while a watch trajectory kept playing.
+ */
+function clearScene(scene) {
+  scene.children.list.slice().forEach(obj => obj.destroy());
+  scene.time.removeAllEvents();
+  scene.tweens.killAll();
+  scene.load.off('complete');
+  scene.input.keyboard.removeAllListeners('keydown');
+}
+
 function showTransitionOverlay(scene, nextStage, startCallback) {
   // Clear existing scene elements
-  scene.children.removeAll();
+  clearScene(scene);
   
   // Hide controls during transition overlays
   updateControlsDisplay("hidden");

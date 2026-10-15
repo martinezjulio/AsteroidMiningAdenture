@@ -144,20 +144,27 @@ Unknown tokens cause Python to raise `ValueError` at timeline-generation time.
 - **Type**: bool
 - **Default**: `false`.
 - **Read by**: Python (`models.py`), Browser.
-- **Effect**: when `true`, Python injects a `round_recap` meta stage between rounds inside a session (i.e. after every round except the last). The browser's `setupRoundRecap` reads the per-play-game rewards tracked at runtime and renders a message that lists each play game's reward in the order they happened — e.g. *"Good Job! You earned 4 rewards in your first play game and 6 rewards in your second play game. Can you beat that in the next round?"* The number of clauses scales with however many `play` tokens the round contained. Recap is skipped for any round that had zero play games.
+- **Effect**: when `true`, Python injects a `round_recap` meta stage between rounds inside a session (i.e. after every round except the last). The browser's `setupRoundRecap` sums the play-game rewards of every round so far in the session and names each round by its **zone** (participants never see the word "round") — e.g. after the second of three rounds: *"ZONE 4 COMPLETE — Good job! You earned 8 rewards in zone 3 and 6 rewards in zone 4. Can you beat that in zone 5?"*, button "Continue to next zone". Under `session_fixed` (same zone every round) it reads *"ZONE 3 · KEEP GOING — You've earned 14 rewards in zone 3 so far. Can you keep it up?"*. Recap is skipped for any round that had zero play games.
 
 ### `reward_breakdown_display`
-- **Type**: string — `'none'` or `'per_zone'`.
+- **Type**: string — `'none'` or `'per_game'`.
 - **Default**: `'none'`.
 - **Read by**: Node (`server.js`), Browser.
-- **Effect**: with `display_running_total_reward: true`, `'per_zone'` replaces the single `TOTAL REWARD: N` line with a segmented bar: one segment per zone (filled in that zone's border color, width ∝ reward), grouped by session with an "Expedition n · subtotal" caption, total on the left. The end-of-game screen draws the same bar. Under `total_reward_scope: per_session` only the current session's zones are expanded; earlier sessions collapse to their caption. **Design note**: this keeps per-zone reward information visible across sessions (the summary bar's per-game "+N" clears each session), so leave it `'none'` for conditions where that should not be shown.
-- Participant-facing copy calls a session an **expedition** (transition slides, reward captions, end screen); config/logs/timeline JSON keep `session`.
+- **Effect**: with `display_running_total_reward: true`, `'per_game'` replaces the single `TOTAL REWARD: N` line with a **reward ledger**: one row per expedition (session), one mini Reward Tank per play game (a box outlined in the game's zone color with one slot per shot, filled green per reward earned), and the total underneath. When an expedition starts, all of its play games appear as empty boxes (so the row shows how many games remain); future expeditions are not shown until they begin. The end-of-game screen draws the same ledger with zone labels. **Design note**: the ledger keeps per-game, per-zone reward information visible across expeditions (the summary bar's per-game "+N" clears each session) and reveals the number of play games in the current expedition — leave it `'none'` for conditions where that should not be shown.
+- Participant-facing copy calls a session an **expedition** (transition slides, ledger captions, end screen); config/logs/timeline JSON keep `session`.
+- **Zone numbering**: played zones are numbered consecutively in play order across sessions (zone 0 = practice). End-of-session `choice`/`feedback` stages carry a virtual zone `1000 + session_index` (own border color, never played) so they don't create gaps; their log rows have `zone_global_index` ≥ 1001.
 
 ### `prolific_completion_url`
 - **Type**: string (URL) or omitted.
 - **Default**: none — the browser falls back to a hard-coded completion URL in `showEndOfGameMessage` (main.js).
 - **Read by**: Node (`server.js`), Browser.
 - **Effect**: where the "Return to Prolific" button on the final screen sends the participant. Put the study's completion code here (`https://app.prolific.com/submissions/complete?cc=XXXXXXXX`) so a new study only needs a YAML change.
+
+### `bonus_per_reward` / `bonus_currency`
+- **Type**: number (money per reward point) / string (currency prefix).
+- **Default**: no bonus line / `£`.
+- **Read by**: Node (`server.js`), Browser.
+- **Effect**: the final screen shows `BONUS £0.82` and `41 rewards × £0.02 each` under the total, computed as TOTAL REWARD × `bonus_per_reward`. Omit `bonus_per_reward` to hide the line. Display only — it does not affect what Prolific pays; keep it in sync with the study's bonus rule.
 
 ### `verbose`
 - **Type**: bool
