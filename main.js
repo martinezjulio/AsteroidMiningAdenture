@@ -64,6 +64,8 @@ let currentGameStep = 0; // Reset for each game
 let sessionTotals = {}; // { [sessionIndex]: number } — current session live, completed sessions frozen
 let roundPlayRewards = {}; // { [roundIndex]: number[] } — per-play-game rewards within a round
 let totalRewardShownThisSession = false; // Once true, the total reward display stays visible until session reset
+let rewardBreakdownDisplay = 'none'; // 'none' | 'per_zone' (from config) — segmented reward bar by zone
+let zoneRewards = {}; // "s{session}:z{zone}" -> { session, zone, reward }, insertion-ordered (play games only)
 let currentGameReward = 0; // Reset for each game
 let refreshCount = parseInt(localStorage.getItem('refreshCount') || '0', 10);
 
@@ -221,6 +223,7 @@ async function fetchExperimentConfig() {
     displayRunningTotalReward = config.display_running_total_reward || false;
     totalRewardScope = config.total_reward_scope || 'per_session';
     reportPlayRewardsBetweenRounds = config.report_play_rewards_between_rounds || false;
+    rewardBreakdownDisplay = config.reward_breakdown_display || 'none';
     demonstratorConfig = config.demonstrator_config || null;
 
     verboseLog('Demonstrator config:', demonstratorConfig);
@@ -541,6 +544,18 @@ const WATCH_START_DELAY = 500;     // Delay before starting watch demonstrations
 const PIP_RADIUS = 4;
 const PIP_SPACING = 10;
 let outcomePips = {};              // "row,col" -> number of pips drawn so far (reset per stage)
+
+// Logical game size. The canvas is created at GAME_W*DPR × GAME_H*DPR and the main
+// camera is zoomed by DPR, so every coordinate in this file stays in 1000×620 space
+// while text and sprites render at device resolution (Phaser ignores devicePixelRatio).
+const GAME_W = 1000;
+const GAME_H = 620;
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+// All canvas text goes through here so it rasterizes at device resolution.
+function addText(scene, x, y, text, style = {}) {
+  return scene.add.text(x, y, text, { resolution: DPR, ...style });
+}
 
 // Visual theme shared by the Phaser scene; mirrors the CSS variables in index.html.
 // NOTE: Phaser's `font` shorthand splits on spaces, so font family names must be
@@ -1130,8 +1145,8 @@ function mapZoneBanditArmImages(zoneGlobalIndex, imageIndexes) {
 // Phaser config
 const config = {
   type: Phaser.AUTO,
-  width: 1000,
-  height: 620,
+  width: GAME_W * DPR,
+  height: GAME_H * DPR,
   parent: 'game-container',
   backgroundColor: '#000000',
   // Keep 1000×620 game coordinates; scale the canvas to fit #game-container so the
@@ -1172,6 +1187,9 @@ function create() {
   const KC = Phaser.Input.Keyboard.KeyCodes;
   this.input.keyboard.addCapture([KC.SPACE, KC.LEFT, KC.RIGHT, KC.UP, KC.DOWN]);
 
+  // Device-resolution rendering: see GAME_W/GAME_H/DPR above.
+  this.cameras.main.setZoom(DPR).centerOn(GAME_W / 2, GAME_H / 2);
+
   // Fonts → experiment config → image mappings → fresh timeline → first stage
   waitForFonts()
     .then(() => fetchExperimentConfig())
@@ -1189,9 +1207,9 @@ function create() {
     })
     .catch(err => {
       console.error("Error generating/loading timeline:", err);
-      this.add.text(
-        this.sys.game.config.width / 2,
-        this.sys.game.config.height / 2,
+      addText(this, 
+        GAME_W / 2,
+        GAME_H / 2,
         "Sorry, the game could not be loaded.\nPlease refresh the page, and contact the researcher if this keeps happening.",
         { font: `18px ${THEME.fontBody}`, fill: THEME.text, align: 'center', wordWrap: { width: 700 } }
       ).setOrigin(0.5);
@@ -1330,6 +1348,7 @@ function loadStage() {
     // Reset game tracking for new game
     const numArmPulls = stage.num_arm_pulls || 0;
     resetGameTracking(gameType, numArmPulls);
+    if (gameType === 'play') recordZoneReward(0);
   }
 
   // demonstrator_presentation isn't in the gameplay-stage list above, so it doesn't
@@ -1556,8 +1575,141 @@ function updateTotalRewardDisplay() {
   //   across_sessions → the running sum across every session
   // (End-of-game screen still renders the per-session breakdown in per_session mode.)
   const value = getUserTotalReward();
-  el.textContent = `TOTAL REWARD: ${value}`;
+  if (rewardBreakdownDisplay === 'per_zone') {
+    el.innerHTML = '';
+    el.appendChild(buildRewardBarDOM());
+  } else {
+    el.textContent = `TOTAL REWARD: ${value}`;
+  }
   el.style.visibility = 'visible';
+}
+
+/*****************************************
+ * Reward breakdown (reward_breakdown_display: per_zone)
+ * One segment per zone in that zone's color, grouped by session ("expedition").
+ ****************************************/
+function recordZoneReward(amount) {
+  const stage = window.currentStage;
+  if (!stage || !stage.zone || stage.game !== 'play') return;
+  const zone = stage.zone.zone_global_index;
+  const key = `s${currentSessionIndex}:z${zone}`;
+  if (!zoneRewards[key]) zoneRewards[key] = { session: currentSessionIndex, zone, reward: 0 };
+  zoneRewards[key].reward += amount;
+}
+
+// [{ session, subtotal, expanded, zones: [{ zone, reward }] }] in play order.
+// collapsePrevious: earlier sessions keep only their subtotal (per_session scope).
+function getRewardGroups(collapsePrevious) {
+  const groups = [];
+  Object.values(zoneRewards).forEach(entry => {
+    let g = groups.find(x => x.session === entry.session);
+    if (!g) {
+      g = { session: entry.session, subtotal: 0, zones: [], expanded: true };
+      groups.push(g);
+    }
+    g.zones.push({ zone: entry.zone, reward: entry.reward });
+    g.subtotal += entry.reward;
+  });
+  // sessionTotals is the source of truth for the subtotal (zoneRewards only sees play games)
+  groups.forEach(g => {
+    if (typeof sessionTotals[g.session] === 'number') g.subtotal = sessionTotals[g.session];
+    if (collapsePrevious && g.session !== currentSessionIndex) g.expanded = false;
+  });
+  return groups;
+}
+
+// Pixels per reward point: fixed, shrinking only if the bar would overflow maxWidth.
+function rewardScale(groups, maxWidth, basePx) {
+  const points = groups.reduce((a, g) => a + (g.expanded ? g.zones.reduce((b, z) => b + z.reward, 0) : 0), 0);
+  const slivers = groups.reduce((a, g) => a + (g.expanded ? g.zones.filter(z => z.reward === 0).length : 0), 0);
+  const fixed = slivers * 8 + Math.max(0, groups.length - 1) * 14;
+  if (points === 0) return basePx;
+  return Math.min(basePx, Math.max(2, (maxWidth - fixed) / points));
+}
+
+function buildRewardBarDOM() {
+  const total = getUserTotalReward();
+  const groups = getRewardGroups(totalRewardScope === 'per_session');
+  const wrap = document.createElement('div');
+  wrap.className = 'reward-wrap';
+
+  const totalEl = document.createElement('div');
+  totalEl.className = 'reward-total';
+  totalEl.textContent = `TOTAL REWARD ${total}`;
+  wrap.appendChild(totalEl);
+
+  const bar = document.createElement('div');
+  bar.className = 'reward-bar';
+  const ppp = rewardScale(groups, 640, 14);
+  groups.forEach(g => {
+    const sess = document.createElement('div');
+    sess.className = 'reward-session' + (g.session === currentSessionIndex ? ' current' : '');
+    const cap = document.createElement('div');
+    cap.className = 'reward-session-cap';
+    cap.textContent = `Expedition ${g.session} · ${g.subtotal}`;
+    sess.appendChild(cap);
+    if (g.expanded) {
+      const segs = document.createElement('div');
+      segs.className = 'reward-segs';
+      g.zones.forEach(z => {
+        const seg = document.createElement('div');
+        const color = generateZoneColor(z.zone);
+        const width = z.reward === 0 ? 8 : Math.max(10, Math.round(z.reward * ppp));
+        seg.className = 'reward-seg' + (z.reward === 0 ? ' empty' : '');
+        seg.style.width = `${width}px`;
+        seg.style.background = z.reward === 0 ? 'transparent' : color;
+        seg.style.borderColor = color;
+        seg.title = `Zone ${z.zone}: ${z.reward}`;
+        if (width >= 48) seg.textContent = `Z${z.zone} · ${z.reward}`;
+        else if (width >= 20) seg.textContent = `${z.reward}`;
+        segs.appendChild(seg);
+      });
+      sess.appendChild(segs);
+    }
+    bar.appendChild(sess);
+  });
+  wrap.appendChild(bar);
+  return wrap;
+}
+
+// Canvas version for the end screen. Draws centered at cx starting at y; returns height used.
+function drawRewardBarCanvas(scene, cx, y, maxWidth) {
+  const groups = getRewardGroups(false);
+  if (groups.length === 0) return 0;
+  const segH = 26;
+  const capH = 18;
+  const gap = 14;
+  const ppp = rewardScale(groups, maxWidth, 16);
+  const widths = groups.map(g => g.zones.reduce((a, z) => a + (z.reward === 0 ? 8 : Math.max(10, Math.round(z.reward * ppp))) + 2, -2));
+  const totalW = widths.reduce((a, b) => a + b, 0) + gap * (groups.length - 1);
+  let x = cx - totalW / 2;
+  const g = scene.add.graphics();
+  groups.forEach((group, gi) => {
+    addText(scene, x + widths[gi] / 2, y, `EXPEDITION ${group.session} · ${group.subtotal}`, {
+      font: `bold 12px ${THEME.fontBody}`, fill: THEME.textMuted, align: 'center'
+    }).setOrigin(0.5, 0);
+    let sx = x;
+    group.zones.forEach(z => {
+      const color = parseInt(generateZoneColor(z.zone).replace('#', '0x'));
+      const w = z.reward === 0 ? 8 : Math.max(10, Math.round(z.reward * ppp));
+      if (z.reward === 0) {
+        g.lineStyle(2, color, 1);
+        g.strokeRoundedRect(sx, y + capH + 4, w, segH, 4);
+      } else {
+        g.fillStyle(color, 1);
+        g.fillRoundedRect(sx, y + capH + 4, w, segH, 4);
+        const label = w >= 52 ? `Z${z.zone} · ${z.reward}` : (w >= 22 ? `${z.reward}` : '');
+        if (label) {
+          addText(scene, sx + w / 2, y + capH + 4 + segH / 2, label, {
+            font: `bold 12px ${THEME.fontBody}`, fill: '#0b0d12', align: 'center'
+          }).setOrigin(0.5);
+        }
+      }
+      sx += w + 2;
+    });
+    x += widths[gi] + gap;
+  });
+  return capH + 4 + segH;
 }
 
 /**
@@ -1702,7 +1854,10 @@ function setupProlificIdForm(stage) {
   inputEl.onkeydown = (e) => { if (e.key === 'Enter') submitBtn.click(); };
   setTimeout(() => inputEl.focus(), 0);
 
+  // The button starts disabled ("Loading…") in index.html; the timeline is in hand now.
   const submitBtn = document.getElementById('prolific-submit-btn');
+  submitBtn.disabled = false;
+  submitBtn.textContent = 'Start';
   submitBtn.onclick = () => {
     prolificID = inputEl.value.trim();
     if (!prolificID) {
@@ -1878,7 +2033,7 @@ function setupIntroduction(stage) {
         sections.push({
           text: redBoldText,
           type: 'redBold',
-          y: this.sys.game.config.height - 80,  // Moved up from bottom
+          y: GAME_H - 80,  // Moved up from bottom
           font: `bold 18px ${THEME.fontBody}`,
           color: '#ff0000',
           background: true
@@ -1904,7 +2059,7 @@ function setupIntroduction(stage) {
     // can be any length without colliding with the title or the warning.
     const order = { welcome: 0, bold: 1, main: 2, redBold: 3 };
     sections.sort((a, b) => order[a.type] - order[b.type]);
-    const W = this.sys.game.config.width;
+    const W = GAME_W;
     let cursorY = 36;
     sections.forEach(section => {
       const textStyle = {
@@ -1926,15 +2081,15 @@ function setupIntroduction(stage) {
         textStyle.align = 'left';
       }
 
-      const t = this.add.text(W / 2, cursorY, section.text, textStyle).setOrigin(0.5, 0);
+      const t = addText(this, W / 2, cursorY, section.text, textStyle).setOrigin(0.5, 0);
       cursorY += t.height + (section.type === 'bold' ? 14 : 18);
     });
 
   } else {
     // Original behavior for messages without special formatting
-  this.add.text(
-    this.sys.game.config.width/2,
-    this.sys.game.config.height/2,
+  addText(this, 
+    GAME_W/2,
+    GAME_H/2,
       message,
       { font: `20px ${THEME.fontBody}`, fill: '#ffffff', align: 'center', wordWrap: { width: 600 }, resolution: window.devicePixelRatio || 2 }
   ).setOrigin(0.5);
@@ -1957,8 +2112,8 @@ function setupInstructions(stage) {
   updateControlsDisplay("single-row");
   
   // Display title
-  this.add.text(
-    this.sys.game.config.width / 2,
+  addText(this, 
+    GAME_W / 2,
     50,
     stage.message || "Game Instructions",
     { font: `bold 26px ${THEME.fontDisplay}`, fill: '#ffffff', align: 'center', resolution: window.devicePixelRatio || 2 }
@@ -1997,8 +2152,8 @@ function setupInstructions(stage) {
 }
 
 function displayInstructionLayout(instructions, gifImages) {
-  const gameWidth = this.sys.game.config.width;
-  const gameHeight = this.sys.game.config.height;
+  const gameWidth = GAME_W;
+  const gameHeight = GAME_H;
   
   // Animated GIFs can't be Phaser textures, so they're <img> elements placed over the
   // canvas. The canvas is scaled (Scale.FIT), so convert game coordinates → CSS pixels
@@ -2064,7 +2219,7 @@ function displayInstructionLayout(instructions, gifImages) {
     
     
     
-    this.add.text(
+    addText(this, 
       x,
       textY, // Position text much closer to images
       instructionText,
@@ -2107,7 +2262,7 @@ function displayInstructionLayout(instructions, gifImages) {
     const textY2 = row3ImagesY + maxImageSize + 18;
     
     
-    this.add.text(
+    addText(this, 
       x,
       textY2, // Position text below images with small gap
       instructionText,
@@ -2127,7 +2282,7 @@ function displayInstructionLayout(instructions, gifImages) {
     const finalTextY = row3ImagesY + maxImageSize + 70;
   
     
-    this.add.text(
+    addText(this, 
       gameWidth / 2,
       finalTextY, // Position below second section text with spacing
       instructions.instruction6,
@@ -2198,7 +2353,7 @@ function setupPlayOrPractice(stage, isPractice) {
   const totalGridHeight = numRows * cellHeight + (numRows - 1) * CELL_PADDING;
   
   // Center the grid in the full container width
-  const gridOriginX = (this.sys.game.config.width - totalGridWidth) / 2;
+  const gridOriginX = (GAME_W - totalGridWidth) / 2;
   const gridOriginY = 100 + (400 - totalGridHeight) / 2;
   const gridBottomY = gridOriginY + totalGridHeight;
 
@@ -2227,7 +2382,7 @@ function setupPlayOrPractice(stage, isPractice) {
   setSpriteDisplaySizeWithAspectRatio(userSprite, DEMO_SPRITE_SIZE);
 
   // Add "Prospector One" name label below player sprite
-  let userNameText = this.add.text(
+  let userNameText = addText(this, 
     initX,
     initY + DEMO_SPRITE_SIZE / 2 + 15,
     'Prospector One',
@@ -2346,6 +2501,7 @@ function setupPlayOrPractice(stage, isPractice) {
         if (currentGameType === 'play') {
           if (!(currentSessionIndex in sessionTotals)) sessionTotals[currentSessionIndex] = 0;
           sessionTotals[currentSessionIndex]++;
+          recordZoneReward(1);
           updateTotalRewardDisplay();
         }
       }
@@ -2497,8 +2653,8 @@ function setupWatch(stage) {
   updateControlsDisplay("hidden");
   
   // Show which demonstrator is being watched (zone is in the corner pill + border)
-  const demoText = this.add.text(
-    this.sys.game.config.width / 2,
+  const demoText = addText(this, 
+    GAME_W / 2,
     34,
     demoData && demoData.demonstrator_name ? `WATCHING ${demoData.demonstrator_name.toUpperCase()}` : "WATCHING PARTNER",
     {
@@ -2518,7 +2674,7 @@ function setupWatch(stage) {
   const totalGridHeight = numRows * cellHeight + (numRows - 1) * CELL_PADDING;
   
   // Center the grid in the full container width
-  const gridOriginX = (this.sys.game.config.width - totalGridWidth) / 2;
+  const gridOriginX = (GAME_W - totalGridWidth) / 2;
   const gridOriginY = 100 + (400 - totalGridHeight) / 2;
   const gridBottomY = gridOriginY + totalGridHeight;
 
@@ -2570,7 +2726,7 @@ function setupWatch(stage) {
     // Add name label below demonstrator if name is available
     let dNameText = null;
     if (stage.demonstrator && stage.demonstrator.demonstrator_name) {
-      dNameText = this.add.text(
+      dNameText = addText(this, 
         startPos.x,
         startPos.y + DEMO_SPRITE_SIZE / 2 + 15,
         stage.demonstrator.demonstrator_name,
@@ -2681,6 +2837,7 @@ function setupWatch(stage) {
                 if (currentGameType === 'play') {
                   if (!(currentSessionIndex in sessionTotals)) sessionTotals[currentSessionIndex] = 0;
                   sessionTotals[currentSessionIndex]++;
+          recordZoneReward(1);
                   updateTotalRewardDisplay();
                 }
               }
@@ -2795,8 +2952,8 @@ function setupIndicate(stage) {
   updateControlsDisplay("hidden");
   
   // Show which demonstrator is being watched (zone is in the corner pill + border)
-  const demoText = this.add.text(
-    this.sys.game.config.width / 2,
+  const demoText = addText(this, 
+    GAME_W / 2,
     34,
     demoData && demoData.demonstrator_name ? `WATCHING ${demoData.demonstrator_name.toUpperCase()}` : "WATCHING PARTNER",
     {
@@ -2816,7 +2973,7 @@ function setupIndicate(stage) {
   const totalGridHeight = numRows * cellHeight + (numRows - 1) * CELL_PADDING;
   
   // Center the grid in the full container width
-  const gridOriginX = (this.sys.game.config.width - totalGridWidth) / 2;
+  const gridOriginX = (GAME_W - totalGridWidth) / 2;
   const gridOriginY = 100 + (400 - totalGridHeight) / 2;
   const gridBottomY = gridOriginY + totalGridHeight;
 
@@ -2868,7 +3025,7 @@ function setupIndicate(stage) {
     // Add name label below demonstrator if name is available
     let dNameText = null;
     if (stage.demonstrator && stage.demonstrator.demonstrator_name) {
-      dNameText = this.add.text(
+      dNameText = addText(this, 
         startPos.x,
         startPos.y + DEMO_SPRITE_SIZE / 2 + 15,
         stage.demonstrator.demonstrator_name,
@@ -2976,6 +3133,7 @@ function setupIndicate(stage) {
                 if (currentGameType === 'play') {
                   if (!(currentSessionIndex in sessionTotals)) sessionTotals[currentSessionIndex] = 0;
                   sessionTotals[currentSessionIndex]++;
+          recordZoneReward(1);
                   updateTotalRewardDisplay();
                 }
               }
@@ -3064,21 +3222,30 @@ function setupDemonstratorPresentation(stage) {
   const totalWidth = numDemonstrators * cellWidth + (numDemonstrators - 1) * cellPadding;
   
   // Position grid in center of screen
-  const gridX = (this.sys.game.config.width - totalWidth) / 2;
+  const gridX = (GAME_W - totalWidth) / 2;
   const gridY = 300;
   
-  // Create title text
-  const titleText = this.add.text(
-    this.sys.game.config.width / 2,
-    150,
-    stage.message || "You will now start a new session and have several watch and play games! You will have the following two partners throughout the watch games of this session:",
-    { 
-      font: `24px ${THEME.fontBody}`, 
-      fill: '#ffffff',
+  // Title (from Python: "EXPEDITION n · …") + body
+  if (stage.title) {
+    addText(this, GAME_W / 2, 56, stage.title, {
+      font: `bold 24px ${THEME.fontDisplay}`,
+      fill: THEME.text,
       align: 'center',
-      wordWrap: { width: 700 }
+      wordWrap: { width: 820 }
+    }).setOrigin(0.5);
+  }
+  const titleText = addText(this,
+    GAME_W / 2,
+    stage.title ? 100 : 150,
+    stage.message || "You will now start a new expedition with several watch and play games. These two partner starships come along for the watch games:",
+    {
+      font: `20px ${THEME.fontBody}`,
+      fill: THEME.text,
+      align: 'center',
+      wordWrap: { width: 760 },
+      lineSpacing: 4
     }
-  ).setOrigin(0.5);
+  ).setOrigin(0.5, 0);
   
   // Create cells for each demonstrator
   const cells = [];
@@ -3098,7 +3265,7 @@ function setupDemonstratorPresentation(stage) {
     
     // Create letter label
     const letter = String.fromCharCode(65 + i); // A, B
-    const letterText = this.add.text(
+    const letterText = addText(this, 
       x,
       gridY - 30,
       `Partner ${letter}`,
@@ -3144,7 +3311,7 @@ function setupDemonstratorPresentation(stage) {
       
       // Add demonstrator name below the image if available
       if (cell.demonstrator && cell.demonstrator.demonstrator_name) {
-        const nameText = currentScene.add.text(
+        const nameText = addText(currentScene, 
           cell.x,
           cell.y + cellHeight/2 - 15,
           cell.demonstrator.demonstrator_name,
@@ -3160,7 +3327,7 @@ function setupDemonstratorPresentation(stage) {
     }
     
     // Add "Begin Session" button
-    makeNextButton.call(currentScene, "Begin Session", () => {
+    makeNextButton.call(currentScene, "Begin Expedition", () => {
       // Restore normal controls display before moving to next stage
       updateControlsDisplay("default");
       nextStage.call(currentScene);
@@ -3201,8 +3368,8 @@ function buildRoundRecapMessage(rewards) {
 function setupRoundRecap(stage) {
   updateControlsDisplay("hidden");
 
-  const W = this.sys.game.config.width;
-  const H = this.sys.game.config.height;
+  const W = GAME_W;
+  const H = GAME_H;
 
   this.children.removeAll();
 
@@ -3213,13 +3380,13 @@ function setupRoundRecap(stage) {
   const message = buildRoundRecapMessage(rewards) ||
     "Good job! Can you beat that in the next round?";
 
-  this.add.text(W / 2, H / 2 - 110, "ROUND COMPLETE", {
+  addText(this, W / 2, H / 2 - 110, "ROUND COMPLETE", {
     font: `bold 26px ${THEME.fontDisplay}`,
     fill: THEME.text,
     align: 'center'
   }).setOrigin(0.5);
 
-  this.add.text(W / 2, H / 2 - 40, message, {
+  addText(this, W / 2, H / 2 - 40, message, {
     font: `22px ${THEME.fontBody}`,
     fill: THEME.text,
     align: 'center',
@@ -3301,38 +3468,39 @@ function setupChoice(stage) {
   const totalWidth = numDemonstrators * cellWidth + (numDemonstrators - 1) * cellPadding;
   
   // Position grid in center of screen
-  const gridX = (this.sys.game.config.width - totalWidth) / 2;
+  const gridX = (GAME_W - totalWidth) / 2;
   const gridY = 200;
   
   // Create title text
-  const titleText = this.add.text(
-    this.sys.game.config.width / 2,
+  const titleText = addText(this,
+    GAME_W / 2,
     60,
-    "Choose your preferred partner",
+    "CHOOSE A PARTNER",
     {
       font: `bold 26px ${THEME.fontDisplay}`,
       fill: '#ffffff',
       align: 'center'
     }
   ).setOrigin(0.5);
-  
-  // Create instruction text
-  const transferText = stage.transfer === true ? "in a new zone" : "in the same zone";
-  const instructionText = this.add.text(
-    this.sys.game.config.width / 2,
+
+  // Body: same wording as the transition slide (from Python), with a fallback.
+  const transferText = stage.transfer === true ? "a brand-new zone" : "the same zone";
+  const instructionText = addText(this,
+    GAME_W / 2,
     118,
-    `Choose the starship you would watch before playing again to achieve higher rewards ${transferText}.`,
-    { 
-      font: `18px ${THEME.fontBody}`, 
+    stage["overlay-message"] ||
+      `You'll play again in ${transferText}. Which starship would you rather watch first to help you earn more there?`,
+    {
+      font: `18px ${THEME.fontBody}`,
       fill: '#ffffff',
       align: 'center',
-      wordWrap: { width: 600 }
+      wordWrap: { width: 640 }
     }
   ).setOrigin(0.5);
-  
+
   // Create instruction for controls
-  const controlsText = this.add.text(
-    this.sys.game.config.width / 2,
+  const controlsText = addText(this, 
+    GAME_W / 2,
     gridY + cellHeight + 95,
     "Use arrow keys to move and spacebar to select, or click a partner",
     { 
@@ -3346,8 +3514,8 @@ function setupChoice(stage) {
   updateControlsDisplay("choice");
   
   // Selection feedback text (initially hidden)
-  const feedbackText = this.add.text(
-    this.sys.game.config.width / 2,
+  const feedbackText = addText(this, 
+    GAME_W / 2,
     gridY + cellHeight + 95,
     "",
     { 
@@ -3386,7 +3554,7 @@ function setupChoice(stage) {
     
     // Create letter label
     const letter = String.fromCharCode(65 + i); // A, B, C, etc.
-    const letterText = this.add.text(
+    const letterText = addText(this, 
       x,
       gridY - 30,
       `Partner ${letter}`,
@@ -3439,7 +3607,7 @@ function setupChoice(stage) {
       // Add demonstrator name below the image if available
       const demonstrator = i === 0 ? demonstrator1 : demonstrator2;
       if (demonstrator && demonstrator.demonstrator_name) {
-        const nameText = currentScene.add.text(
+        const nameText = addText(currentScene, 
           cell.x,
           cell.y + cellHeight/2 - 15, // Position below the image but above cell bottom
           demonstrator.demonstrator_name,
@@ -3654,7 +3822,7 @@ function updateControlsDisplay(type = "default") {
       </div>
       <div class="control-key">
         <div class="control-icon">Space</div>
-        <div>Mine asteroid<br><span style="opacity:.7">or click an asteroid</span></div>
+        <div>Shoot asteroid<br><span style="opacity:.7">or click an asteroid</span></div>
       </div>
     `;
   } else if (type === "hidden") {
@@ -3804,12 +3972,12 @@ function setupOnlineChoicePhaseChoice(stage) {
   const totalWidth = numDemonstrators * cellWidth + (numDemonstrators - 1) * cellPadding;
   
   // Position grid in center of screen
-  const gridX = (this.sys.game.config.width - totalWidth) / 2;
+  const gridX = (GAME_W - totalWidth) / 2;
   const gridY = 200;
   
   // Create title text (same as regular choice game)
-  const titleText = this.add.text(
-    this.sys.game.config.width / 2,
+  const titleText = addText(this, 
+    GAME_W / 2,
     60,
     "Choose your preferred partner",
     {
@@ -3821,8 +3989,8 @@ function setupOnlineChoicePhaseChoice(stage) {
   
   // Create instruction text (use transfer flag to determine message)
   const transferText = stage.transfer === true ? "in a new zone" : "in the same zone";
-  const instructionText = this.add.text(
-    this.sys.game.config.width / 2,
+  const instructionText = addText(this, 
+    GAME_W / 2,
     118,
     `Choose the starship you would watch before playing again to achieve higher rewards ${transferText}.`,
     { 
@@ -3834,8 +4002,8 @@ function setupOnlineChoicePhaseChoice(stage) {
   ).setOrigin(0.5);
   
   // Create instruction for controls (same as regular choice game)
-  const controlsText = this.add.text(
-    this.sys.game.config.width / 2,
+  const controlsText = addText(this, 
+    GAME_W / 2,
     gridY + cellHeight + 95,
     "Use arrow keys to move and spacebar to select, or click a partner",
     { 
@@ -3864,7 +4032,7 @@ function setupOnlineChoicePhaseChoice(stage) {
     ).setOrigin(0.5);
     
     // Create letter label (same format as regular choice game)
-    const letterText = this.add.text(
+    const letterText = addText(this, 
       x,
       gridY - 30,
       `Partner ${demo.letter}`,
@@ -3909,7 +4077,7 @@ function setupOnlineChoicePhaseChoice(stage) {
       
       // Add demonstrator name below the image if available
       if (cell.data && cell.data.demonstrator_name) {
-        const nameText = currentScene.add.text(
+        const nameText = addText(currentScene, 
           cell.x,
           cell.y + cellHeight/2 - 15, // Position below the image but above cell bottom
           cell.data.demonstrator_name,
@@ -3951,8 +4119,8 @@ function setupOnlineChoicePhaseChoice(stage) {
     setSpriteDisplaySizeWithAspectRatio(userSprite, DEMO_SPRITE_SIZE);
     
     // Selection feedback text (initially hidden, same position as regular choice game)
-    const feedbackText = currentScene.add.text(
-      currentScene.sys.game.config.width / 2,
+    const feedbackText = addText(currentScene, 
+      GAME_W / 2,
       gridY + cellHeight + 95,
       "",
       { 
@@ -4158,8 +4326,8 @@ function setupOnlineChoicePhaseWatch(stage) {
   updateControlsDisplay("hidden");
   
   // Show which demonstrator is being watched (zone is in the corner pill + border)
-  const demoText = this.add.text(
-    this.sys.game.config.width / 2,
+  const demoText = addText(this, 
+    GAME_W / 2,
     34,
     `WATCHING PARTNER ${selectedDemo.letter}`,
     {
@@ -4179,7 +4347,7 @@ function setupOnlineChoicePhaseWatch(stage) {
   const totalGridHeight = numRows * cellHeight + (numRows - 1) * CELL_PADDING;
   
   // Center the grid in the full container width
-  const gridOriginX = (this.sys.game.config.width - totalGridWidth) / 2;
+  const gridOriginX = (GAME_W - totalGridWidth) / 2;
   const gridOriginY = 100 + (400 - totalGridHeight) / 2;
   const gridBottomY = gridOriginY + totalGridHeight;
 
@@ -4321,6 +4489,7 @@ function setupOnlineChoicePhaseWatch(stage) {
                 if (currentGameType === 'play') {
                   if (!(currentSessionIndex in sessionTotals)) sessionTotals[currentSessionIndex] = 0;
                   sessionTotals[currentSessionIndex]++;
+          recordZoneReward(1);
                   updateTotalRewardDisplay();
                 }
               }
@@ -4550,8 +4719,8 @@ function showEndOfGameMessage() {
   const totalRewardEl = document.getElementById('total-reward-display');
   if (totalRewardEl) totalRewardEl.style.display = 'none';
 
-  const W = this.sys.game.config.width;
-  const H = this.sys.game.config.height;
+  const W = GAME_W;
+  const H = GAME_H;
 
   updateControlsDisplay("hidden");
   setGameBorderColor(THEME.neutralBorderHex);
@@ -4564,7 +4733,7 @@ function showEndOfGameMessage() {
   const lineHeight = 36;
   const headerY = H / 2 - 130;
 
-  this.add.text(W / 2, headerY, "MISSION COMPLETE", {
+  addText(this, W / 2, headerY, "ALL EXPEDITIONS COMPLETE", {
     font: `bold 30px ${THEME.fontDisplay}`,
     fill: THEME.text,
     align: 'center'
@@ -4580,18 +4749,22 @@ function showEndOfGameMessage() {
   };
 
   if (displayRunningTotalReward) {
-    if (totalRewardScope === 'across_sessions') {
-      const total = Object.values(sessionTotals).reduce((a, b) => a + b, 0);
-      this.add.text(W / 2, y, `Total Reward: ${total}`, greenStyle).setOrigin(0.5);
+    const combined = Object.values(sessionTotals).reduce((a, b) => a + b, 0);
+    if (rewardBreakdownDisplay === 'per_zone') {
+      // Total line, then the same segmented bar as the in-game display (all sessions expanded).
+      addText(this, W / 2, y, `Total Reward: ${combined}`, greenStyle).setOrigin(0.5);
+      y += lineHeight + 4;
+      y += drawRewardBarCanvas(this, W / 2, y, 760) + 10;
+    } else if (totalRewardScope === 'across_sessions') {
+      addText(this, W / 2, y, `Total Reward: ${combined}`, greenStyle).setOrigin(0.5);
       y += lineHeight;
     } else {
       const keys = Object.keys(sessionTotals).sort((a, b) => Number(a) - Number(b));
       keys.forEach(k => {
-        this.add.text(W / 2, y, `Session ${k} — Total Reward: ${sessionTotals[k]}`, greenStyle).setOrigin(0.5);
+        addText(this, W / 2, y, `Expedition ${k} — Total Reward: ${sessionTotals[k]}`, greenStyle).setOrigin(0.5);
         y += lineHeight;
       });
-      const combined = keys.reduce((a, k) => a + sessionTotals[k], 0);
-      this.add.text(W / 2, y, `Combined Total: ${combined}`, greenStyle).setOrigin(0.5);
+      addText(this, W / 2, y, `Combined Total: ${combined}`, greenStyle).setOrigin(0.5);
       y += lineHeight;
     }
   }
@@ -4602,7 +4775,7 @@ function showEndOfGameMessage() {
     || "https://app.prolific.com/submissions/complete?cc=CTVM94DF";
 
   // Make sure every queued log row has reached the server before offering the link.
-  const statusText = this.add.text(W / 2, y + 16, "Saving your data…", {
+  const statusText = addText(this, W / 2, y + 16, "Saving your data…", {
     font: `16px ${THEME.fontBody}`,
     fill: THEME.textMuted,
     align: 'center',
@@ -4654,8 +4827,8 @@ function createZoneBackgroundMask(stage, gridX, gridY, numRows, numCols, cellWid
   
   function applyBackground() {
     // Create background for the ENTIRE game container, not just the grid
-    const gameWidth = this.sys.game.config.width;
-    const gameHeight = this.sys.game.config.height;
+    const gameWidth = GAME_W;
+    const gameHeight = GAME_H;
     
     // Add the background image to cover the entire game container
     let zoneBg = this.add.image(0, 0, backgroundImageKey)
@@ -4812,7 +4985,7 @@ function drawRewardTank(container, totalSlots, outcomes) {
 
   // Title with pull counter above the housing
   const earned = outcomes.reduce((a, b) => a + b, 0);
-  const tankTitle = this.add.text(0, -34, `REWARD TANK   ${earned} earned  ·  ${outcomes.length} / ${totalSlots} pulls`, {
+  const tankTitle = addText(this, 0, -34, `REWARD TANK   ${earned} earned  ·  ${outcomes.length} / ${totalSlots} shots`, {
     font: `bold 14px ${THEME.fontBody}`,
     fill: THEME.text,
     stroke: '#000000',
@@ -4920,12 +5093,12 @@ function makeNextButton(label, callback, position = "default") {
     let yPosition;
     if (position === "overlay") {
       // Match the transition overlay button position (PRACTICE, WATCH, PLAY buttons)
-      yPosition = this.sys.game.config.height - 100;
+      yPosition = GAME_H - 100;
     } else {
       // Default position for intro/tutorial stages
-      yPosition = this.sys.game.config.height - 30;
+      yPosition = GAME_H - 30;
     }
-    return makeButton(this, this.sys.game.config.width / 2, yPosition, label, callback);
+    return makeButton(this, GAME_W / 2, yPosition, label, callback);
   }
 
 /**
@@ -4950,7 +5123,7 @@ function makeButton(scene, x, y, label, onClick, opts = {}) {
   };
   draw(THEME.accent);
 
-  const labelText = scene.add.text(0, 0, text, {
+  const labelText = addText(scene, 0, 0, text, {
     font: `bold 16px ${THEME.fontBody}`,
     fill: '#ffffff',
     resolution: window.devicePixelRatio || 1
@@ -4983,7 +5156,7 @@ function makeButton(scene, x, y, label, onClick, opts = {}) {
  * the zone identity everywhere else).
  */
 function addZoneLabels(scene, zoneIndex) {
-  scene.add.text(
+  addText(scene, 
     16, 14,
     `ZONE ${zoneIndex}`,
     {
@@ -5010,8 +5183,8 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   
   // Dimmed zone background (if the next stage has a zone) under a dark overlay, so
   // the zone identity carries through the transition.
-  const W = scene.sys.game.config.width;
-  const H = scene.sys.game.config.height;
+  const W = GAME_W;
+  const H = GAME_H;
   const overlay = scene.add.rectangle(0, 0, W, H, THEME.overlay, 0.72);
   overlay.setOrigin(0, 0).setDepth(-1);
   if (nextStage.zone && nextStage.zone.zone_global_index !== undefined) {
@@ -5056,15 +5229,27 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   }
   
   // Add the message text
-  const messageText = scene.add.text(
-    scene.sys.game.config.width / 2,
-    150,
-    message,
-    { 
-      font: `24px ${THEME.fontBody}`, 
-      fill: '#ffffff',
+  // Title (display font) + body. Timelines generated before overlay-title existed
+  // fall back to the body alone, centered where the old message sat.
+  const overlayTitle = stageType === 'online-choice' ? null : (nextStage["overlay-title"] || null);
+  if (overlayTitle) {
+    addText(scene, GAME_W / 2, 64, overlayTitle, {
+      font: `bold 24px ${THEME.fontDisplay}`,
+      fill: THEME.text,
       align: 'center',
-      wordWrap: { width: 600 }
+      wordWrap: { width: 820 }
+    }).setOrigin(0.5);
+  }
+  const messageText = addText(scene,
+    GAME_W / 2,
+    overlayTitle ? 150 : 150,
+    message,
+    {
+      font: `21px ${THEME.fontBody}`,
+      fill: THEME.text,
+      align: 'center',
+      wordWrap: { width: 680 },
+      lineSpacing: 4
     }
   ).setOrigin(0.5);
   
@@ -5156,7 +5341,7 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
     const borderThickness = 10;
     
     // Create a container at the center of the screen
-    const container = scene.add.container(scene.sys.game.config.width / 2, 340); // Moved down to avoid overlap with text
+    const container = scene.add.container(GAME_W / 2, 340); // Moved down to avoid overlap with text
     
     // Create a graphics object for drawing the border
     const border = scene.add.graphics();
@@ -5218,7 +5403,7 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
     }
     
     // Add zone text below the image
-    const zoneText = scene.add.text(
+    const zoneText = addText(scene, 
         0,
         iconHeight/2 - 40,
         `Zone ${zoneIndex}`,
@@ -5232,7 +5417,7 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
     
     // Add secondary message below the zone text if it exists
     if (secondaryMessage) {
-        const secondaryText = scene.add.text(
+        const secondaryText = addText(scene, 
             0,
             iconHeight/2 + 80,
             secondaryMessage,
@@ -5274,7 +5459,7 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
         }
         
         if (nameText) {
-            const nameLabel = scene.add.text(
+            const nameLabel = addText(scene, 
                 0,
                 30, // Position below the image
                 nameText,
@@ -5333,7 +5518,7 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
     const borderThickness = 10;
     
     // Create a container at the center of the screen
-    const container = scene.add.container(scene.sys.game.config.width / 2, 340); // Moved down to avoid overlap with text
+    const container = scene.add.container(GAME_W / 2, 340); // Moved down to avoid overlap with text
     
     // Create a graphics object for drawing the border
     const border = scene.add.graphics();
@@ -5395,7 +5580,7 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
         container.add(playerImage);
         
         // Add custom zone text
-        const zoneText = scene.add.text(
+        const zoneText = addText(scene, 
             0,
             50,
             "Choice Zone",
@@ -5447,7 +5632,7 @@ function createOnlineChoiceZoneIcon(scene, zoneColor, zoneIndex) {
     const borderThickness = 10;
     
     // Create a container at the center of the screen
-    const container = scene.add.container(scene.sys.game.config.width / 2, 340); // Moved down to avoid overlap with text
+    const container = scene.add.container(GAME_W / 2, 340); // Moved down to avoid overlap with text
     
     // Create a graphics object for drawing the border
     const border = scene.add.graphics();
@@ -5509,7 +5694,7 @@ function createOnlineChoiceZoneIcon(scene, zoneColor, zoneIndex) {
         container.add(playerImage);
         
         // Add zone text
-        const zoneText = scene.add.text(
+        const zoneText = addText(scene, 
             0,
             50,
             `Zone ${zoneIndex}`,

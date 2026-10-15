@@ -307,7 +307,7 @@ def generate_timeline(
     # --- 8a) Demonstrator names ---
     STARSHIP_NAMES = [
         'Falcon', 'Phoenix', 'Orion', 'Vega', 'Titan', 'Nova',
-        'Eclipse', 'Zenith', 'Comet', 'Asteroid', 'Nebula', 'Cosmos',
+        'Eclipse', 'Zenith', 'Comet', 'Nebula', 'Cosmos',
         'Voyager', 'Pioneer', 'Explorer', 'Seeker', 'Hunter', 'Ranger',
         'Mercury', 'Jupiter', 'Saturn', 'Neptune', 'Pluto', 'Mars',
         'Pulsar', 'Quasar', 'Galaxy', 'Meteor', 'Stellar', 'Lunar',
@@ -360,104 +360,133 @@ def generate_timeline(
                     f"Available combos: {len(AVAILABLE_STYLES) * len(AVAILABLE_COLORS) - len(used_combos)}"
                 )
 
-    # --- 9) Inject zone_meta + demonstrator dicts + overlay messages ---
+    # --- 9) Inject zone_meta + demonstrator dicts + overlay copy ---
+    # Participant-facing copy calls a session an "expedition"; config, logs and the
+    # timeline JSON keep "session". Every gameplay stage gets "overlay-title" +
+    # "overlay-message" (title + body on the transition slide).
+    if bandit_assignment_mode == "round_changing":
+        zones_title = "NEW ZONES"
+        zones_into = "into new asteroid zones"
+        zones_across = "across new asteroid zones"
+        same_zones = "the same zones"
+    else:
+        zones_title = "NEW ZONE"
+        zones_into = "into a new asteroid zone"
+        zones_across = "in a new asteroid zone"
+        same_zones = "the same zone"
+
+    def _reward_line(sess_i: int) -> str:
+        if total_reward_scope == 'across_sessions':
+            return "Your TOTAL REWARD carries over." if sess_i > 1 else "Your TOTAL REWARD starts at 0."
+        return "Your TOTAL REWARD for this expedition starts at 0."
+
     for games, end_stages in raw_sessions:
         sess_i = (games[0]["session_index"] if games else end_stages[0]["session_index"])
         dem_ids = session_to_ids[sess_i]
+        session_has_demos = any(s.get("game") == "watch" for s in games)
 
         # 9a) demonstrator_presentation prepended (if enabled AND session has demos).
         # All-play sessions skip this — there's nothing to present.
-        session_has_demos = any(s.get("game") == "watch" for s in games)
         if present_demonstrators_apriori and session_has_demos:
             demo1_data = _build_demo_data(0, dem_ids, demo_style_color, demo_names, name_demonstrators)
             demo2_data = _build_demo_data(1, dem_ids, demo_style_color, demo_names, name_demonstrators)
-            if total_reward_scope == 'across_sessions' and sess_i > 1:
-                presentation_message = (
-                    "You will now start a new session. Your TOTAL REWARD continues from your "
-                    "previous score. You will experience several watch and play games! You will "
-                    "observe two partners, shown below, during your watch games. Pay close "
-                    "attention to learn from them. You will also be asked to choose between "
-                    "them at the end of the session."
-                )
-            else:
-                presentation_message = (
-                    "You will now start a new session with a starting TOTAL REWARD of 0. "
-                    "You will experience several watch and play games! You will observe two partners, "
-                    "shown below, during your watch games. Pay close attention to learn from them. "
-                    "You will also be asked to choose between them at the end of the session."
-                )
+            n1 = demo1_data.get("demonstrator_name")
+            n2 = demo2_data.get("demonstrator_name")
+            partners = (
+                f"Two partner starships, {n1} and {n2}, are coming along."
+                if n1 and n2 else "Two partner starships are coming along."
+            )
             presentation_stage = {
                 "stage_type": "demonstrator_presentation",
                 "session_index": sess_i,
                 "session_total_rounds": num_rounds,
                 "demonstrator1": demo1_data,
                 "demonstrator2": demo2_data,
-                "message": presentation_message,
+                "title": f"EXPEDITION {sess_i} · {zones_title}, NEW PARTNERS",
+                "message": (
+                    f"You're heading {zones_into}. {partners} "
+                    f"You'll watch each of them shoot, then take your own shots in {same_zones}. "
+                    f"At the end of the expedition you'll choose one of them. {_reward_line(sess_i)}"
+                ),
             }
             games.insert(0, presentation_stage)
             print(f"DEBUG: Inserted demonstrator_presentation stage for session {sess_i}", file=sys.stderr)
 
-        # 9b) Round games — inject zone_meta, demo data, overlay text
+        # 9b) Round games — inject zone_meta, demo data, overlay copy
         seen_demonstrators = set()
         prev_zone = None
+        prev_game = None
         is_first_game = True
-        # Use the actual presentation insertion (not just the global flag) so all-play
-        # sessions in a config that otherwise opens with a presentation still get the
-        # "This is a new session!" overlay on their first stage.
         session_has_presentation = bool(games) and games[0].get("stage_type") == "demonstrator_presentation"
         for e in games:
             if "stage_type" in e:
+                prev_game = e["stage_type"]   # e.g. round_recap breaks the "just watched" chain
                 continue
             z = e["zone"]["zone_global_index"]
             e["zone"] = zone_meta[z]
+            new_zone = is_first_game or z != prev_zone
 
-            parts: List[str] = []
-            if is_first_game:
-                if not session_has_presentation:
-                    parts.append("This is a new session!")
-                parts.append("You are entering a new zone.")
-                is_first_game = False
-            else:
-                if z != prev_zone:
-                    parts.append("You are entering a new zone.")
-                else:
-                    parts.append("You will continue in the same zone.")
-
+            title = ""
+            body = ""
             if e["game"] == "watch":
                 dem_idx = e["demonstrator_index"]
                 did = dem_ids[dem_idx]
                 e["demonstrator"] = _build_demo_data(
                     dem_idx, dem_ids, demo_style_color, demo_names, name_demonstrators
                 )
-
+                name = e["demonstrator"].get("demonstrator_name")
+                label = name.upper() if name else "PARTNER"
+                who = name or "Your partner"
+                n = num_pulls_per_watch_game
                 if did in seen_demonstrators:
-                    parts.append(
-                        "You will watch the starship partner shown below play again. "
-                        "Pay close attention to your partner's choices and outcomes."
-                    )
+                    title = f"WATCH · {label} AGAIN"
+                    if new_zone:
+                        body = f"New zone. {who} takes {n} shots here. Watch which asteroids it chooses and what it gets."
+                    else:
+                        body = f"Same zone. {who} takes {n} more shots. Keep tracking its choices and outcomes."
                 else:
-                    parts.append(
-                        "In this game you will watch the starship partner shown below play the game. "
-                        "Pay close attention to your partner's choices and outcomes."
-                    )
+                    title = f"WATCH · {label}"
+                    if new_zone:
+                        body = f"New zone. {who} takes {n} shots. Watch which asteroids it chooses and what it gets."
+                    else:
+                        body = f"Same zone, different partner. {who} takes {n} shots. Watch which asteroids it chooses and what it gets."
                     seen_demonstrators.add(did)
 
                 if experience_message_text:
                     e["secondary-overlay-message"] = experience_message_text
 
             elif e["game"] == "play":
-                parts.append(
-                    "In this game you will mine for rewards. "
-                    "Try to get as much reward as possible. Every step counts! "
-                    "Keep an eye on your TOTAL REWARD to see how you're doing overall!"
-                )
-            # choice-like / feedback inside a round: no overlay logic — rare and the
+                n = num_pulls_per_play_game
+                if new_zone:
+                    title = "YOUR TURN · NEW ZONE"
+                    body = f"New zone, new asteroids. You have {n} shots. Every shot counts toward your TOTAL REWARD."
+                else:
+                    title = "YOUR TURN"
+                    lead = "Same zone as the partner you just watched." if prev_game == "watch" else "Same zone."
+                    body = f"{lead} You have {n} shots. Every shot counts toward your TOTAL REWARD."
+            # choice-like / feedback inside a round: no overlay copy — rare and the
             # experimenter is on their own. Stage still gets zone_meta from the dict swap above.
 
-            e["overlay-message"] = " ".join(parts)
-            prev_zone = z
+            if is_first_game and not session_has_presentation:
+                # No presentation slide (all-play session, or presentation disabled): announce
+                # the expedition on the first transition slide instead.
+                if session_has_demos:
+                    title = f"EXPEDITION {sess_i} · {zones_title}, NEW PARTNERS"
+                    lead = f"You're heading {zones_into} with two new partner starships. "
+                else:
+                    title = f"EXPEDITION {sess_i} · {zones_title}, FLYING SOLO"
+                    lead = f"No partners on this trip. You'll shoot on your own {zones_across}. "
+                body = lead + _reward_line(sess_i) + ("\n\n" + body if body else "")
 
-        # 9c) End stages (choice + feedback) — zone, demo data, overlay text
+            if title:
+                e["overlay-title"] = title
+            if body:
+                e["overlay-message"] = body
+            is_first_game = False
+            prev_zone = z
+            prev_game = e["game"]
+
+        # 9c) End stages (choice + feedback) — zone, demo data, overlay copy
         last_round_zone = None
         for e in reversed(games):
             if "stage_type" not in e and "zone" in e and isinstance(e["zone"], dict):
@@ -472,12 +501,13 @@ def generate_timeline(
 
             if stage.get("game") in CHOICE_LIKE_TOKENS:
                 if last_round_zone is not None and cz == last_round_zone:
-                    transfer_text = "in the same zone"
+                    where = "the same zone"
                 else:
-                    transfer_text = "in a new zone you've never been to before"
+                    where = "a brand-new zone"
+                stage["overlay-title"] = "END OF EXPEDITION · CHOOSE A PARTNER"
                 stage["overlay-message"] = (
-                    "You will now choose between one of the starships you watched during this session. "
-                    f"Choose the starship you would watch before playing again to achieve higher rewards {transfer_text}."
+                    f"You'll play again in {where}. "
+                    "Which starship would you rather watch first to help you earn more there?"
                 )
 
     # --- 10) Practice session ---
@@ -485,13 +515,15 @@ def generate_timeline(
     intro_message = (
         "[BOLD]PLEASE READ CAREFULLY:[/BOLD]\n\n"
         "Welcome to Fortune Frontier. In this game you will pilot the starship "
-        "\"Prospector One\" and mine ASTEROIDS for rewards. "
+        "\"Prospector One\" and mine ASTEROIDS by shooting them. "
         "Some asteroids yield more rewards than others.\n\n"
-        "GOAL: Mine as much reward as possible by finding the best asteroids and mining them.\n\n"
+        "GOAL: Mine as much reward as possible by finding the best asteroids and shooting them.\n\n"
+        "EXPEDITIONS: Your trip is split into expeditions. Each expedition takes you through "
+        "asteroid zones, usually alongside two partner starships.\n\n"
         "ZONES: You will enter multiple asteroid zones (indicated by a zone number). "
         "Sometimes you will repeat the same zone with the same asteroids and hence the same reward yields. "
         "Sometimes you will move on to new zones with different asteroids and different reward yields.\n\n"
-        "STARSHIP PARTNERS: You will also watch starship partners mine rewards. "
+        "STARSHIP PARTNERS: You will also watch starship partners shoot asteroids for rewards. "
         "Pay close attention to them so that you can improve your reward mining when its your turn.\n\n"
         "BONUS: You will receive a 10 cent bonus for each point you earn in mining rewards.\n\n"
         "[RED_BOLD]DO NOT RELOAD PAGE AT ANY TIME DURING GAME![/RED_BOLD]"
@@ -507,14 +539,14 @@ def generate_timeline(
                 "instruction1_image": "move_left.gif",
                 "instruction2": "move right with right arrow",
                 "instruction2_image": "move_right.gif",
-                "instruction3": "mine the asteroid with spacebar",
+                "instruction3": "shoot the asteroid with spacebar",
                 "instruction3_image": "mine.gif",
                 "instruction4": "green indicates successful mining\n(increases reward)",
                 "instruction4_image": "successful_mine.png",
                 "instruction5": "red indicates unsuccessful mining\n(no reward)",
                 "instruction5_image": "unsuccessful_mine.png",
                 "instruction6": (
-                    "You mine rewards from asteroids with the spacebar. "
+                    "You mine rewards from asteroids by shooting them. "
                     "Some asteroids yield reward more often than others. "
                     "Get optimal rewards by finding the asteroids that yield reward often!"
                 ),
@@ -528,7 +560,7 @@ def generate_timeline(
                 "instruction1_image": "move_left.gif",
                 "instruction2": "→ move right key",
                 "instruction2_image": "move_right.gif",
-                "instruction3": "mine with spacebar",
+                "instruction3": "shoot asteroids with spacebar",
                 "instruction3_image": "mine.gif",
                 "instruction4": "green\nindicates reward",
                 "instruction4_image": "successful_mine.png",
@@ -547,6 +579,8 @@ def generate_timeline(
             "session_index": 0,
             "session_total_rounds": 0,
             "zone": practice_zone,
+            "overlay-title": "PRACTICE",
+            "overlay-message": "Get a feel for the controls. This round doesn't count toward your reward.",
         },
     ]
 

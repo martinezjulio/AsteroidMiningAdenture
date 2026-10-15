@@ -59,6 +59,10 @@ Adding a new stage means: extend the `gameLog.js` enum, write a `setup<Type>(sta
 
 Colors/fonts for canvas text come from the `THEME` object in `main.js`, which mirrors the CSS variables in `index.html`; buttons go through `makeButton()`. Phaser's `font` shorthand splits on spaces, so font family names must be single tokens (`Inter`, `Orbitron`). The canvas is `1000×620` game units scaled with `Phaser.Scale.FIT`; anything positioned in the DOM over the canvas must convert via the canvas's bounding rect (see `displayInstructionLayout`).
 
+### Participant-facing naming
+
+A *session* is called an **expedition** in everything the participant reads (transition slides, reward captions, end screen); config, logs, timeline JSON and code keep `session`. Transition copy is generated in `models.py` (`overlay-title` + `overlay-message`), not in the client. The action verb is **shoot** (shots, not pulls); the meter is the **Reward Tank**.
+
 ### Demonstrator visual identity
 
 Style+color is assigned **at timeline generation time in Python**, not at runtime, so the same `demonstrator_global_index` always renders identically across sessions. Constraints: within a session both demonstrators must differ in *both* style and color; globally each `(style, color)` pair is used at most once. There are 6×6 = 36 combinations and at most 20 demonstrator IDs, so the greedy assignment in `models.py` (~line 280) always succeeds. Files live at `assets/demonstrators/styles/style{1-6}/{red,orange,blue,green,yellow,purple}.png`.

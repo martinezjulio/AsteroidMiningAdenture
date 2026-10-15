@@ -56,5 +56,6 @@
     "total_reward_scope": "across_sessions",
     "report_play_rewards_between_rounds": true,
     "verbose": false,
-    "prolific_completion_url": "https://app.prolific.com/submissions/complete?cc=CTVM94DF"
+    "prolific_completion_url": "https://app.prolific.com/submissions/complete?cc=CTVM94DF",
+    "reward_breakdown_display": "per_zone"
 }

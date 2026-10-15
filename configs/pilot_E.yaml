@@ -39,3 +39,6 @@ verbose: false
 
 # Where participants are sent after the final screen (Prolific completion URL).
 prolific_completion_url: https://app.prolific.com/submissions/complete?cc=CTVM94DF
+
+# Reward display: none | per_zone (segmented bar by zone, grouped by expedition).
+reward_breakdown_display: per_zone

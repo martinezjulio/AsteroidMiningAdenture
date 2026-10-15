@@ -146,6 +146,13 @@ Unknown tokens cause Python to raise `ValueError` at timeline-generation time.
 - **Read by**: Python (`models.py`), Browser.
 - **Effect**: when `true`, Python injects a `round_recap` meta stage between rounds inside a session (i.e. after every round except the last). The browser's `setupRoundRecap` reads the per-play-game rewards tracked at runtime and renders a message that lists each play game's reward in the order they happened — e.g. *"Good Job! You earned 4 rewards in your first play game and 6 rewards in your second play game. Can you beat that in the next round?"* The number of clauses scales with however many `play` tokens the round contained. Recap is skipped for any round that had zero play games.
 
+### `reward_breakdown_display`
+- **Type**: string — `'none'` or `'per_zone'`.
+- **Default**: `'none'`.
+- **Read by**: Node (`server.js`), Browser.
+- **Effect**: with `display_running_total_reward: true`, `'per_zone'` replaces the single `TOTAL REWARD: N` line with a segmented bar: one segment per zone (filled in that zone's border color, width ∝ reward), grouped by session with an "Expedition n · subtotal" caption, total on the left. The end-of-game screen draws the same bar. Under `total_reward_scope: per_session` only the current session's zones are expanded; earlier sessions collapse to their caption. **Design note**: this keeps per-zone reward information visible across sessions (the summary bar's per-game "+N" clears each session), so leave it `'none'` for conditions where that should not be shown.
+- Participant-facing copy calls a session an **expedition** (transition slides, reward captions, end screen); config/logs/timeline JSON keep `session`.
+
 ### `prolific_completion_url`
 - **Type**: string (URL) or omitted.
 - **Default**: none — the browser falls back to a hard-coded completion URL in `showEndOfGameMessage` (main.js).

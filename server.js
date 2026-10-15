@@ -91,6 +91,7 @@ app.get('/api/config', (req, res) => {
         report_play_rewards_between_rounds: config.report_play_rewards_between_rounds || false,
         bandit_assignment_mode: config.bandit_assignment_mode || 'session_fixed',
         prolific_completion_url: config.prolific_completion_url || null,
+        reward_breakdown_display: config.reward_breakdown_display || 'none',
         demonstrator_config,
         verbose: config.verbose || false
     });

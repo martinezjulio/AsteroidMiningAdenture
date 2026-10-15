@@ -61,7 +61,9 @@
        scrolling. main.js sets the frame's border-color to the active zone color. */
     #game-frame {
       box-sizing: content-box;
-      width: min(1000px, calc(100vw - 80px), calc((100vh - 330px) * 1000 / 620));
+      /* Floor of 680px: below that the asteroids get too small, so a very short
+         viewport scrolls the secondary rows instead of shrinking the canvas further. */
+      width: max(680px, min(1000px, calc(100vw - 80px), calc((100vh - 362px) * 1000 / 620)));
       border: var(--zone-border-w) solid var(--border-neutral);
       border-radius: var(--radius);
       background: #000;
@@ -140,7 +142,7 @@
     /* Running total reward, beneath the summary bar. Toggled with visibility so it
        keeps its space. */
     #total-reward-display {
-      min-height: 28px;
+      min-height: 60px;
       text-align: center;
       font-family: var(--font-display);
       font-weight: 700;
@@ -150,6 +152,47 @@
       text-shadow: 0 0 12px rgba(34, 197, 94, 0.45);
       visibility: hidden;
     }
+
+    /* Reward breakdown bar (reward_breakdown_display: per_zone) */
+    .reward-wrap {
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      gap: 18px;
+      flex-wrap: wrap;
+      padding-top: 4px;
+    }
+    .reward-total { padding-bottom: 2px; }
+    .reward-bar { display: flex; align-items: flex-end; gap: 14px; }
+    .reward-session { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+    .reward-session-cap {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      text-shadow: none;
+      white-space: nowrap;
+    }
+    .reward-session.current .reward-session-cap { color: var(--text); }
+    .reward-segs { display: flex; align-items: center; gap: 2px; height: 22px; }
+    .reward-seg {
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 700;
+      color: #0b0d12;
+      text-shadow: none;
+      overflow: hidden;
+      white-space: nowrap;
+      transition: width 0.25s ease;
+    }
+    .reward-seg.empty { border: 2px solid; }
 
     /* Controls hint row */
     #controls-display {
@@ -310,7 +353,7 @@
     </div>
     <div class="control-key">
       <div class="control-icon">Space</div>
-      <div>Mine asteroid<br><span style="opacity:.7">or click an asteroid</span></div>
+      <div>Shoot asteroid<br><span style="opacity:.7">or click an asteroid</span></div>
     </div>
   </div>
 
@@ -322,7 +365,7 @@
       <p id="prolific-form-message">Please enter your Prolific ID below:</p>
       <div id="prolific-id-row">
         <input type="text" id="prolific-id-input" placeholder="Prolific ID" autocomplete="off" spellcheck="false"/>
-        <button type="button" class="btn" id="prolific-submit-btn">Start</button>
+        <button type="button" class="btn" id="prolific-submit-btn" disabled>Loading…</button>
       </div>
       <p id="prolific-id-hint" hidden>We filled this in from your Prolific link. Check it and press Start.</p>
       <p class="form-error" id="prolific-form-error" hidden></p>
