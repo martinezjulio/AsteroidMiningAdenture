@@ -1,8 +1,8 @@
-# Spatial Bandits Game (Mining2D)
+# Fortune Frontier (Asteroid Mining Adventure)
 
 A spatial multi-armed bandit game with MongoDB logging, featuring asteroid mining, demonstrator learning, and choice-based gameplay.
 
-<img width="848" alt="Mining2D" src="https://github.com/user-attachments/assets/37a1bf48-4178-451c-a4bd-d93a9445038a" />
+<img width="848" alt="Fortune Frontier" src="https://github.com/user-attachments/assets/37a1bf48-4178-451c-a4bd-d93a9445038a" />
 
 ## Quick Start
 
@@ -14,7 +14,7 @@ A spatial multi-armed bandit game with MongoDB logging, featuring asteroid minin
 ```bash
 # Clone the repository
 git clone [your-repo-url]
-cd SpatialBanditsGame
+cd AsteroidMiningAdenture
 
 # Install dependencies
 npm install
@@ -112,9 +112,9 @@ Cloud Run picks up the new version on the next request because the deploy uses `
 
 ## Game Configuration
 
-Game behavior is driven by a YAML config in `configs/`. The YAML named by `.env`'s `ACTIVE_CONFIG` is compiled to `config.json` (the runtime artifact loaded by the server) via `npm run build-config`. **See [CONFIG.md](./CONFIG.md) for the field-by-field reference** — every accepted value, default, and read-site is documented there. The pilot baseline lives in `configs/pilot.yaml`.
+Game behavior is driven by a YAML config in `configs/`. The YAML named by `.env`'s `ACTIVE_CONFIG` is compiled to `config.json` (the runtime artifact loaded by the server) via `npm run build-config`. **See [CONFIG.md](./CONFIG.md) for the field-by-field reference** — every accepted value, default, and read-site is documented there. The current pilot lives in `configs/pilot_E.yaml`.
 
-The narrative sections below explain the higher-level meaning of two of the most consequential fields (`bandit_assignment_mode`, `textbox_feedback`) and the workflow for switching configs.
+The narrative sections below explain the higher-level meaning of two of the most consequential fields (`bandit_assignment_mode`, the `feedback` end stage) and the workflow for switching configs.
 
 ### Bandit Assignment Modes Explained
 
@@ -130,26 +130,20 @@ The narrative sections below explain the higher-level meaning of two of the most
 - Provides more variety within each session
 - Useful for studying adaptation to changing environments
 
-### End-Game Feedback System
+### End-of-session feedback
 
-#### Standard Mode (`textbox_feedback: false`)
-- **Default behavior**
-- Game ends with direct "Return to Prolific" button
-- Immediate redirect to Prolific completion page
+Add the `feedback` token to `session_end_stages` (the pilot uses `[choice, feedback]`) to show a free-text form after the choice:
 
-#### Feedback Mode (`textbox_feedback: true`)
-- Shows feedback form at game completion
-- Displays image of the partner the user chose in their final choice game
-- Asks: "Why did you choose the following partner?"
-- User must provide text response before proceeding to Prolific
-- Feedback responses are automatically saved to MongoDB
-- After submission, user is redirected to Prolific
+- Displays the partner the participant just chose and asks: "Why did you choose the following partner?"
+- The participant must answer before continuing; the answer is saved as a `game: "feedback"` row in MongoDB.
+- Sessions with no `watch-demo-*` token drop `feedback` automatically (nothing to ask about).
+- The final screen waits for every queued log row to reach the server, then shows the "Return to Prolific" button. The destination comes from `prolific_completion_url` in the YAML.
 
 ### Switching configs
 
 To run a different experimental condition:
 
-1. **Author a new YAML in `configs/`** (start by copying `configs/pilot.yaml`). Per-field semantics and accepted values are in [CONFIG.md](./CONFIG.md).
+1. **Author a new YAML in `configs/`** (start by copying `configs/pilot_E.yaml`). Per-field semantics and accepted values are in [CONFIG.md](./CONFIG.md).
 2. **Point `.env` at it**: edit `ACTIVE_CONFIG=<your-file>.yaml`.
 3. **Rebuild + restart locally**: `npm run build-config && npm start`. The pre-commit hook also rebuilds, so committed `config.json` always matches the active YAML.
 4. **Deploy**: `./deploy.sh` runs `npm run build-config` first (using the deploying machine's `.env`), then ships everything to Cloud Run. The deployed `config.json` always reflects the deployer's local `ACTIVE_CONFIG`.
@@ -172,10 +166,10 @@ The game generates **fresh, randomized timelines** for each user, ensuring no tw
 
 The system handles multiple simultaneous users safely and efficiently:
 
-- **Maximum 3 concurrent Python processes** (configurable)
+- **Maximum 4 concurrent Python processes** (`MAX_CONCURRENT_GENERATIONS` in `server.js`)
 - **Automatic queuing** for additional requests (FIFO)
 - **Unique request handling** with request IDs: `timeline_{timestamp}_{random}`
-- **Separate backup files** prevent conflicts: `configs/timeline_{requestId}.json`
+- **Separate backup files** prevent conflicts: `timelines/timeline_{requestId}.json`
 - **Automatic cleanup** of old backup files (hourly)
 - **Timeout protection**: 30-second maximum generation time
 
@@ -194,7 +188,7 @@ User Request → Queue Check → Process or Queue → Python Generation → Resp
 ### Python Execution
 
 - **Auto-detects** Python command (`python3`, `python`, or `py`)
-- **Fallback system**: If Python execution fails, falls back to static `timeline.json`
+- **Failure handling**: if generation fails, the client shows an error screen asking the participant to refresh (nothing is logged for that attempt)
 - **Generation time**: Typically 1-3 seconds per timeline
 - **No caching**: Fresh generation per user ensures uniqueness
 
@@ -216,7 +210,7 @@ User Request → Queue Check → Process or Queue → Python Generation → Resp
 
 ## Timeline.json Structure
 
-The `data/timeline.json` file defines the entire game experience. It's structured as an array of **sessions**, where each session contains **stages**.
+The generated timeline (one per participant; backups in `timelines/`) defines the entire game experience. It's structured as an array of **sessions**, where each session contains **stages**.
 
 ### Basic Structure
 ```json
@@ -626,6 +620,10 @@ The system logs the following variables for every user action:
 #### Tracking
 - `refresh_count`: Page refresh counter
 
+### Delivery guarantees
+
+The browser keeps an in-order log queue (`enqueueLog` / `flushLogQueue` in `main.js`). A failed `POST /api/log` (network error, 5xx, or the 503 the server returns while MongoDB is disconnected) is retried with exponential backoff rather than dropped; 4xx responses (schema rejections) are not retried. The end-of-game screen waits for the queue to drain (up to 20 s) before showing the Prolific button and tells the participant if anything could not be saved.
+
 ### Logged Actions
 
 - **Movement**: `left`, `right`, `up`, `down` - when user moves position
@@ -642,7 +640,7 @@ This allows for consistent analysis of choice and watch behaviors regardless of 
 
 ### Feedback Data Collection
 
-When `textbox_feedback: true` is enabled, feedback data is collected in the main `GameLog` collection:
+When `feedback` is in `session_end_stages`, feedback data is collected in the main `GameLog` collection:
 
 - **Collection**: Main `GameLog` collection (same as all other user actions)
 - **Action Type**: `action: "feedback"` and `game: "feedback"`
@@ -667,7 +665,7 @@ Generates and returns a fresh, randomized timeline for each user.
 - **Response**: JSON timeline data
 - **Behavior**: Automatically queued if server at capacity
 - **Generation Time**: Typically 1-3 seconds
-- **Concurrency**: Max 3 concurrent generations (configurable)
+- **Concurrency**: Max 4 concurrent generations (configurable)
 
 #### `GET /api/timeline-status`
 Returns real-time status of the timeline generation system.
@@ -848,7 +846,7 @@ curl http://localhost:8080/api/test-python
 
 In `server.js`:
 ```javascript
-const MAX_CONCURRENT_GENERATIONS = 3; // Adjust based on server capacity
+const MAX_CONCURRENT_GENERATIONS = 4; // Adjust based on server capacity
 const TIMEOUT = 30000; // 30 second timeout
 ```
 
@@ -863,15 +861,13 @@ num_watch_arm_pulls=6
 ### File Management
 
 #### Backup Files
-- Unique files: `configs/timeline_{requestId}.json`
-- Main file: `configs/timeline.json` (for backward compatibility)
+- Unique files: `timelines/timeline_{requestId}.json`
 - Automatic cleanup after 1 hour
 
 #### Cleanup Process
 - Runs on server startup
 - Runs every hour automatically
 - Only removes files older than 1 hour
-- Preserves main `timeline.json` file
 
 ## Development Notes
 
@@ -885,7 +881,7 @@ num_watch_arm_pulls=6
 **Note**: Meta stages (prolific_id_form, introduction, instructions) use `stage_type`, while gameplay stages (practice, play, watch, choice, online-choice) use `game` property.
 
 ### Timeline Generation
-Use the Python scripts in `timeline_models/` to generate timeline.json files programmatically rather than editing by hand.
+Use the Python scripts in `timeline_models/` to generate timelines programmatically rather than editing by hand.
 
 ### Debugging
 - Check browser console for game logs
@@ -901,7 +897,7 @@ Use the Python scripts in `timeline_models/` to generate timeline.json files pro
 
 **Solutions**:
 - Ensure MongoDB is running (`brew services start mongodb-community` on macOS)
-- Check credentials in `mongo_auth.json` for production
+- Check `MONGODB_URI` (`.env` locally, Secret Manager in production)
 - Verify connection string is correct
 - Check firewall settings if using remote MongoDB
 
@@ -982,7 +978,7 @@ Use the Python scripts in `timeline_models/` to generate timeline.json files pro
 **Symptoms**: Cannot write timeline files, permission denied errors
 
 **Solutions**:
-- Ensure `configs/` directory is writable
+- Ensure `timelines/` directory is writable
 - Check Node.js process permissions
 - Verify disk space availability
 - Check file ownership

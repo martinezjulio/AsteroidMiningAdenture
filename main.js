@@ -14,7 +14,9 @@
 let timelineData = null;        
 let currentSessionIndex = 0;      // Which session we're on
 let currentStageIndex = 0;        // Which stage within the session we're on      
-let prolificID = "";            
+let prolificID = "";
+let prolificStudyID = null;       // STUDY_ID from the Prolific URL, if present
+let prolificSessionID = null;     // SESSION_ID from the Prolific URL, if present
 
 // We'll store summary icons (one per "game" stage).
 let summaryIcons = [];
@@ -311,42 +313,116 @@ async function logToMongoDB(action, additionalData = {}) {
     choice_demonstrator_index: choiceDemonstratorIndex,
     refresh_count: refreshCount,
     experiment_id: experimentID,
+    prolific_study_id: prolificStudyID,
+    prolific_session_id: prolificSessionID,
     ...additionalData
   };
-  
+
+  return enqueueLog(logData);
+}
+
+/*****************************************
+ * Log queue
+ * Rows are sent one at a time, in order. A failed POST (network error, 5xx) is
+ * retried with exponential backoff instead of being dropped, so a brief Atlas or
+ * Cloud Run hiccup doesn't silently lose actions. The end-of-game screen waits for
+ * the queue to drain before offering the Prolific link.
+ ****************************************/
+const LOG_QUEUE = [];           // { data, resolve, reject, attempts }
+const LOG_MAX_ATTEMPTS = 8;     // ~1 min of retries before an item is given up on
+let logQueueBusy = false;
+let logDeadLetters = 0;         // rows that exhausted their retries (never expected)
+
+function enqueueLog(data) {
+  const p = new Promise((resolve, reject) => {
+    LOG_QUEUE.push({ data, resolve, reject, attempts: 0 });
+    flushLogQueue();
+  });
+  // Most callers fire-and-forget; mark the rejection handled so a given-up row
+  // doesn't surface as an unhandled rejection. Callers that await still see it.
+  p.catch(() => {});
+  return p;
+}
+
+async function flushLogQueue() {
+  if (logQueueBusy) return;
+  logQueueBusy = true;
   try {
-    const response = await fetch('api/log', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(logData)
-    });
-    
-    if (!response.ok) {
-      console.error('Failed to log to MongoDB:', response.statusText);
+    while (LOG_QUEUE.length > 0) {
+      const item = LOG_QUEUE[0];
+      let ok = false;
+      let detail = '';
+      try {
+        const response = await fetch('api/log', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(item.data),
+          keepalive: true
+        });
+        ok = response.ok;
+        detail = `${response.status} ${response.statusText}`;
+        // 4xx means the row itself is rejected (schema/validation) — retrying won't help.
+        if (!ok && response.status >= 400 && response.status < 500) item.attempts = LOG_MAX_ATTEMPTS;
+      } catch (error) {
+        detail = String(error);
+      }
+
+      if (ok) {
+        LOG_QUEUE.shift();
+        item.resolve(true);
+        continue;
+      }
+
+      item.attempts++;
+      if (item.attempts >= LOG_MAX_ATTEMPTS) {
+        console.error('Giving up on log row after repeated failures:', detail, item.data.action);
+        LOG_QUEUE.shift();
+        logDeadLetters++;
+        item.reject(new Error(`log failed: ${detail}`));
+        continue;
+      }
+      const delay = Math.min(500 * 2 ** (item.attempts - 1), 8000);
+      console.warn(`Log POST failed (${detail}); retrying in ${delay}ms`);
+      await new Promise(r => setTimeout(r, delay));
     }
-  } catch (error) {
-    console.error('Error logging to MongoDB:', error);
+  } finally {
+    logQueueBusy = false;
   }
 }
 
-// Function to log page refresh
-async function logPageRefresh() {
+// Resolves when every queued row has been sent (or given up on), or after timeoutMs.
+function drainLogQueue(timeoutMs = 20000) {
+  const start = Date.now();
+  return new Promise(resolve => {
+    const check = () => {
+      if (LOG_QUEUE.length === 0 && !logQueueBusy) return resolve(true);
+      if (Date.now() - start > timeoutMs) return resolve(false);
+      setTimeout(check, 200);
+    };
+    check();
+  });
+}
+
+// Function to log page refresh. Uses sendBeacon so the request survives unload.
+function logPageRefresh() {
   refreshCount++;
   localStorage.setItem('refreshCount', refreshCount.toString());
+  const payload = JSON.stringify({
+    prolific_id: prolificID,
+    uid: userUID,
+    session_id: sessionID
+  });
   try {
-    const response = await fetch('api/log-refresh', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        prolific_id: prolificID,
-        uid: userUID,
-        session_id: sessionID
-      })
-    });
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon('api/log-refresh', new Blob([payload], { type: 'application/json' }));
+    } else {
+      fetch('api/log-refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+        keepalive: true
+      });
+    }
   } catch (error) {
     console.error('Error logging page refresh:', error);
   }
@@ -460,6 +536,32 @@ const TANK_MARGIN_TOP = 150;       // Space between grid bottom and tank (increa
 const CELL_PADDING = 10;           // Spacing between cells (in pixels)
 const BASE_CELL_SIZE = (400 / 12) * 1.85; // ~85% larger than before
 const WATCH_START_DELAY = 500;     // Delay before starting watch demonstrations (ms)
+
+// Outcome tally pips drawn above each asteroid (one per pull on that cell).
+const PIP_RADIUS = 4;
+const PIP_SPACING = 10;
+let outcomePips = {};              // "row,col" -> number of pips drawn so far (reset per stage)
+
+// Visual theme shared by the Phaser scene; mirrors the CSS variables in index.html.
+// NOTE: Phaser's `font` shorthand splits on spaces, so font family names must be
+// single tokens (hence Inter / Orbitron, no fallback list).
+const THEME = {
+  fontBody: 'Inter',
+  fontDisplay: 'Orbitron',
+  text: '#f3f4f6',
+  textMuted: '#9aa3b2',
+  panel: 0x161a23,
+  panelHex: '#161a23',
+  accent: 0x3b82f6,
+  accentHover: 0x2563eb,
+  disabled: 0x4b5563,
+  success: 0x22c55e,
+  successHex: '#22c55e',
+  fail: 0xef4444,
+  slotEmpty: 0x2a3140,
+  overlay: 0x05070c,
+  neutralBorderHex: '#262c38'
+};
 
 // Function to test if an image exists (with error suppression)
 async function imageExists(imagePath) {
@@ -1032,6 +1134,12 @@ const config = {
   height: 620,
   parent: 'game-container',
   backgroundColor: '#000000',
+  // Keep 1000×620 game coordinates; scale the canvas to fit #game-container so the
+  // page fits smaller laptop screens without scrolling.
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH
+  },
   scene: {
     preload: preload,
     create: create,
@@ -1048,13 +1156,27 @@ function preload() {
   // We'll load specific demonstrator and asteroid images as needed in each stage
 }
 
-function create() {
-  // Fetch experiment config first, then initialize image mappings and load timeline
-  fetchExperimentConfig().then(() => {
-    initializeImageMappings().then(() => {
-      // Generate and load a fresh timeline from the server
+// Wait for the web fonts so Phaser doesn't bake a fallback font into canvas text.
+// Resolves regardless of outcome (fallback fonts are acceptable).
+function waitForFonts() {
+  if (!document.fonts || !document.fonts.load) return Promise.resolve();
+  return Promise.all([
+    document.fonts.load(`700 20px ${THEME.fontDisplay}`),
+    document.fonts.load(`400 16px ${THEME.fontBody}`),
+    document.fonts.load(`700 16px ${THEME.fontBody}`)
+  ]).catch(() => {});
+}
 
-      fetch('api/timeline')
+function create() {
+  // Space and arrow keys are also browser scroll keys; keep them from scrolling the page.
+  const KC = Phaser.Input.Keyboard.KeyCodes;
+  this.input.keyboard.addCapture([KC.SPACE, KC.LEFT, KC.RIGHT, KC.UP, KC.DOWN]);
+
+  // Fonts → experiment config → image mappings → fresh timeline → first stage
+  waitForFonts()
+    .then(() => fetchExperimentConfig())
+    .then(() => initializeImageMappings())
+    .then(() => fetch('api/timeline'))
     .then(r => {
       if (!r.ok) {
         throw new Error(`Timeline generation failed: ${r.status} ${r.statusText}`);
@@ -1062,24 +1184,18 @@ function create() {
       return r.json();
     })
     .then(jsonData => {
-
       timelineData = jsonData;
       loadStage.call(this);
     })
     .catch(err => {
       console.error("Error generating/loading timeline:", err);
-      // Fallback to static file if dynamic generation fails
-      
-      fetch(experimentConfigPath)
-    .then(r => r.json())
-    .then(jsonData => {
-      timelineData = jsonData;
-      loadStage.call(this);
-    })
-        .catch(fallbackErr => console.error("Fallback timeline loading also failed:", fallbackErr));
+      this.add.text(
+        this.sys.game.config.width / 2,
+        this.sys.game.config.height / 2,
+        "Sorry, the game could not be loaded.\nPlease refresh the page, and contact the researcher if this keeps happening.",
+        { font: `18px ${THEME.fontBody}`, fill: THEME.text, align: 'center', wordWrap: { width: 700 } }
+      ).setOrigin(0.5);
     });
-    });
-  });
 }
 
 function update(time, delta) {
@@ -1178,6 +1294,7 @@ function loadStage() {
   }
 
   this.children.removeAll();
+  outcomePips = {};
   document.getElementById('prolific-form-overlay').style.visibility = 'hidden';
 
   const stage = currentStageContainer[effectiveStageIndex];
@@ -1233,16 +1350,10 @@ function loadStage() {
   // Possibly add an icon for summary
   maybeAddSummaryIcon(stage);
 
-  // If stage has a zone, apply its color to the game container border
-  if (stage.zone) {
-    // Generate zone color based on zone_global_index
-    const zoneColor = generateZoneColor(stage.zone.zone_global_index);
-    const gameContainer = document.getElementById('game-container');
-    if (gameContainer) {
-      gameContainer.style.border = `20px solid ${zoneColor}`;
-
-    }
-  }
+  // Zone stages get the zone color on the game container border; stages without a
+  // zone (forms, intro, partner presentation) get a neutral border so the previous
+  // zone's color doesn't linger.
+  setGameBorderColor(stage.zone ? generateZoneColor(stage.zone.zone_global_index) : THEME.neutralBorderHex);
 
   // Rebuild the DOM-based summary bar
   redrawSummaryBarDOM();
@@ -1426,11 +1537,18 @@ function capturePreviousPlayReward() {
   }
 }
 
+function setGameBorderColor(color) {
+  const frame = document.getElementById('game-frame');
+  if (frame) frame.style.borderColor = color;
+}
+
 function updateTotalRewardDisplay() {
   const el = document.getElementById('total-reward-display');
   if (!el) return;
+  // Toggle visibility (not display) so the row keeps its height and the canvas
+  // doesn't jump between stages.
   if (!displayRunningTotalReward || !totalRewardShownThisSession) {
-    el.style.display = 'none';
+    el.style.visibility = 'hidden';
     return;
   }
   // Live in-game display is single-line in both modes:
@@ -1438,8 +1556,8 @@ function updateTotalRewardDisplay() {
   //   across_sessions → the running sum across every session
   // (End-of-game screen still renders the per-session breakdown in per_session mode.)
   const value = getUserTotalReward();
-  el.innerHTML = `TOTAL REWARD: ${value}`;
-  el.style.display = 'block';
+  el.textContent = `TOTAL REWARD: ${value}`;
+  el.style.visibility = 'visible';
 }
 
 /**
@@ -1474,26 +1592,20 @@ function redrawSummaryBarDOM() {
     renderable.push(ic);
   }
 
+  // Styling lives in index.html (.sb-* classes); only the zone color is inline.
   groups.forEach((group, gIdx) => {
     if (gIdx > 0) {
       const sep = document.createElement("div");
-      sep.style.borderLeft = "2px dashed rgba(255, 255, 255, 0.4)";
-      sep.style.alignSelf = "stretch";
-      sep.style.margin = "0 4px";
+      sep.className = "sb-sep";
       bar.appendChild(sep);
     }
 
     const groupDiv = document.createElement("div");
-    groupDiv.style.display = "flex";
-    groupDiv.style.flexDirection = "column";
-    groupDiv.style.alignItems = "stretch";
+    groupDiv.className = "sb-group";
 
     // Row of icon cells (uniform height, no per-cell zone label).
     const cellsRow = document.createElement("div");
-    cellsRow.style.display = "flex";
-    cellsRow.style.flexDirection = "row";
-    cellsRow.style.justifyContent = "center";
-    cellsRow.style.gap = "6px";
+    cellsRow.className = "sb-cells";
     group.icons.forEach(({ ic, isLast }) => {
       cellsRow.appendChild(buildSummaryCell(ic, isLast));
     });
@@ -1501,26 +1613,18 @@ function redrawSummaryBarDOM() {
 
     // Underline that visually ties the cells in the group together.
     const underline = document.createElement("div");
-    underline.style.borderTop = "2px solid rgba(255, 255, 255, 0.65)";
-    underline.style.marginTop = "4px";
+    underline.className = "sb-underline";
     groupDiv.appendChild(underline);
 
     // Single label below the underline.
     const groupLabel = document.createElement("div");
-    let labelText;
+    groupLabel.className = "sb-label";
     if (group.isChoice) {
       const letterIcon = group.icons.find(o => o.ic.choiceLetter);
-      labelText = letterIcon ? `Choice ${letterIcon.ic.choiceLetter}` : 'Choice';
+      groupLabel.textContent = letterIcon ? `Choice ${letterIcon.ic.choiceLetter}` : 'Choice';
     } else {
-      const firstIc = group.icons[0].ic;
-      labelText = `Zone ${firstIc.zone}`;
+      groupLabel.textContent = `Zone ${group.icons[0].ic.zone}`;
     }
-    groupLabel.textContent = labelText;
-    groupLabel.style.color = "#fff";
-    groupLabel.style.textAlign = "center";
-    groupLabel.style.fontSize = "12px";
-    groupLabel.style.fontWeight = "bold";
-    groupLabel.style.marginTop = "3px";
     groupDiv.appendChild(groupLabel);
 
     bar.appendChild(groupDiv);
@@ -1532,18 +1636,8 @@ function redrawSummaryBarDOM() {
 // for non-play or pre-completion play cells) so heights stay uniform.
 function buildSummaryCell(iconData, isLast) {
   const cellDiv = document.createElement("div");
-  cellDiv.style.display = "flex";
-  cellDiv.style.flexDirection = "column";
-  cellDiv.style.alignItems = "center";
-  cellDiv.style.justifyContent = "flex-start";
-  cellDiv.style.boxSizing = "border-box";
-  cellDiv.style.padding = "6px";
-  cellDiv.style.width = "80px";
-  cellDiv.style.height = "88px";
-  cellDiv.style.opacity = isLast ? "1" : "0.5";
-
-  const borderColor = iconData.zone_color || iconData.color || "#ffffff";
-  cellDiv.style.border = `3px solid ${borderColor}`;
+  cellDiv.className = isLast ? "sb-cell current" : "sb-cell";
+  cellDiv.style.borderColor = iconData.zone_color || iconData.color || "#ffffff";
 
   const img = document.createElement("img");
   if (iconData.imageKey.startsWith('demonstrator_') || iconData.imageKey.startsWith('styles/')) {
@@ -1553,36 +1647,21 @@ function buildSummaryCell(iconData, isLast) {
   } else {
     img.src = `assets/${iconData.imageKey}.png`;
   }
-  img.style.width = "36px";
-  img.style.maxHeight = "36px";
-  img.style.objectFit = "contain";
-  img.style.display = "block";
-  img.style.margin = "0 auto";
+  img.alt = iconData.name || iconData.gameType;
   cellDiv.appendChild(img);
 
   if (iconData.name) {
     const nameLabel = document.createElement("div");
+    nameLabel.className = "sb-name";
     nameLabel.textContent = iconData.name;
-    nameLabel.style.color = "#fff";
-    nameLabel.style.fontSize = "10px";
-    nameLabel.style.fontWeight = "bold";
-    nameLabel.style.marginTop = "2px";
-    nameLabel.style.textAlign = "center";
-    nameLabel.style.lineHeight = "1.1";
-    nameLabel.style.wordBreak = "break-word";
     cellDiv.appendChild(nameLabel);
   }
 
   // Reward slot — always rendered for height uniformity; pinned to the bottom.
   const rewardLabel = document.createElement("div");
-  rewardLabel.style.fontSize = "13px";
-  rewardLabel.style.fontWeight = "bold";
-  rewardLabel.style.marginTop = "auto";
-  rewardLabel.style.minHeight = "16px";
+  rewardLabel.className = "sb-reward";
   if (iconData.gameType === 'play' && typeof iconData.reward_earned === 'number') {
     rewardLabel.textContent = `+${iconData.reward_earned}`;
-    rewardLabel.style.color = "#00ff00";
-    rewardLabel.style.textShadow = "1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000";
   } else {
     rewardLabel.innerHTML = "&nbsp;";
   }
@@ -1602,21 +1681,42 @@ function setupProlificIdForm(stage) {
   const msgEl = document.getElementById('prolific-form-message');
   msgEl.innerText = stage.message || "Please enter your Prolific ID:";
 
+  const inputEl = document.getElementById('prolific-id-input');
+  const errorEl = document.getElementById('prolific-form-error');
+  const hintEl = document.getElementById('prolific-id-hint');
+
+  // Prolific appends ?PROLIFIC_PID=…&STUDY_ID=…&SESSION_ID=… to the study URL.
+  // Prefill (participants can still edit) and remember the study/session ids for logging.
+  const params = new URLSearchParams(window.location.search);
+  const pidFromUrl = (params.get('PROLIFIC_PID') || '').trim();
+  prolificStudyID = params.get('STUDY_ID') || null;
+  prolificSessionID = params.get('SESSION_ID') || null;
+  if (pidFromUrl && !inputEl.value) {
+    inputEl.value = pidFromUrl;
+    hintEl.hidden = false;
+  }
+
+  const showError = (text) => { errorEl.textContent = text; errorEl.hidden = !text; };
+  showError('');
+  inputEl.oninput = () => showError('');
+  inputEl.onkeydown = (e) => { if (e.key === 'Enter') submitBtn.click(); };
+  setTimeout(() => inputEl.focus(), 0);
+
   const submitBtn = document.getElementById('prolific-submit-btn');
   submitBtn.onclick = () => {
-    const inputEl = document.getElementById('prolific-id-input');
     prolificID = inputEl.value.trim();
     if (!prolificID) {
-      alert("Please enter a valid Prolific ID.");
+      showError("Please enter your Prolific ID to continue.");
+      inputEl.focus();
       return;
     }
-    
+
     // Clear console to remove any harmless 404 errors from initial asset loading
     console.clear();
-    
+
     // Request fullscreen mode before proceeding to the game
     requestFullscreen();
-    
+
     nextStage.call(this);
   };
 }
@@ -1654,35 +1754,24 @@ function setupFeedback(stage) {
     console.warn('Could not determine chosen demonstrator for feedback display');
   }
   
-  // Set or create the partner name display
-  let partnerNameDiv = document.getElementById('feedback-partner-name');
-  if (!partnerNameDiv) {
-    // Create the name element if it doesn't exist
-    partnerNameDiv = document.createElement('div');
-    partnerNameDiv.id = 'feedback-partner-name';
-    partnerNameDiv.style.textAlign = 'center';
-    partnerNameDiv.style.fontWeight = 'bold';
-    partnerNameDiv.style.fontSize = '14px';
-    partnerNameDiv.style.color = '#fff';
-    partnerNameDiv.style.marginTop = '10px';
-    
-    // Insert it after the image in the partner display div
-    const partnerDisplay = document.getElementById('feedback-partner-display');
-    partnerDisplay.appendChild(partnerNameDiv);
-  }
-  
-  // Update the name text using the global variable
+  // Partner name under the image (element lives in index.html)
+  const partnerNameDiv = document.getElementById('feedback-partner-name');
   if (choiceDemonstratorData && choiceDemonstratorData.demonstrator_name) {
     partnerNameDiv.textContent = choiceDemonstratorData.demonstrator_name;
     partnerNameDiv.style.display = 'block';
   } else {
     partnerNameDiv.style.display = 'none';
   }
-  
-  // Clear previous text
+
+  // Clear previous text and errors
   const textInput = document.getElementById('feedback-text-input');
   textInput.value = '';
-  
+  const errorEl = document.getElementById('feedback-form-error');
+  const showError = (text) => { errorEl.textContent = text; errorEl.hidden = !text; };
+  showError('');
+  textInput.oninput = () => showError('');
+  setTimeout(() => textInput.focus(), 0);
+
   // Reset submit button state
   const submitBtn = document.getElementById('feedback-submit-btn');
   submitBtn.disabled = false;
@@ -1690,28 +1779,30 @@ function setupFeedback(stage) {
   submitBtn.onclick = async () => {
     const feedbackText = textInput.value.trim();
     if (!feedbackText) {
-      alert("Please enter your feedback before submitting.");
+      showError("Please write a short answer before submitting.");
+      textInput.focus();
       return;
     }
-    
+
     // Disable button to prevent double submission
     submitBtn.disabled = true;
     submitBtn.innerText = 'Submitting...';
-    
+
     try {
-      // Log feedback to main gamelogs collection only
+      // Log feedback to main gamelogs collection only. Resolves once the row is
+      // actually accepted by the server (the log queue retries transient errors).
       await logToMongoDB('feedback', {
         feedback_text: feedbackText
       });
-      
+
       verboseLog('Feedback submitted successfully');
-      
+
       // Hide the feedback overlay
       document.getElementById('feedback-form-overlay').style.visibility = 'hidden';
-      
+
       // Check if this is the last session
       const isLastSession = currentSessionIndex >= timelineData.length - 1;
-      
+
       if (isLastSession) {
         // Show end of game message with Prolific redirect
         showEndOfGameMessage.call(this);
@@ -1719,11 +1810,11 @@ function setupFeedback(stage) {
         // Continue to next stage/session
         nextStage.call(this);
       }
-      
+
     } catch (error) {
       console.error('Error submitting feedback:', error);
-      alert('Error submitting feedback. Please try again.');
-      
+      showError('We could not save your answer. Please check your connection and try again.');
+
       // Re-enable button
       submitBtn.disabled = false;
       submitBtn.innerText = 'Submit';
@@ -1757,7 +1848,7 @@ function setupIntroduction(stage) {
         text: messageParts[0].trim(),
         type: 'welcome',
         y: 40,  // Top of screen
-        font: '22px Courier New',
+        font: `22px ${THEME.fontBody}`,
         color: '#ffffff'
       });
     }
@@ -1773,7 +1864,7 @@ function setupIntroduction(stage) {
           text: boldText,
           type: 'bold',
           y: 100,  // Below welcome with good spacing
-          font: 'bold 40px Courier New',
+          font: `bold 30px ${THEME.fontDisplay}`,
           color: '#ffffff'
         });
         
@@ -1788,7 +1879,7 @@ function setupIntroduction(stage) {
           text: redBoldText,
           type: 'redBold',
           y: this.sys.game.config.height - 80,  // Moved up from bottom
-          font: 'bold 18px Courier New',
+          font: `bold 18px ${THEME.fontBody}`,
           color: '#ff0000',
           background: true
         });
@@ -1803,40 +1894,40 @@ function setupIntroduction(stage) {
           text: afterBold,
           type: 'main',
           y: 320,  // Moved down further from bold section
-          font: '20px Courier New',
+          font: `20px ${THEME.fontBody}`,
           color: '#ffffff'
         });
       }
     }
     
-    // Display all sections
+    // Flow the sections top-down (welcome → title → body → warning) so the body
+    // can be any length without colliding with the title or the warning.
+    const order = { welcome: 0, bold: 1, main: 2, redBold: 3 };
+    sections.sort((a, b) => order[a.type] - order[b.type]);
+    const W = this.sys.game.config.width;
+    let cursorY = 36;
     sections.forEach(section => {
       const textStyle = {
-        font: section.font,
+        font: section.type === 'main' ? `16px ${THEME.fontBody}` : section.font,
         fill: section.color,
         align: 'center',
-        wordWrap: { width: section.type === 'main' ? 750 : 700 },
-        lineSpacing: 1,  // Just a tiny bit of extra line spacing
+        wordWrap: { width: section.type === 'main' ? 820 : 760 },
+        lineSpacing: section.type === 'main' ? 4 : 1,
         resolution: window.devicePixelRatio || 2
       };
 
       if (section.background) {
-        textStyle.backgroundColor = '#000000';
-        textStyle.padding = { x: 10, y: 5 };
+        textStyle.backgroundColor = 'rgba(239, 68, 68, 0.15)';
+        textStyle.padding = { x: 12, y: 6 };
       }
 
-      // Special handling for main content - just slightly more line spacing
+      // Main content: left-aligned paragraph
       if (section.type === 'main') {
-        textStyle.lineSpacing = 2; // Very small increase for main content
         textStyle.align = 'left';
       }
 
-    this.add.text(
-      this.sys.game.config.width/2,
-        section.y,
-        section.text,
-        textStyle
-    ).setOrigin(0.5);
+      const t = this.add.text(W / 2, cursorY, section.text, textStyle).setOrigin(0.5, 0);
+      cursorY += t.height + (section.type === 'bold' ? 14 : 18);
     });
 
   } else {
@@ -1845,7 +1936,7 @@ function setupIntroduction(stage) {
     this.sys.game.config.width/2,
     this.sys.game.config.height/2,
       message,
-      { font: '20px Courier New', fill: '#ffffff', align: 'center', wordWrap: { width: 600 }, resolution: window.devicePixelRatio || 2 }
+      { font: `20px ${THEME.fontBody}`, fill: '#ffffff', align: 'center', wordWrap: { width: 600 }, resolution: window.devicePixelRatio || 2 }
   ).setOrigin(0.5);
   }
 
@@ -1870,7 +1961,7 @@ function setupInstructions(stage) {
     this.sys.game.config.width / 2,
     50,
     stage.message || "Game Instructions",
-    { font: 'bold 28px Courier New', fill: '#ffffff', align: 'center', resolution: window.devicePixelRatio || 2 }
+    { font: `bold 26px ${THEME.fontDisplay}`, fill: '#ffffff', align: 'center', resolution: window.devicePixelRatio || 2 }
   ).setOrigin(0.5);
 
   // Store reference for loading images
@@ -1909,20 +2000,36 @@ function displayInstructionLayout(instructions, gifImages) {
   const gameWidth = this.sys.game.config.width;
   const gameHeight = this.sys.game.config.height;
   
-  // Get the game canvas position for proper HTML element positioning
+  // Animated GIFs can't be Phaser textures, so they're <img> elements placed over the
+  // canvas. The canvas is scaled (Scale.FIT), so convert game coordinates → CSS pixels
+  // and position relative to #game-container (the canvas's offset parent).
   const canvas = this.sys.game.canvas;
   const rect = canvas.getBoundingClientRect();
-  
+  const cssScaleX = rect.width / gameWidth;
+  const cssScaleY = rect.height / gameHeight;
+  const gifHost = document.getElementById('game-container');
+  const placeGif = (imageName, centerX, topY) => {
+    const imgElement = document.createElement('img');
+    imgElement.src = `assets/introduction/${imageName}`;
+    imgElement.style.position = 'absolute';
+    imgElement.style.left = `${canvas.offsetLeft + (centerX - maxImageSize / 2) * cssScaleX}px`;
+    imgElement.style.top = `${canvas.offsetTop + topY * cssScaleY}px`;
+    imgElement.style.width = `${maxImageSize * cssScaleX}px`;
+    imgElement.style.height = `${maxImageSize * cssScaleY}px`;
+    imgElement.style.objectFit = 'contain';
+    imgElement.style.zIndex = '1000';
+    imgElement.style.pointerEvents = 'none';
+    imgElement.className = 'instruction-gif';
+    gifHost.appendChild(imgElement);
+  };
+
   // Layout configuration
-  const maxImageSize = 193;
-  const columnSpacing = 20; // Spacing between columns
-  const imageTextGap = 10; // Small gap between image and its text
-  const textHeight = 30; // Estimated text height
-  const sectionGap = 30; // Gap between sections
-  
+  const maxImageSize = 180;
+  const columnSpacing = 28; // Spacing between columns
+
   // Simple positioning - images at fixed Y positions, text positioned relative to images
-  const row1ImagesY = 115;     // First row images top edge (moved up from 130)
-  const row3ImagesY = 310;     // Second row images top edge (moved up from 325)
+  const row1ImagesY = 85;      // First row images top edge
+  const row3ImagesY = 325;     // Second row images top edge
   
   // First section: 3 instructions in 3 columns (move left, move right, mine)
   const topSectionWidth = 3 * maxImageSize + 2 * columnSpacing;
@@ -1936,26 +2043,7 @@ function displayInstructionLayout(instructions, gifImages) {
     
     // Add image (Row 1)
     if (imageName && imageName.endsWith('.gif')) {
-      // Create HTML img element for GIF
-      const imgElement = document.createElement('img');
-      imgElement.src = `assets/introduction/${imageName}`;
-      imgElement.style.position = 'absolute';
-      imgElement.style.maxWidth = `${maxImageSize}px`;
-      imgElement.style.maxHeight = `${maxImageSize}px`;
-      
-      // Try centering the GIF like we do with PNGs
-      const gifCenterY = row1ImagesY + maxImageSize/2;
-      
-      imgElement.style.left = `${rect.left + x - maxImageSize/2}px`;
-      imgElement.style.top = `${rect.top + gifCenterY - maxImageSize/2}px`; // Center the GIF properly
-      imgElement.style.zIndex = '1000';
-      imgElement.style.pointerEvents = 'none';
-      imgElement.className = 'instruction-gif';
-      
-      // Debug logging
-
-      
-      document.body.appendChild(imgElement);
+      placeGif(imageName, x, row1ImagesY);
     } else if (this.textures.exists(imageKey)) {
       // Add Phaser image for PNG
       const pngCenterY = row1ImagesY + maxImageSize/2;
@@ -1971,8 +2059,8 @@ function displayInstructionLayout(instructions, gifImages) {
       
     }
     
-    // Add text (Row 2) - position text right at image bottom edge  
-    const textY = row1ImagesY + maxImageSize - 20; // Position text to overlap more with images
+    // Add text (Row 2) - just below the image
+    const textY = row1ImagesY + maxImageSize + 14;
     
     
     
@@ -1981,7 +2069,7 @@ function displayInstructionLayout(instructions, gifImages) {
       textY, // Position text much closer to images
       instructionText,
       {
-        font: '16px Courier New',
+        font: `16px ${THEME.fontBody}`,
         fill: '#ffffff',
         align: 'center',
         wordWrap: { width: maxImageSize + 20 },
@@ -2003,19 +2091,7 @@ function displayInstructionLayout(instructions, gifImages) {
     
     // Add image (Row 3)
     if (imageName && imageName.endsWith('.gif')) {
-      // Create HTML img element for GIF
-      const imgElement = document.createElement('img');
-      imgElement.src = `assets/introduction/${imageName}`;
-      imgElement.style.position = 'absolute';
-      imgElement.style.maxWidth = `${maxImageSize}px`;
-      imgElement.style.maxHeight = `${maxImageSize}px`;
-      imgElement.style.left = `${rect.left + x - maxImageSize/2}px`;
-      imgElement.style.top = `${rect.top + row3ImagesY}px`; // Position GIF top edge
-      imgElement.style.zIndex = '1000';
-      imgElement.style.pointerEvents = 'none';
-      imgElement.className = 'instruction-gif';
-      
-      document.body.appendChild(imgElement);
+      placeGif(imageName, x, row3ImagesY);
     } else if (this.textures.exists(imageKey)) {
       // Add Phaser image for PNG
       const image = this.add.image(x, row3ImagesY + maxImageSize/2, imageKey); // Position PNG center
@@ -2027,8 +2103,8 @@ function displayInstructionLayout(instructions, gifImages) {
       image.setOrigin(0.5);
     }
     
-    // Add text (Row 4) - position text close to images  
-    const textY2 = row3ImagesY + maxImageSize + 25; // Position text 25px below image bottom edge (increased from 15px)
+    // Add text (Row 4) - just below the image
+    const textY2 = row3ImagesY + maxImageSize + 18;
     
     
     this.add.text(
@@ -2036,7 +2112,7 @@ function displayInstructionLayout(instructions, gifImages) {
       textY2, // Position text below images with small gap
       instructionText,
       {
-        font: '16px Courier New',
+        font: `16px ${THEME.fontBody}`,
         fill: '#ffffff',
         align: 'center',
         wordWrap: { width: maxImageSize + 40 },
@@ -2048,7 +2124,7 @@ function displayInstructionLayout(instructions, gifImages) {
   
   // Final instruction text (Row 5) - position it below the second section
   if (instructions.instruction6) {
-    const finalTextY = row3ImagesY + maxImageSize + 15 + 30 + 60; // Position below second section text with even more spacing (increased from +45 to +60)
+    const finalTextY = row3ImagesY + maxImageSize + 70;
   
     
     this.add.text(
@@ -2056,7 +2132,7 @@ function displayInstructionLayout(instructions, gifImages) {
       finalTextY, // Position below second section text with spacing
       instructions.instruction6,
       { 
-        font: '18px Courier New', 
+        font: `18px ${THEME.fontBody}`, 
         fill: '#ffffff', 
         align: 'center',
         wordWrap: { width: 800 },
@@ -2156,7 +2232,7 @@ function setupPlayOrPractice(stage, isPractice) {
     initY + DEMO_SPRITE_SIZE / 2 + 15,
     'Prospector One',
     { 
-      font: 'bold 14px Arial', 
+      font: `bold 14px ${THEME.fontBody}`, 
       fill: '#ffffff',
       align: 'center',
       stroke: '#000000',
@@ -2276,7 +2352,7 @@ function setupPlayOrPractice(stage, isPractice) {
       
       // Create a simple flash effect (just one flash)
     let g = scene.add.graphics();
-      g.fillStyle(HIGHLIGHT_COLOR, 1);
+      g.fillStyle(HIGHLIGHT_COLOR, 0.55);
       g.fillRect(
       gridOriginX + col*(cellWidth + CELL_PADDING),
       gridOriginY + row*(cellHeight + CELL_PADDING),
@@ -2420,21 +2496,18 @@ function setupWatch(stage) {
   // Hide controls during watch games - user is not actively playing
   updateControlsDisplay("hidden");
   
-  // Show zone information
-  const zoneText = this.add.text(
-    this.sys.game.config.width / 2,
-    30,
-    `Zone ${stage.zone.zone_global_index}`,
-    { font: 'bold 40px Courier New', fill: '#ffffff' }
-  ).setOrigin(0.5);
-  
-  // Show which demonstrator is being watched
+  // Show which demonstrator is being watched (zone is in the corner pill + border)
   const demoText = this.add.text(
     this.sys.game.config.width / 2,
-    70,
-    "Watching Partner",
-    { font: 'bold 22px Courier New', fill: '#ffffff' }
-  ).setOrigin(0.5);
+    34,
+    demoData && demoData.demonstrator_name ? `WATCHING ${demoData.demonstrator_name.toUpperCase()}` : "WATCHING PARTNER",
+    {
+      font: `bold 20px ${THEME.fontDisplay}`,
+      fill: THEME.text,
+      backgroundColor: 'rgba(5, 7, 12, 0.75)',
+      padding: { x: 14, y: 6 }
+    }
+  ).setOrigin(0.5).setDepth(10000);
   
   // Use the larger fixed cell size
   let cellWidth = BASE_CELL_SIZE;
@@ -2502,7 +2575,7 @@ function setupWatch(stage) {
         startPos.y + DEMO_SPRITE_SIZE / 2 + 15,
         stage.demonstrator.demonstrator_name,
         { 
-          font: 'bold 14px Arial', 
+          font: `bold 14px ${THEME.fontBody}`, 
           fill: '#ffffff',
           align: 'center',
           stroke: '#000000',
@@ -2614,7 +2687,7 @@ function setupWatch(stage) {
               
               // Create a simple flash effect
               let g = this.add.graphics();
-              g.fillStyle(HIGHLIGHT_COLOR, 1);
+              g.fillStyle(HIGHLIGHT_COLOR, 0.55);
               g.fillRect(
                 gridOriginX + currentC*(cellWidth + CELL_PADDING),
                 gridOriginY + currentR*(cellHeight + CELL_PADDING),
@@ -2721,21 +2794,18 @@ function setupIndicate(stage) {
   // Hide controls during indicate games - user is not actively playing
   updateControlsDisplay("hidden");
   
-  // Show zone information
-  const zoneText = this.add.text(
-    this.sys.game.config.width / 2,
-    30,
-    `Zone ${stage.zone.zone_global_index}`,
-    { font: 'bold 40px Courier New', fill: '#ffffff' }
-  ).setOrigin(0.5);
-  
-  // Show which demonstrator is being watched
+  // Show which demonstrator is being watched (zone is in the corner pill + border)
   const demoText = this.add.text(
     this.sys.game.config.width / 2,
-    70,
-    "Watching Partner",
-    { font: 'bold 22px Courier New', fill: '#ffffff' }
-  ).setOrigin(0.5);
+    34,
+    demoData && demoData.demonstrator_name ? `WATCHING ${demoData.demonstrator_name.toUpperCase()}` : "WATCHING PARTNER",
+    {
+      font: `bold 20px ${THEME.fontDisplay}`,
+      fill: THEME.text,
+      backgroundColor: 'rgba(5, 7, 12, 0.75)',
+      padding: { x: 14, y: 6 }
+    }
+  ).setOrigin(0.5).setDepth(10000);
   
   // Use the larger fixed cell size
   let cellWidth = BASE_CELL_SIZE;
@@ -2803,7 +2873,7 @@ function setupIndicate(stage) {
         startPos.y + DEMO_SPRITE_SIZE / 2 + 15,
         stage.demonstrator.demonstrator_name,
         { 
-          font: 'bold 14px Arial', 
+          font: `bold 14px ${THEME.fontBody}`, 
           fill: '#ffffff',
           align: 'center',
           stroke: '#000000',
@@ -2912,7 +2982,7 @@ function setupIndicate(stage) {
               
               // Create a simple flash effect
               let g = this.add.graphics();
-              g.fillStyle(HIGHLIGHT_COLOR, 1);
+              g.fillStyle(HIGHLIGHT_COLOR, 0.55);
               g.fillRect(
                 gridOriginX + currentC*(cellWidth + CELL_PADDING),
                 gridOriginY + currentR*(cellHeight + CELL_PADDING),
@@ -3003,7 +3073,7 @@ function setupDemonstratorPresentation(stage) {
     150,
     stage.message || "You will now start a new session and have several watch and play games! You will have the following two partners throughout the watch games of this session:",
     { 
-      font: '24px Arial', 
+      font: `24px ${THEME.fontBody}`, 
       fill: '#ffffff',
       align: 'center',
       wordWrap: { width: 700 }
@@ -3023,7 +3093,7 @@ function setupDemonstratorPresentation(stage) {
     const cellBg = this.add.rectangle(
       x, y,
       cellWidth, cellHeight,
-      0x333333
+      THEME.panel
     ).setOrigin(0.5);
     
     // Create letter label
@@ -3033,9 +3103,9 @@ function setupDemonstratorPresentation(stage) {
       gridY - 30,
       `Partner ${letter}`,
       { 
-        font: '18px Arial', 
+        font: `18px ${THEME.fontBody}`, 
         fill: '#ffffff',
-        backgroundColor: '#333333',
+        backgroundColor: THEME.panelHex,
         padding: { x: 10, y: 5 }
       }
     ).setOrigin(0.5);
@@ -3079,7 +3149,7 @@ function setupDemonstratorPresentation(stage) {
           cell.y + cellHeight/2 - 15,
           cell.demonstrator.demonstrator_name,
           { 
-            font: 'bold 14px Arial', 
+            font: `bold 14px ${THEME.fontBody}`, 
             fill: '#ffffff',
             align: 'center',
             stroke: '#000000',
@@ -3123,7 +3193,9 @@ function buildRoundRecapMessage(rewards) {
       ? `${items[0]} and ${items[1]}`
       : `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
   }
-  return `Good Job! You earned ${body}. Can you beat that in the next zone?`;
+  // In session_fixed mode the next round stays in the same zone.
+  const nextThing = (gameConfig && gameConfig.bandit_assignment_mode === 'session_fixed') ? 'next round' : 'next zone';
+  return `Good job! You earned ${body}. Can you beat that in the ${nextThing}?`;
 }
 
 function setupRoundRecap(stage) {
@@ -3134,44 +3206,30 @@ function setupRoundRecap(stage) {
 
   this.children.removeAll();
 
-  const overlay = this.add.rectangle(0, 0, W, H, 0x000000, 0.85);
+  const overlay = this.add.rectangle(0, 0, W, H, THEME.overlay, 0.85);
   overlay.setOrigin(0, 0);
 
   const rewards = roundPlayRewards[stage.round_index] || [];
   const message = buildRoundRecapMessage(rewards) ||
-    "Good Job! Can you beat that in the next zone?";
+    "Good job! Can you beat that in the next round?";
 
-  this.add.text(W / 2, H / 2 - 60, message, {
-    font: '24px Arial',
-    fill: '#ffffff',
-    align: 'center',
-    wordWrap: { width: W - 120 }
-  }).setOrigin(0.5);
-
-  const buttonY = H / 2 + 80;
-  const buttonBg = this.add.rectangle(W / 2, buttonY, 240, 50, 0x4CAF50)
-    .setOrigin(0.5)
-    .setInteractive();
-
-  this.add.text(W / 2, buttonY, "Continue to Next Round", {
-    font: '18px Arial',
-    fill: '#ffffff',
+  this.add.text(W / 2, H / 2 - 110, "ROUND COMPLETE", {
+    font: `bold 26px ${THEME.fontDisplay}`,
+    fill: THEME.text,
     align: 'center'
   }).setOrigin(0.5);
 
-  const currentScene = this;
-  buttonBg.on('pointerover', () => {
-    buttonBg.setFillStyle(0x45a049);
-    document.body.style.cursor = 'pointer';
-  });
-  buttonBg.on('pointerout', () => {
-    buttonBg.setFillStyle(0x4CAF50);
-    document.body.style.cursor = 'default';
-  });
-  buttonBg.on('pointerdown', () => {
-    document.body.style.cursor = 'default';
-    nextStage.call(currentScene);
-  });
+  this.add.text(W / 2, H / 2 - 40, message, {
+    font: `22px ${THEME.fontBody}`,
+    fill: THEME.text,
+    align: 'center',
+    wordWrap: { width: W - 200 },
+    lineSpacing: 6
+  }).setOrigin(0.5);
+
+  makeButton(this, W / 2, H / 2 + 70, "Continue to Next Round", () => {
+    nextStage.call(this);
+  }, { width: 300 });
 }
 
 /**
@@ -3249,10 +3307,10 @@ function setupChoice(stage) {
   // Create title text
   const titleText = this.add.text(
     this.sys.game.config.width / 2,
-    100,
-    "Choose your preferred partner:",
-    { 
-      font: '28px Arial', 
+    60,
+    "Choose your preferred partner",
+    {
+      font: `bold 26px ${THEME.fontDisplay}`,
       fill: '#ffffff',
       align: 'center'
     }
@@ -3262,10 +3320,10 @@ function setupChoice(stage) {
   const transferText = stage.transfer === true ? "in a new zone" : "in the same zone";
   const instructionText = this.add.text(
     this.sys.game.config.width / 2,
-    gridY + cellHeight + 150,
+    118,
     `Choose the starship you would watch before playing again to achieve higher rewards ${transferText}.`,
     { 
-      font: '18px Arial', 
+      font: `18px ${THEME.fontBody}`, 
       fill: '#ffffff',
       align: 'center',
       wordWrap: { width: 600 }
@@ -3275,11 +3333,11 @@ function setupChoice(stage) {
   // Create instruction for controls
   const controlsText = this.add.text(
     this.sys.game.config.width / 2,
-    gridY + cellHeight + 200,
-    "Use arrow keys to move and spacebar to select",
+    gridY + cellHeight + 95,
+    "Use arrow keys to move and spacebar to select, or click a partner",
     { 
-      font: '16px Arial', 
-      fill: '#aaaaaa',
+      font: `16px ${THEME.fontBody}`, 
+      fill: THEME.textMuted,
       align: 'center'
     }
   ).setOrigin(0.5);
@@ -3290,13 +3348,13 @@ function setupChoice(stage) {
   // Selection feedback text (initially hidden)
   const feedbackText = this.add.text(
     this.sys.game.config.width / 2,
-    gridY + cellHeight + 120,
+    gridY + cellHeight + 95,
     "",
     { 
-      font: '20px Arial', 
-      fill: '#4CAF50',
+      font: `20px ${THEME.fontBody}`, 
+      fill: THEME.successHex,
       align: 'center',
-      backgroundColor: '#333333',
+      backgroundColor: THEME.panelHex,
       padding: { x: 15, y: 10 }
     }
   ).setOrigin(0.5).setVisible(false);
@@ -3323,7 +3381,7 @@ function setupChoice(stage) {
     const cellBg = this.add.rectangle(
       x, y,
       cellWidth, cellHeight,
-      0x333333
+      THEME.panel
     ).setOrigin(0.5);
     
     // Create letter label
@@ -3333,9 +3391,9 @@ function setupChoice(stage) {
       gridY - 30,
       `Partner ${letter}`,
       { 
-        font: '18px Arial', 
+        font: `18px ${THEME.fontBody}`, 
         fill: '#ffffff',
-        backgroundColor: '#333333',
+        backgroundColor: THEME.panelHex,
         padding: { x: 10, y: 5 }
       }
     ).setOrigin(0.5);
@@ -3386,7 +3444,7 @@ function setupChoice(stage) {
           cell.y + cellHeight/2 - 15, // Position below the image but above cell bottom
           demonstrator.demonstrator_name,
           { 
-            font: 'bold 14px Arial', 
+            font: `bold 14px ${THEME.fontBody}`, 
             fill: '#ffffff',
             align: 'center',
             stroke: '#000000',
@@ -3492,6 +3550,7 @@ function setupChoice(stage) {
         // Show selection feedback
         feedbackText.setText(`You selected Partner ${selectedDemonstrator}`);
         feedbackText.setVisible(true);
+        controlsText.setVisible(false);
         
         // Highlight selected with stronger border
         highlightRect.setStrokeStyle(4, parseInt(zoneColor.replace('#', '0x')) || 0x888888);
@@ -3569,39 +3628,33 @@ function updateControlsDisplay(type = "default") {
   if (type === "choice") {
     // Custom controls for choice games
     controlsDisplay.innerHTML = `
-      <!-- Arrow Left -->
       <div class="control-key">
         <div class="control-icon">←</div>
-        <div>Move Left</div>
+        <div>Move left</div>
       </div>
-      <!-- Arrow Right -->
       <div class="control-key">
         <div class="control-icon">→</div>
-        <div>Move Right</div>
+        <div>Move right</div>
       </div>
-      <!-- Spacebar -->
       <div class="control-key">
-        <div class="control-icon space">Spacebar</div>
-        <div>Select Partner</div>
+        <div class="control-icon">Space</div>
+        <div>Select partner<br><span style="opacity:.7">or click a partner</span></div>
       </div>
     `;
   } else if (type === "single-row") {
     // Controls for single-row games (asteroid mode) - no up/down arrows
     controlsDisplay.innerHTML = `
-      <!-- Arrow Left -->
       <div class="control-key">
         <div class="control-icon">←</div>
         <div>Left</div>
       </div>
-      <!-- Arrow Right -->
       <div class="control-key">
         <div class="control-icon">→</div>
         <div>Right</div>
       </div>
-      <!-- Spacebar -->
       <div class="control-key">
-        <div class="control-icon space">Spacebar</div>
-        <div>Mine for Minerals</div>
+        <div class="control-icon">Space</div>
+        <div>Mine asteroid<br><span style="opacity:.7">or click an asteroid</span></div>
       </div>
     `;
   } else if (type === "hidden") {
@@ -3757,10 +3810,10 @@ function setupOnlineChoicePhaseChoice(stage) {
   // Create title text (same as regular choice game)
   const titleText = this.add.text(
     this.sys.game.config.width / 2,
-    100,
-    "Choose your preferred partner:",
-    { 
-      font: '28px Arial', 
+    60,
+    "Choose your preferred partner",
+    {
+      font: `bold 26px ${THEME.fontDisplay}`,
       fill: '#ffffff',
       align: 'center'
     }
@@ -3770,10 +3823,10 @@ function setupOnlineChoicePhaseChoice(stage) {
   const transferText = stage.transfer === true ? "in a new zone" : "in the same zone";
   const instructionText = this.add.text(
     this.sys.game.config.width / 2,
-    gridY + cellHeight + 150,
+    118,
     `Choose the starship you would watch before playing again to achieve higher rewards ${transferText}.`,
     { 
-      font: '18px Arial', 
+      font: `18px ${THEME.fontBody}`, 
       fill: '#ffffff',
       align: 'center',
       wordWrap: { width: 600 }
@@ -3783,11 +3836,11 @@ function setupOnlineChoicePhaseChoice(stage) {
   // Create instruction for controls (same as regular choice game)
   const controlsText = this.add.text(
     this.sys.game.config.width / 2,
-    gridY + cellHeight + 200,
-    "Use arrow keys to move and spacebar to select",
+    gridY + cellHeight + 95,
+    "Use arrow keys to move and spacebar to select, or click a partner",
     { 
-      font: '16px Arial', 
-      fill: '#aaaaaa',
+      font: `16px ${THEME.fontBody}`, 
+      fill: THEME.textMuted,
       align: 'center'
     }
   ).setOrigin(0.5);
@@ -3807,7 +3860,7 @@ function setupOnlineChoicePhaseChoice(stage) {
     const cellBg = this.add.rectangle(
       x, y,
       cellWidth, cellHeight,
-      0x333333
+      THEME.panel
     ).setOrigin(0.5);
     
     // Create letter label (same format as regular choice game)
@@ -3816,9 +3869,9 @@ function setupOnlineChoicePhaseChoice(stage) {
       gridY - 30,
       `Partner ${demo.letter}`,
       { 
-        font: '18px Arial', 
+        font: `18px ${THEME.fontBody}`, 
         fill: '#ffffff',
-        backgroundColor: '#333333',
+        backgroundColor: THEME.panelHex,
         padding: { x: 10, y: 5 }
       }
     ).setOrigin(0.5);
@@ -3861,7 +3914,7 @@ function setupOnlineChoicePhaseChoice(stage) {
           cell.y + cellHeight/2 - 15, // Position below the image but above cell bottom
           cell.data.demonstrator_name,
           { 
-            font: 'bold 14px Arial', 
+            font: `bold 14px ${THEME.fontBody}`, 
             fill: '#ffffff',
             align: 'center',
             stroke: '#000000',
@@ -3900,13 +3953,13 @@ function setupOnlineChoicePhaseChoice(stage) {
     // Selection feedback text (initially hidden, same position as regular choice game)
     const feedbackText = currentScene.add.text(
       currentScene.sys.game.config.width / 2,
-      gridY + cellHeight + 120,
+      gridY + cellHeight + 95,
       "",
       { 
-        font: '20px Arial', 
-        fill: '#4CAF50',
+        font: `20px ${THEME.fontBody}`, 
+        fill: THEME.successHex,
         align: 'center',
-        backgroundColor: '#333333',
+        backgroundColor: THEME.panelHex,
         padding: { x: 15, y: 10 }
       }
     ).setOrigin(0.5).setVisible(false);
@@ -3984,6 +4037,7 @@ function setupOnlineChoicePhaseChoice(stage) {
       // Show selection feedback
       feedbackText.setText(`You selected Partner ${selectedCell.letter}`);
         feedbackText.setVisible(true);
+        controlsText.setVisible(false);
         
         // Highlight selected with stronger border
         highlightRect.setStrokeStyle(4, parseInt(zoneColor.replace('#', '0x')) || 0x888888);
@@ -4103,21 +4157,18 @@ function setupOnlineChoicePhaseWatch(stage) {
   // Hide controls during online-choice watch phase - user is not actively playing
   updateControlsDisplay("hidden");
   
-  // Show zone information
-  const zoneText = this.add.text(
-    this.sys.game.config.width / 2,
-    30,
-    `Zone ${stage.zone.zone_global_index}`,
-    { font: 'bold 40px Courier New', fill: '#ffffff' }
-  ).setOrigin(0.5);
-  
-  // Show which demonstrator is being watched
+  // Show which demonstrator is being watched (zone is in the corner pill + border)
   const demoText = this.add.text(
     this.sys.game.config.width / 2,
-    70,
-    `Watching Partner ${selectedDemo.letter}`,
-    { font: 'bold 22px Courier New', fill: '#ffffff' }
-  ).setOrigin(0.5);
+    34,
+    `WATCHING PARTNER ${selectedDemo.letter}`,
+    {
+      font: `bold 20px ${THEME.fontDisplay}`,
+      fill: THEME.text,
+      backgroundColor: 'rgba(5, 7, 12, 0.75)',
+      padding: { x: 14, y: 6 }
+    }
+  ).setOrigin(0.5).setDepth(10000);
   
   // Use the larger fixed cell size
   let cellWidth = BASE_CELL_SIZE;
@@ -4276,7 +4327,7 @@ function setupOnlineChoicePhaseWatch(stage) {
               
               // Create a simple flash effect
               let g = currentScene.add.graphics();
-              g.fillStyle(HIGHLIGHT_COLOR, 1);
+              g.fillStyle(HIGHLIGHT_COLOR, 0.55);
               g.fillRect(
                 gridOriginX + currentC*(cellWidth + CELL_PADDING),
                 gridOriginY + currentR*(cellHeight + CELL_PADDING),
@@ -4502,26 +4553,29 @@ function showEndOfGameMessage() {
   const W = this.sys.game.config.width;
   const H = this.sys.game.config.height;
 
+  updateControlsDisplay("hidden");
+  setGameBorderColor(THEME.neutralBorderHex);
+
   // Add a semi-transparent overlay
-  const overlay = this.add.rectangle(0, 0, W, H, 0x000000, 0.7);
+  const overlay = this.add.rectangle(0, 0, W, H, THEME.overlay, 0.85);
   overlay.setOrigin(0, 0);
 
-  // Lay out vertically: "Game has ended" header, optional reward lines, return button.
+  // Lay out vertically: header, optional reward lines, saving status, return button.
   const lineHeight = 36;
-  const headerY = H / 2 - 110;
+  const headerY = H / 2 - 130;
 
-  this.add.text(W / 2, headerY, "Game has ended", {
-    font: '32px Arial',
-    fill: '#ffffff',
+  this.add.text(W / 2, headerY, "MISSION COMPLETE", {
+    font: `bold 30px ${THEME.fontDisplay}`,
+    fill: THEME.text,
     align: 'center'
   }).setOrigin(0.5);
 
   let y = headerY + 60;
   const greenStyle = {
-    font: 'bold 26px Arial',
-    fill: '#00ff00',
+    font: `bold 24px ${THEME.fontBody}`,
+    fill: THEME.successHex,
     stroke: '#000000',
-    strokeThickness: 4,
+    strokeThickness: 3,
     align: 'center'
   };
 
@@ -4542,44 +4596,30 @@ function showEndOfGameMessage() {
     }
   }
 
-  // Return-to-Prolific button below whatever lines we rendered.
-  const returnUrl = timelineData.return_url || "https://app.prolific.com/submissions/complete?cc=CTVM94DF";
-  const buttonWidth = 250;
-  const buttonHeight = 50;
-  const buttonY = y + 30;
+  // Completion URL comes from the YAML (prolific_completion_url) via /api/config.
+  const returnUrl = (gameConfig && gameConfig.prolific_completion_url)
+    || timelineData.return_url
+    || "https://app.prolific.com/submissions/complete?cc=CTVM94DF";
 
-  const buttonBackground = this.add.rectangle(
-    W / 2,
-    buttonY,
-    buttonWidth,
-    buttonHeight,
-    0x4CAF50
-  ).setOrigin(0.5).setInteractive();
+  // Make sure every queued log row has reached the server before offering the link.
+  const statusText = this.add.text(W / 2, y + 16, "Saving your data…", {
+    font: `16px ${THEME.fontBody}`,
+    fill: THEME.textMuted,
+    align: 'center',
+    wordWrap: { width: 700 }
+  }).setOrigin(0.5);
+  const buttonY = y + 70;
 
-  const buttonText = this.add.text(
-    W / 2,
-    buttonY,
-    "Click here to return to Prolific",
-    {
-      font: '18px Arial',
-      fill: '#ffffff',
-      align: 'center'
+  drainLogQueue(20000).then((drained) => {
+    if (drained && logDeadLetters === 0) {
+      statusText.setText("Your data has been saved. Thank you for playing!");
+    } else {
+      statusText.setText("Some of your data may not have been saved. Please return to Prolific and message the researcher.");
+      statusText.setStyle({ fill: '#fbbf24' });
     }
-  ).setOrigin(0.5);
-
-  // Make button clickable
-  buttonBackground.on('pointerover', () => {
-    buttonBackground.setFillStyle(0x45a049); // Darker shade when hovered
-    document.body.style.cursor = 'pointer';
-  });
-  
-  buttonBackground.on('pointerout', () => {
-    buttonBackground.setFillStyle(0x4CAF50); // Original color
-    document.body.style.cursor = 'default';
-  });
-  
-  buttonBackground.on('pointerdown', () => {
-    window.location.href = returnUrl;
+    makeButton(this, W / 2, buttonY, "Return to Prolific", () => {
+      window.location.href = returnUrl;
+    }, { width: 280 });
   });
 }
 
@@ -4745,55 +4785,71 @@ function createAsteroidBackgrounds(imageKeys, gridX, gridY, numRows, numCols, ce
 function drawRewardTank(container, totalSlots, outcomes) {
   container.removeAll(true);
 
-  // Add a border/background for the tank
-  const totalWidth = totalSlots * (TANK_SLOT_SIZE + TANK_SLOT_PADDING) - TANK_SLOT_PADDING;
-  const slotHeight = TANK_SLOT_SIZE * 0.6; // Match the rectangle height
-  const tankBg = this.add.rectangle(0, 0, totalWidth + 4, slotHeight + 4, 0x333333);
-  tankBg.setOrigin(0.5, 0.5);  // Center the background
-  tankBg.setDepth(1); // Ensure it's above any background but below other elements
-  container.add(tankBg);
-  
-  // Add a title above the tank
-  const tankTitle = this.add.text(0, -40, "Mining Reward Tank", { 
-    font: 'bold 22px Courier New', 
-    fill: '#ffffff' 
-  });
-  tankTitle.setOrigin(0.5, 0.5);  // Center the title
-  tankTitle.setDepth(2); // Ensure it's above the background
-  container.add(tankTitle);
+  const slotW = TANK_SLOT_SIZE;
+  const slotH = TANK_SLOT_SIZE * 0.6;
+  const gap = TANK_SLOT_PADDING + 2;
+  const totalWidth = totalSlots * (slotW + gap) - gap;
+  const pad = 8;
 
+  const g = this.add.graphics();
+  // Housing
+  g.fillStyle(THEME.panel, 0.9);
+  g.fillRoundedRect(-totalWidth / 2 - pad, -slotH / 2 - pad, totalWidth + pad * 2, slotH + pad * 2, 8);
+  g.lineStyle(1, 0xffffff, 0.18);
+  g.strokeRoundedRect(-totalWidth / 2 - pad, -slotH / 2 - pad, totalWidth + pad * 2, slotH + pad * 2, 8);
+  // Slots, left → right in pull order
   for (let i = 0; i < totalSlots; i++) {
-    let color = 0x444444;
+    let color = THEME.slotEmpty;
     if (i < outcomes.length) {
-      let val = outcomes[i];
-      color = (val === 1) ? 0x00ff00 : 0xff0000; 
+      color = (outcomes[i] === 1) ? THEME.success : THEME.fail;
     }
-    
-    // Position slots horizontally, left to right, centered around the origin
-    let slotX = (i * (TANK_SLOT_SIZE + TANK_SLOT_PADDING)) - (totalWidth / 2) + (TANK_SLOT_SIZE / 2);
-    let slotHeight = TANK_SLOT_SIZE * 0.6; // Make rectangles shorter than they are wide
-    let slotRect = this.add.rectangle(slotX, 0, TANK_SLOT_SIZE, slotHeight, color);
-    slotRect.setStrokeStyle(2, 0x00CCFF); // Bright blue border, 2px thick
-    slotRect.setOrigin(0.5, 0.5);  // Center each slot
-    slotRect.setDepth(1);  // Same depth as the background
-    container.add(slotRect);
+    const x = -totalWidth / 2 + i * (slotW + gap);
+    g.fillStyle(color, 1);
+    g.fillRoundedRect(x, -slotH / 2, slotW, slotH, 4);
   }
+  g.setDepth(1);
+  container.add(g);
+
+  // Title with pull counter above the housing
+  const earned = outcomes.reduce((a, b) => a + b, 0);
+  const tankTitle = this.add.text(0, -34, `REWARD TANK   ${earned} earned  ·  ${outcomes.length} / ${totalSlots} pulls`, {
+    font: `bold 14px ${THEME.fontBody}`,
+    fill: THEME.text,
+    stroke: '#000000',
+    strokeThickness: 4
+  });
+  tankTitle.setOrigin(0.5, 0.5);
+  tankTitle.setDepth(2);
+  container.add(tankTitle);
 }
 
-/** Smaller success/fail dot. */
+/**
+ * Outcome tally: one pip per pull, drawn in a row just above the asteroid that was
+ * mined (left → right in pull order, wrapping upward). White ring + green/red fill
+ * so it reads on any asteroid color and on the space background.
+ */
 function drawMarkerDot(gridX, gridY, cellWidth, cellHeight, row, col, outcome) {
-  let { x, y } = getCellCenter(gridX, gridY, cellWidth, cellHeight, row, col);
-  let offsetX = Phaser.Math.Between(-cellWidth/4, cellWidth/4);
-  let offsetY = Phaser.Math.Between(-cellHeight/4, cellHeight/4);
-  let color = (outcome === 1) ? 0x00ff00 : 0xff0000;
+  const key = `${row},${col}`;
+  const n = outcomePips[key] || 0;
+  outcomePips[key] = n + 1;
 
-  // First draw a slightly larger black circle for the border
-  let border = this.add.circle(x + offsetX, y + offsetY, MARKER_DOT_RADIUS + 1.5, 0x000000);
-  border.setDepth(99998);
-  
-  // Then draw the colored dot on top
-  let dot = this.add.circle(x + offsetX, y + offsetY, MARKER_DOT_RADIUS, color);
-  dot.setDepth(99999);
+  const perRow = Math.max(1, Math.floor((cellWidth + 2) / PIP_SPACING));
+  const pipRow = Math.floor(n / perRow);
+  const pipCol = n % perRow;
+
+  const cellLeft = gridX + col * (cellWidth + CELL_PADDING);
+  const cellTop = gridY + row * (cellHeight + CELL_PADDING);
+  const x = cellLeft + 1 + PIP_RADIUS + pipCol * PIP_SPACING;
+  const y = cellTop - 6 - PIP_RADIUS - pipRow * PIP_SPACING;
+  const color = (outcome === 1) ? THEME.success : THEME.fail;
+
+  const pip = this.add.circle(x, y, PIP_RADIUS, color);
+  pip.setStrokeStyle(1.5, 0xffffff, 1);
+  pip.setDepth(99999);
+
+  // Brief pop so the new pip draws the eye
+  pip.setScale(0);
+  this.tweens.add({ targets: pip, scale: 1, duration: 180, ease: 'Back.Out' });
 }
 
 /** 
@@ -4822,8 +4878,10 @@ function getCellCenter(gridX, gridY, cellWidth, cellHeight, row, col) {
  * uses the new lighter color + alpha
  */
 function createHighlightRect(cellWidth, cellHeight) {
-  let highlightRect = this.add.rectangle(0, 0, cellWidth-2, cellHeight-2, HIGHLIGHT_COLOR, 1);
-  highlightRect.setDepth(9998).setOrigin(0.5).setAlpha(HIGHLIGHT_ALPHA);
+  // Bright outline + faint fill so the current asteroid is obvious on any background.
+  let highlightRect = this.add.rectangle(0, 0, cellWidth + 6, cellHeight + 6, HIGHLIGHT_COLOR, 0.12);
+  highlightRect.setStrokeStyle(3, 0xffffff, 0.95);
+  highlightRect.setDepth(9998).setOrigin(0.5);
   return highlightRect;
 }
 
@@ -4834,7 +4892,6 @@ function highlightCurrentCell(highRect, r, c, gridX, gridY, cellWidth, cellHeigh
   let x = gridX + c * (cellWidth + CELL_PADDING) + cellWidth/2;
   let y = gridY + r * (cellHeight + CELL_PADDING) + cellHeight/2;
   highRect.setPosition(x, y);
-  highRect.setFillStyle(HIGHLIGHT_COLOR, HIGHLIGHT_ALPHA);
 }
 
 /**
@@ -4868,93 +4925,74 @@ function makeNextButton(label, callback, position = "default") {
       // Default position for intro/tutorial stages
       yPosition = this.sys.game.config.height - 30;
     }
-    
-    // Create a prominent button centered horizontally
-    const btn = this.add.text(
-      this.sys.game.config.width / 2, // centered horizontally
-      yPosition, // position based on context
-      label.toUpperCase(), // Convert to all caps
-      { 
-        font: 'bold 20px Arial', // Smaller, bold font
-        fill: '#ffffff', // White text
-        backgroundColor: '#4CAF50', // Green background
-        padding: { x: 16, y: 10 }, // Less padding for smaller button
-        borderRadius: 8 // Rounded corners
-      }
-    ).setOrigin(0.5).setInteractive();
-  
-    // Track button state to prevent multiple clicks
-    let isClicked = false;
-    
-    // Add hover effects to make it more interactive
-    btn.on('pointerover', () => {
-      if (!isClicked) {
-        btn.setStyle({ backgroundColor: '#45a049' }); // Darker green on hover
-        this.game.canvas.style.cursor = 'pointer';
-      }
-    });
-    
-    btn.on('pointerout', () => {
-      if (!isClicked) {
-        btn.setStyle({ backgroundColor: '#4CAF50' }); // Original green
-        this.game.canvas.style.cursor = 'default';
-      }
-    });
-  
-    btn.on('pointerdown', () => {
-      if (!isClicked && callback) {
-        isClicked = true;
-        // Disable the button visually
-        btn.setStyle({ backgroundColor: '#888888' });
-        btn.disableInteractive();
-        this.game.canvas.style.cursor = 'default';
-        
-        // Small delay to prevent rapid clicking issues
-        setTimeout(() => {
-          callback();
-        }, 100);
-      }
-    });
+    return makeButton(this, this.sys.game.config.width / 2, yPosition, label, callback);
   }
 
 /**
- * Add zone labels to the four corners of the game container
+ * The one button style used on every canvas screen: rounded accent-colored pill
+ * with hover state; disables itself after the first click so callbacks can't fire
+ * twice. Returns the container (so callers can reposition/destroy it).
+ */
+function makeButton(scene, x, y, label, onClick, opts = {}) {
+  const text = label.toUpperCase();
+  const width = opts.width || Math.max(170, Math.round(text.length * 11.5) + 56);
+  const height = opts.height || 48;
+  const radius = 10;
+
+  const container = scene.add.container(x, y).setDepth(opts.depth ?? 20000);
+  const g = scene.add.graphics();
+  const draw = (fill) => {
+    g.clear();
+    g.fillStyle(0x000000, 0.35);
+    g.fillRoundedRect(-width / 2, -height / 2 + 3, width, height, radius);
+    g.fillStyle(fill, 1);
+    g.fillRoundedRect(-width / 2, -height / 2, width, height, radius);
+  };
+  draw(THEME.accent);
+
+  const labelText = scene.add.text(0, 0, text, {
+    font: `bold 16px ${THEME.fontBody}`,
+    fill: '#ffffff',
+    resolution: window.devicePixelRatio || 1
+  }).setOrigin(0.5);
+
+  const hit = scene.add.rectangle(0, 0, width, height, 0x000000, 0)
+    .setInteractive({ useHandCursor: true });
+
+  container.add([g, labelText, hit]);
+
+  let clicked = false;
+  hit.on('pointerover', () => { if (!clicked) draw(THEME.accentHover); });
+  hit.on('pointerout', () => { if (!clicked) draw(THEME.accent); });
+  hit.on('pointerdown', () => {
+    if (clicked) return;
+    clicked = true;
+    draw(THEME.disabled);
+    labelText.setAlpha(0.7);
+    hit.disableInteractive();
+    scene.game.canvas.style.cursor = 'default';
+    // Small delay to prevent rapid clicking issues
+    setTimeout(() => { if (onClick) onClick(); }, 100);
+  });
+
+  return container;
+}
+
+/**
+ * Zone label pill in the top-left corner of the canvas (the colored border carries
+ * the zone identity everywhere else).
  */
 function addZoneLabels(scene, zoneIndex) {
-  const gameContainer = document.getElementById('game-container');
-  const containerWidth = gameContainer.offsetWidth;
-  const containerHeight = gameContainer.offsetHeight;
-  
-  // Create the label text
-  const labelText = `Zone ${zoneIndex}`;
-  
-  // Top left
   scene.add.text(
-    10, 10, 
-    labelText, 
-    { font: 'bold 32px Courier New', fill: '#ffffff', backgroundColor: '#000000', padding: { x: 5, y: 2 } }
+    16, 14,
+    `ZONE ${zoneIndex}`,
+    {
+      font: `bold 20px ${THEME.fontDisplay}`,
+      fill: THEME.text,
+      backgroundColor: 'rgba(5, 7, 12, 0.75)',
+      padding: { x: 12, y: 6 }
+    }
   ).setDepth(10000);
-  
-  // Top right
-  scene.add.text(
-    scene.sys.game.config.width - 10, 10, 
-    labelText, 
-    { font: 'bold 32px Courier New', fill: '#ffffff', backgroundColor: '#000000', padding: { x: 5, y: 2 } }
-  ).setOrigin(1, 0).setDepth(10000);
-  
-  // Bottom left
-  scene.add.text(
-    10, scene.sys.game.config.height - 10, 
-    labelText, 
-    { font: 'bold 32px Courier New', fill: '#ffffff', backgroundColor: '#000000', padding: { x: 5, y: 2 } }
-  ).setOrigin(0, 1).setDepth(10000);
-  
-  // Bottom right
-  scene.add.text(
-    scene.sys.game.config.width - 10, scene.sys.game.config.height - 10, 
-    labelText, 
-    { font: 'bold 32px Courier New', fill: '#ffffff', backgroundColor: '#000000', padding: { x: 5, y: 2 } }
-  ).setOrigin(1, 1).setDepth(10000);
 }
 
 /**
@@ -4970,14 +5008,26 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   // Hide controls during transition overlays
   updateControlsDisplay("hidden");
   
-  // Add a semi-transparent overlay background
-  const overlay = scene.add.rectangle(
-    0, 0, 
-    scene.sys.game.config.width, 
-    scene.sys.game.config.height, 
-    0x000000, 0.85
-  );
-  overlay.setOrigin(0, 0);
+  // Dimmed zone background (if the next stage has a zone) under a dark overlay, so
+  // the zone identity carries through the transition.
+  const W = scene.sys.game.config.width;
+  const H = scene.sys.game.config.height;
+  const overlay = scene.add.rectangle(0, 0, W, H, THEME.overlay, 0.72);
+  overlay.setOrigin(0, 0).setDepth(-1);
+  if (nextStage.zone && nextStage.zone.zone_global_index !== undefined) {
+    const bgKey = `zone_bg_${nextStage.zone.zone_global_index}`;
+    const addBg = () => {
+      if (!scene.textures.exists(bgKey)) return;
+      scene.add.image(0, 0, bgKey).setOrigin(0, 0).setDisplaySize(W, H).setDepth(-2);
+    };
+    if (scene.textures.exists(bgKey)) {
+      addBg();
+    } else {
+      scene.load.image(bgKey, `assets/zone_backgrounds/${mapZoneBackground(nextStage.zone.zone_global_index)}`);
+      scene.load.once('complete', addBg);
+      scene.load.start();
+    }
+  }
   
   // Get stage type and set button text accordingly
   const stageType = nextStage.stage_type || nextStage.game;
@@ -5011,7 +5061,7 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
     150,
     message,
     { 
-      font: '24px Arial', 
+      font: `24px ${THEME.fontBody}`, 
       fill: '#ffffff',
       align: 'center',
       wordWrap: { width: 600 }
@@ -5028,16 +5078,11 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   
   // Update the game container border color immediately to match the next stage's zone
   if (nextStage.zone) {
-    const zoneColor = generateZoneColor(nextStage.zone.zone_global_index);
-    const gameContainer = document.getElementById('game-container');
-    if (gameContainer) {
-      gameContainer.style.border = `20px solid ${zoneColor}`;
-  
-    }
+    setGameBorderColor(generateZoneColor(nextStage.zone.zone_global_index));
   }
-  
+
   // Create the button early so it always appears
-  createButton();
+  makeButton(scene, W / 2, H - 100, buttonText, startCallback, { width: 220 });
   
   // Get zone info
   const zone = nextStage.zone;
@@ -5067,61 +5112,6 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
     createOnlineChoiceZoneIcon(scene, '#888888', 0);
   }
   
-  // Create the button
-  function createButton() {
-    const buttonWidth = 200;
-    const buttonHeight = 50;
-    
-    const button = scene.add.rectangle(
-      scene.sys.game.config.width / 2,
-      scene.sys.game.config.height - 100,
-      buttonWidth,
-      buttonHeight,
-      0x4CAF50
-    ).setInteractive();
-    
-    const buttonLabel = scene.add.text(
-      scene.sys.game.config.width / 2,
-      scene.sys.game.config.height - 100,
-      buttonText,
-      { font: '20px Arial', fill: '#ffffff' }
-    ).setOrigin(0.5);
-    
-    // Track button state to prevent multiple clicks
-    let isClicked = false;
-    
-    // Button hover effects
-    button.on('pointerover', () => {
-      if (!isClicked) {
-        button.setFillStyle(0x45a049); // Darker shade when hovered
-        scene.game.canvas.style.cursor = 'pointer';
-      }
-    });
-    
-    button.on('pointerout', () => {
-      if (!isClicked) {
-        button.setFillStyle(0x4CAF50); // Original color
-        scene.game.canvas.style.cursor = 'default';
-      }
-    });
-    
-    // Button click
-    button.on('pointerdown', () => {
-      if (!isClicked && startCallback) {
-        isClicked = true;
-        // Disable the button visually
-        button.setFillStyle(0x888888);
-        buttonLabel.setStyle({ fill: '#666666' });
-        button.disableInteractive();
-        scene.game.canvas.style.cursor = 'default';
-        
-        // Small delay to prevent rapid clicking issues
-        setTimeout(() => {
-          startCallback();
-        }, 100);
-      }
-    });
-  }
 }
 
 // Create a summary-style icon (similar to the summary bar)
@@ -5175,22 +5165,22 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
     border.fillStyle(colorHex, 1);
     
     // Draw the outer rectangle (this is the border)
-    border.fillRect(
+    border.fillRoundedRect(
         -iconWidth/2 - borderThickness, 
         -iconHeight/2 - borderThickness, 
         iconWidth + borderThickness*2, 
-        iconHeight + borderThickness*2
+        iconHeight + borderThickness*2, 16
     );
     
     // Set fill style to dark background
-    border.fillStyle(0x222222, 1);
+    border.fillStyle(THEME.panel, 1);
     
     // Draw the inner rectangle (creates border effect)
-    border.fillRect(
+    border.fillRoundedRect(
         -iconWidth/2, 
         -iconHeight/2, 
         iconWidth, 
-        iconHeight
+        iconHeight, 8
     );
     
     // Add the graphics to the container
@@ -5233,7 +5223,7 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
         iconHeight/2 - 40,
         `Zone ${zoneIndex}`,
         { 
-            font: '40px Arial', 
+            font: `bold 26px ${THEME.fontDisplay}`, 
             fill: '#ffffff',
             align: 'center' 
         }
@@ -5247,7 +5237,7 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
             iconHeight/2 + 80,
             secondaryMessage,
             { 
-                font: '24px Arial', 
+                font: `24px ${THEME.fontBody}`, 
                 fill: '#ffffff',
                 align: 'center',
                 wordWrap: { width: 600 }
@@ -5289,7 +5279,7 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
                 30, // Position below the image
                 nameText,
                 { 
-                    font: 'bold 14px Arial', 
+                    font: `bold 14px ${THEME.fontBody}`, 
                     fill: '#ffffff',
                     align: 'center',
                     stroke: '#000000',
@@ -5352,22 +5342,22 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
     border.fillStyle(colorHex, 1);
     
     // Draw the outer rectangle (this is the border)
-    border.fillRect(
+    border.fillRoundedRect(
         -iconWidth/2 - borderThickness, 
         -iconHeight/2 - borderThickness, 
         iconWidth + borderThickness*2, 
-        iconHeight + borderThickness*2
+        iconHeight + borderThickness*2, 16
     );
     
     // Set fill style to dark background
-    border.fillStyle(0x222222, 1);
+    border.fillStyle(THEME.panel, 1);
     
     // Draw the inner rectangle (creates border effect)
-    border.fillRect(
+    border.fillRoundedRect(
         -iconWidth/2, 
         -iconHeight/2, 
         iconWidth, 
-        iconHeight
+        iconHeight, 8
     );
     
     // Add the graphics to the container
@@ -5409,7 +5399,7 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
             0,
             50,
             "Choice Zone",
-            { font: '40px Arial', fill: '#ffffff' }
+            { font: `bold 26px ${THEME.fontDisplay}`, fill: '#ffffff' }
         ).setOrigin(0.5);
         container.add(zoneText);
     }
@@ -5466,22 +5456,22 @@ function createOnlineChoiceZoneIcon(scene, zoneColor, zoneIndex) {
     border.fillStyle(colorHex, 1);
     
     // Draw the outer rectangle (this is the border)
-    border.fillRect(
+    border.fillRoundedRect(
         -iconWidth/2 - borderThickness, 
         -iconHeight/2 - borderThickness, 
         iconWidth + borderThickness*2, 
-        iconHeight + borderThickness*2
+        iconHeight + borderThickness*2, 16
     );
     
     // Set fill style to dark background
-    border.fillStyle(0x222222, 1);
+    border.fillStyle(THEME.panel, 1);
     
     // Draw the inner rectangle (creates border effect)
-    border.fillRect(
+    border.fillRoundedRect(
         -iconWidth/2, 
         -iconHeight/2, 
         iconWidth, 
-        iconHeight
+        iconHeight, 8
     );
     
     // Add the graphics to the container
@@ -5523,7 +5513,7 @@ function createOnlineChoiceZoneIcon(scene, zoneColor, zoneIndex) {
             0,
             50,
             `Zone ${zoneIndex}`,
-            { font: '40px Arial', fill: '#ffffff' }
+            { font: `bold 26px ${THEME.fontDisplay}`, fill: '#ffffff' }
         ).setOrigin(0.5);
         container.add(zoneText);
     }

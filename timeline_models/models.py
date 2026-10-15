@@ -485,9 +485,9 @@ def generate_timeline(
     intro_message = (
         "[BOLD]PLEASE READ CAREFULLY:[/BOLD]\n\n"
         "Welcome to Fortune Frontier. In this game you will pilot the starship "
-        "\"Prospector One\" and mine ASTEROIDS by shooting them. "
+        "\"Prospector One\" and mine ASTEROIDS for rewards. "
         "Some asteroids yield more rewards than others.\n\n"
-        "GOAL: Mine as much reward as possible by finding the best asteroids and shooting them.\n\n"
+        "GOAL: Mine as much reward as possible by finding the best asteroids and mining them.\n\n"
         "ZONES: You will enter multiple asteroid zones (indicated by a zone number). "
         "Sometimes you will repeat the same zone with the same asteroids and hence the same reward yields. "
         "Sometimes you will move on to new zones with different asteroids and different reward yields.\n\n"
@@ -507,14 +507,14 @@ def generate_timeline(
                 "instruction1_image": "move_left.gif",
                 "instruction2": "move right with right arrow",
                 "instruction2_image": "move_right.gif",
-                "instruction3": "mine rewards by shooting with spacebar",
+                "instruction3": "mine the asteroid with spacebar",
                 "instruction3_image": "mine.gif",
                 "instruction4": "green indicates successful mining\n(increases reward)",
                 "instruction4_image": "successful_mine.png",
                 "instruction5": "red indicates unsuccessful mining\n(no reward)",
                 "instruction5_image": "unsuccessful_mine.png",
                 "instruction6": (
-                    "You mine rewards from asteroids by shooting them. "
+                    "You mine rewards from asteroids with the spacebar. "
                     "Some asteroids yield reward more often than others. "
                     "Get optimal rewards by finding the asteroids that yield reward often!"
                 ),
@@ -528,7 +528,7 @@ def generate_timeline(
                 "instruction1_image": "move_left.gif",
                 "instruction2": "→ move right key",
                 "instruction2_image": "move_right.gif",
-                "instruction3": "shoot asteroids with spacebar",
+                "instruction3": "mine with spacebar",
                 "instruction3_image": "mine.gif",
                 "instruction4": "green\nindicates reward",
                 "instruction4_image": "successful_mine.png",

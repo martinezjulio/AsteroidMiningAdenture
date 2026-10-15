@@ -19,7 +19,13 @@ if (!mongoDBUri) {
 
 // Middleware
 app.use(express.json());
-app.use(express.static('.')); // Serve all files from current directory
+// Only the client bundle and its assets are public. Serving the repo root would expose
+// config.json / configs/*.yaml (the payoff table), server.js and generated timelines.
+app.use('/assets', express.static(path.join(__dirname, 'assets'), { maxAge: '1h' }));
+app.use('/vendor', express.static(path.join(__dirname, 'vendor'), { maxAge: '7d', immutable: true }));
+app.get('/main.js', (req, res) => {
+    res.sendFile(path.join(__dirname, 'main.js'));
+});
 
 // Read config
 const config = require('./config.json');
@@ -83,6 +89,8 @@ app.get('/api/config', (req, res) => {
         display_running_total_reward: config.display_running_total_reward || false,
         total_reward_scope: config.total_reward_scope || 'per_session',
         report_play_rewards_between_rounds: config.report_play_rewards_between_rounds || false,
+        bandit_assignment_mode: config.bandit_assignment_mode || 'session_fixed',
+        prolific_completion_url: config.prolific_completion_url || null,
         demonstrator_config,
         verbose: config.verbose || false
     });
@@ -376,15 +384,21 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-// Endpoint to log game data
+// Endpoint to log game data. 503 while MongoDB is down so the client's log queue
+// retries instead of treating it as a permanent failure; 400 for rows the schema
+// rejects (retrying those can't help).
 app.post('/api/log', async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+        return res.status(503).json({ success: false, error: 'database unavailable' });
+    }
     try {
         const gameLog = new GameLog(req.body);
         await gameLog.save();
         res.status(200).json({ success: true });
     } catch (error) {
         console.error('Error saving game log:', error);
-        res.status(500).json({ success: false, error: error.message });
+        const status = error.name === 'ValidationError' ? 400 : 500;
+        res.status(status).json({ success: false, error: error.message });
     }
 });
 
@@ -415,8 +429,12 @@ app.post('/api/log-refresh', async (req, res) => {
     }
 });
 
-// Endpoint to get game logs (for debugging)
+// Endpoint to get game logs (local debugging only — participant data must not be
+// readable from the public deployment).
 app.get('/api/logs/:prolific_id', async (req, res) => {
+    if (isProduction) {
+        return res.status(404).end();
+    }
     try {
         const logs = await GameLog.find({ prolific_id: req.params.prolific_id }).sort({ timestamp: 1 });
         res.json(logs);

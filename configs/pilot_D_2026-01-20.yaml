@@ -111,3 +111,6 @@ report_play_rewards_between_rounds: false
 
 # Browser console verbose logging.
 verbose: false
+
+# Where participants are sent after the final screen (Prolific completion URL).
+prolific_completion_url: https://app.prolific.com/submissions/complete?cc=CTVM94DF

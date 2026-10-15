@@ -2,290 +2,345 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <title>Bandit MVP with Overview Grid and Controls</title>
-  <!-- Phaser 3 via CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+  <title>Fortune Frontier</title>
+
+  <!-- Fonts: Orbitron for titles, Inter for body/UI. main.js waits for these to load
+       before rendering canvas text so Phaser doesn't bake in a fallback font. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Orbitron:wght@600;700&display=block" rel="stylesheet">
+
+  <!-- Phaser 3.60.0, vendored so a CDN outage can't take the study down -->
+  <script src="vendor/phaser.min.js"></script>
 
   <!-- Our main code with cache busting -->
-  <script defer src="main.js?v=1746425000"></script>
+  <script defer src="main.js?v=1760500000"></script>
 
   <style>
-    /* Basic page styling */
+    /* Design tokens. The same values live in THEME inside main.js for canvas text. */
+    :root {
+      --bg: #0b0d12;
+      --bg-glow: #182033;
+      --panel: #161a23;
+      --panel-border: rgba(255, 255, 255, 0.08);
+      --text: #f3f4f6;
+      --muted: #9aa3b2;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --success: #22c55e;
+      --fail: #ef4444;
+      --border-neutral: #262c38;
+      --zone-border-w: 16px;
+      --radius: 10px;
+      --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+      --font-display: "Orbitron", "Inter", system-ui, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
     body {
       margin: 0;
-      padding: 0;
       min-height: 100vh;
-      background: #222;
-      color: #ddd;
-      font-family: sans-serif;
+      padding: 16px 16px 20px;
+      background: radial-gradient(1200px 600px at 50% -10%, var(--bg-glow) 0%, var(--bg) 60%);
+      color: var(--text);
+      font-family: var(--font-body);
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: safe center;
-    }
-    h1 {
-      color: #fff;
+      gap: 12px;
     }
 
-    /* The Phaser canvas container */
+    /* #game-frame carries the zone-colored border; #game-container (Phaser's parent)
+       is borderless so Phaser's Scale.FIT measures exactly the drawable box. Width-driven
+       with a fixed aspect ratio so canvas + rows below fit a 1366×768 laptop without
+       scrolling. main.js sets the frame's border-color to the active zone color. */
+    #game-frame {
+      box-sizing: content-box;
+      width: min(1000px, calc(100vw - 80px), calc((100vh - 330px) * 1000 / 620));
+      border: var(--zone-border-w) solid var(--border-neutral);
+      border-radius: var(--radius);
+      background: #000;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+      transition: border-color 0.3s ease;
+      overflow: hidden;
+    }
     #game-container {
-      margin-top: 10px;
       position: relative;
-      /* We'll apply a thick border in main.js via JS, e.g.:
-         element.style.border = "10px solid #ff0000"; */
+      width: 100%;
+      aspect-ratio: 1000 / 620;
+      overflow: hidden;
     }
+    #game-container canvas { display: block; }
 
-    /* The single-row "grid" for user/demonstrator + zone icons. */
+    /* Rows below the canvas keep a fixed minimum height even when empty so the canvas
+       never jumps between stages. */
     #summary-bar {
-      width: 1140px;
-      min-height: 80px;
-      margin-top: 10px;
+      width: 100%;
+      max-width: 1140px;
+      min-height: 122px;
       display: flex;
       flex-direction: row;
       align-items: flex-start;
       justify-content: center;
-      gap: 0; /* spacing handled by per-group dashed separators */
     }
-
-    /* Running total reward, shown beneath the summary bar during play stages. */
-    #total-reward-display {
-      width: 1140px;
-      margin-top: 20px;
+    .sb-group {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .sb-cells { display: flex; flex-direction: row; justify-content: center; gap: 6px; }
+    .sb-cell {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      width: 80px;
+      height: 90px;
+      padding: 6px;
+      border: 3px solid #fff;
+      border-radius: 8px;
+      background: rgba(22, 26, 35, 0.8);
+      opacity: 0.45;
+    }
+    .sb-cell.current { opacity: 1; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.15); }
+    .sb-cell img { width: 36px; max-height: 36px; object-fit: contain; display: block; }
+    .sb-name {
+      color: var(--text);
+      font-size: 10px;
+      font-weight: 600;
+      margin-top: 2px;
       text-align: center;
-      font: bold 20px Arial;
-      color: #00ff00;
-      text-shadow:
-        -2px -2px 0 #000,
-         2px -2px 0 #000,
-        -2px  2px 0 #000,
-         2px  2px 0 #000,
-         0   -2px 0 #000,
-         0    2px 0 #000,
-        -2px  0   0 #000,
-         2px  0   0 #000;
-      display: none;
+      line-height: 1.1;
+      word-break: break-word;
+    }
+    .sb-reward {
+      margin-top: auto;
+      min-height: 16px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--success);
+    }
+    .sb-underline { border-top: 2px solid rgba(255, 255, 255, 0.5); margin-top: 5px; }
+    .sb-label {
+      color: var(--muted);
+      text-align: center;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-top: 4px;
+    }
+    .sb-sep { border-left: 2px dashed rgba(255, 255, 255, 0.25); align-self: stretch; margin: 0 8px; }
+
+    /* Running total reward, beneath the summary bar. Toggled with visibility so it
+       keeps its space. */
+    #total-reward-display {
+      min-height: 28px;
+      text-align: center;
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 18px;
+      letter-spacing: 0.04em;
+      color: var(--success);
+      text-shadow: 0 0 12px rgba(34, 197, 94, 0.45);
+      visibility: hidden;
     }
 
-    /* The controls display row below the summary bar. */
+    /* Controls hint row */
     #controls-display {
-      width: 800px;
-      margin-top: 15px;
+      min-height: 64px;
       display: flex;
       flex-direction: row;
       align-items: flex-start;
-      justify-content: center; /* center them horizontally */
-      gap: 40px;
+      justify-content: center;
+      gap: 36px;
     }
     .control-key {
       display: flex;
       flex-direction: column;
       align-items: center;
       text-align: center;
-      color: #fff;
+      color: var(--muted);
+      font-size: 13px;
+      gap: 6px;
     }
     .control-icon {
-      font-size: 24px; /* bigger arrow icons */
-      margin-bottom: 5px;
-    }
-    .control-icon.space {
-      /* For spacebar, we can show a visual rectangle or just the word "SPACE" */
-      display: inline-block;
-      padding: 5px 12px;
-      border: 2px solid #fff;
-      border-radius: 4px;
-      font-size: 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 36px;
+      height: 32px;
+      padding: 0 10px;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-bottom-width: 3px;
+      border-radius: 6px;
+      background: var(--panel);
+      color: var(--text);
+      font-size: 15px;
+      font-weight: 600;
     }
 
-    /* The overlay for Prolific ID form */
-    #prolific-form-overlay {
+    /* Shared panel + button styles for the two DOM forms */
+    .overlay {
       position: fixed;
-      top: 0; left: 0;
-      width: 100%; 
-      height: 100%;
-      background-color: rgba(20, 20, 20, 0.7);
-      display: flex; 
-      flex-direction: column; 
-      align-items: center; 
+      inset: 0;
+      background: rgba(5, 7, 12, 0.82);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
       justify-content: center;
       z-index: 9999;
       visibility: hidden; /* toggled via JS */
     }
-
-    #prolific-form-overlay form {
-      onsubmit: return false;
-      background: #333; 
-      padding: 20px; 
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 14px;
+      padding: 28px 32px;
+      max-width: 520px;
+      width: calc(100vw - 32px);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+      text-align: center;
+    }
+    .panel p { margin: 0 0 14px; color: var(--text); font-size: 16px; line-height: 1.45; }
+    .panel input[type="text"],
+    .panel textarea {
+      width: 100%;
+      padding: 10px 12px;
+      font: 15px var(--font-body);
+      color: var(--text);
+      background: #0f1218;
+      border: 1px solid rgba(255, 255, 255, 0.15);
       border-radius: 8px;
+      outline: none;
     }
-    #prolific-form-overlay input {
-      padding: 8px; 
-      margin-bottom: 10px; 
-      font-size: 16px;
-    }
-    #prolific-form-overlay button {
-      padding: 8px 16px;
-      font-size: 16px;
+    .panel input[type="text"]:focus,
+    .panel textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25); }
+    .panel textarea { resize: vertical; min-height: 96px; margin-top: 4px; }
+    .btn {
+      display: inline-block;
+      margin-top: 14px;
+      padding: 11px 22px;
+      font: 700 15px var(--font-body);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #fff;
+      background: var(--accent);
+      border: none;
+      border-radius: 10px;
       cursor: pointer;
+      transition: background 0.15s ease, transform 0.1s ease;
     }
+    .btn:hover { background: var(--accent-hover); transform: translateY(-1px); }
+    .btn:disabled { background: #4b5563; cursor: not-allowed; transform: none; }
+    .form-error {
+      color: var(--fail);
+      font-size: 14px;
+      margin: 10px 0 0;
+      min-height: 18px;
+    }
+    .form-error[hidden] { display: block; visibility: hidden; }
+
     #prolific-welcome-title {
-      font-family: 'Courier New', monospace;
-      font-size: 40px;
-      color: #ffffff;
-      margin: 0 0 10px 0;
+      font-family: var(--font-display);
+      font-size: 38px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: var(--text);
+      margin: 0 0 6px;
       text-align: center;
     }
     #prolific-welcome-subtitle {
-      font-family: 'Courier New', monospace;
-      font-size: 26px;
-      color: #ffffff;
-      margin: 0 0 28px 0;
-      text-align: center;
-      font-weight: normal;
-    }
-
-    /* The overlay for Feedback form */
-    #feedback-form-overlay {
-      position: fixed;
-      top: 0; left: 0;
-      width: 100%; 
-      height: 100%;
-      background-color: rgba(20, 20, 20, 0.7);
-      display: flex; 
-      flex-direction: column; 
-      align-items: center; 
-      justify-content: center;
-      z-index: 9999;
-      visibility: hidden; /* toggled via JS */
-    }
-
-    #feedback-form-overlay form {
-      background: #333; 
-      padding: 30px; 
-      border-radius: 8px;
-      max-width: 500px;
+      font-family: var(--font-body);
+      font-size: 20px;
+      font-weight: 400;
+      color: var(--muted);
+      margin: 0 0 28px;
       text-align: center;
     }
+    #prolific-id-row { display: flex; gap: 8px; align-items: stretch; }
+    #prolific-id-row .btn { margin-top: 0; white-space: nowrap; }
+    #prolific-id-hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
 
-    #feedback-form-overlay p {
-      color: #fff;
-      margin-bottom: 15px;
-      font-size: 16px;
-    }
-
-    #feedback-question {
-      font-weight: bold;
-      color: #ffeb3b;
-    }
-
+    #feedback-question { font-weight: 700; color: #fbbf24; }
     #feedback-partner-display {
-      margin: 20px 0;
-      text-align: center;
+      margin: 16px 0;
       display: flex;
+      flex-direction: column;
       justify-content: center;
       align-items: center;
+      gap: 8px;
     }
-
     #feedback-partner-image {
-      width: 80px;
-      height: 80px;
-      border-radius: 8px;
-      border: 2px solid #fff;
+      width: 84px;
+      height: 84px;
+      object-fit: contain;
+      border-radius: 10px;
+      border: 2px solid rgba(255, 255, 255, 0.25);
+      background: #0f1218;
+      padding: 6px;
     }
-
-    #feedback-text-input {
-      width: 100%;
-      padding: 10px;
-      margin: 15px 0;
-      font-size: 14px;
-      border-radius: 4px;
-      border: 1px solid #ccc;
-      resize: vertical;
-      min-height: 80px;
-    }
-
-    #feedback-submit-btn {
-      padding: 10px 20px; 
-      font-size: 16px; 
-      cursor: pointer;
-      background-color: #4CAF50;
-      color: white;
-      border: none;
-      border-radius: 4px;
-    }
-
-    #feedback-submit-btn:hover {
-      background-color: #45a049;
-    }
-
-    #feedback-submit-btn:disabled {
-      background-color: #cccccc;
-      cursor: not-allowed;
-    }
+    #feedback-partner-name { font-weight: 700; font-size: 14px; color: var(--text); }
   </style>
 </head>
 <body>
-  <!-- The Phaser game container -->
-  <div id="game-container"></div>
+  <!-- The Phaser game container (frame carries the zone border) -->
+  <div id="game-frame"><div id="game-container"></div></div>
 
-  <!-- Single-row "grid" for user/demonstrator icons & zone text -->
+  <!-- Per-game icons for the current session -->
   <div id="summary-bar"></div>
 
-  <!-- Running total reward, shown beneath the icon row during play stages -->
+  <!-- Running total reward -->
   <div id="total-reward-display"></div>
 
-  <!-- Controls display below the summary bar -->
+  <!-- Controls hint row (rewritten per stage by main.js) -->
   <div id="controls-display">
-    <!-- Arrow Up -->
-    <div class="control-key">
-      <div class="control-icon">↑</div>
-      <div>Up</div>
-    </div>
-    <!-- Arrow Down -->
-    <div class="control-key">
-      <div class="control-icon">↓</div>
-      <div>Down</div>
-    </div>
-    <!-- Arrow Left -->
     <div class="control-key">
       <div class="control-icon">←</div>
       <div>Left</div>
     </div>
-    <!-- Arrow Right -->
     <div class="control-key">
       <div class="control-icon">→</div>
       <div>Right</div>
     </div>
-    <!-- Spacebar -->
     <div class="control-key">
-      <div class="control-icon space">Spacebar</div>
-      <div>Mine for Minerals</div>
+      <div class="control-icon">Space</div>
+      <div>Mine asteroid<br><span style="opacity:.7">or click an asteroid</span></div>
     </div>
   </div>
 
   <!-- Overlaid Prolific form -->
-  <div id="prolific-form-overlay">
-    <h1 id="prolific-welcome-title">Welcome to Fortune Frontier</h1>
+  <div id="prolific-form-overlay" class="overlay">
+    <h1 id="prolific-welcome-title">Fortune Frontier</h1>
     <h2 id="prolific-welcome-subtitle">The Asteroid Mining Adventure</h2>
-    <form onsubmit="return false;">
+    <form class="panel" onsubmit="return false;">
       <p id="prolific-form-message">Please enter your Prolific ID below:</p>
-      <input type="text" id="prolific-id-input" placeholder="Prolific ID"/>
-      <button type="button" id="prolific-submit-btn">Submit</button>
+      <div id="prolific-id-row">
+        <input type="text" id="prolific-id-input" placeholder="Prolific ID" autocomplete="off" spellcheck="false"/>
+        <button type="button" class="btn" id="prolific-submit-btn">Start</button>
+      </div>
+      <p id="prolific-id-hint" hidden>We filled this in from your Prolific link. Check it and press Start.</p>
+      <p class="form-error" id="prolific-form-error" hidden></p>
     </form>
   </div>
 
   <!-- Overlaid Feedback form -->
-  <div id="feedback-form-overlay">
-    <form onsubmit="return false;">
+  <div id="feedback-form-overlay" class="overlay">
+    <form class="panel" onsubmit="return false;">
       <p id="feedback-form-message">Please fill the box below with your response to the following question:</p>
       <p id="feedback-question">Why did you choose the following partner?</p>
       <div id="feedback-partner-display">
         <img id="feedback-partner-image" src="" alt="Chosen Partner" />
+        <div id="feedback-partner-name"></div>
       </div>
-      <textarea id="feedback-text-input" placeholder="Enter your response here..." rows="4" cols="50"></textarea>
-      <button type="button" id="feedback-submit-btn">Submit</button>
+      <textarea id="feedback-text-input" placeholder="Enter your response here..." rows="4"></textarea>
+      <p class="form-error" id="feedback-form-error" hidden></p>
+      <button type="button" class="btn" id="feedback-submit-btn">Submit</button>
     </form>
   </div>
 </body>

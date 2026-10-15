@@ -146,6 +146,12 @@ Unknown tokens cause Python to raise `ValueError` at timeline-generation time.
 - **Read by**: Python (`models.py`), Browser.
 - **Effect**: when `true`, Python injects a `round_recap` meta stage between rounds inside a session (i.e. after every round except the last). The browser's `setupRoundRecap` reads the per-play-game rewards tracked at runtime and renders a message that lists each play game's reward in the order they happened — e.g. *"Good Job! You earned 4 rewards in your first play game and 6 rewards in your second play game. Can you beat that in the next round?"* The number of clauses scales with however many `play` tokens the round contained. Recap is skipped for any round that had zero play games.
 
+### `prolific_completion_url`
+- **Type**: string (URL) or omitted.
+- **Default**: none — the browser falls back to a hard-coded completion URL in `showEndOfGameMessage` (main.js).
+- **Read by**: Node (`server.js`), Browser.
+- **Effect**: where the "Return to Prolific" button on the final screen sends the participant. Put the study's completion code here (`https://app.prolific.com/submissions/complete?cc=XXXXXXXX`) so a new study only needs a YAML change.
+
 ### `verbose`
 - **Type**: bool
 - **Default**: `false`.

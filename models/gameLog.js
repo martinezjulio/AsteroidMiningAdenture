@@ -3,6 +3,8 @@ const mongoose = require('mongoose');
 const gameLogSchema = new mongoose.Schema({
     // User identification
     prolific_id: { type: String, required: true },
+    prolific_study_id: { type: String, default: null },   // STUDY_ID from the Prolific URL
+    prolific_session_id: { type: String, default: null }, // SESSION_ID from the Prolific URL
     uid: { type: String, required: true },
     session_id: { type: String, required: true },
     

@@ -25,8 +25,8 @@ The Python timeline generator has no `requirements.txt` — it uses only stdlib 
 
 Three loosely coupled tiers connected by HTTP and stdio:
 
-1. **Phaser browser client** (`index.html` + `main.js`, ~190KB single file). On load it `GET /api/config` then `GET /api/timeline`, walks the returned timeline stage-by-stage, and `POST /api/log`s every user action.
-2. **Express server** (`server.js`). Serves static files, exposes the timeline/log/health endpoints, and shells out to Python for each timeline.
+1. **Phaser browser client** (`index.html` + `main.js`, ~190KB single file; Phaser is vendored at `vendor/phaser.min.js`). On load it waits for web fonts, `GET /api/config`, then `GET /api/timeline`, walks the returned timeline stage-by-stage, and `POST /api/log`s every user action through an in-order retry queue (`enqueueLog`/`flushLogQueue`); the end screen drains the queue before showing the Prolific link (`prolific_completion_url` in the YAML).
+2. **Express server** (`server.js`). Serves only `index.html`, `main.js`, `assets/` and `vendor/` (the repo root is deliberately not exposed — it holds the payoff table), exposes the timeline/log/health endpoints (`/api/log` returns 503 while Mongo is disconnected so the client retries), and shells out to Python for each timeline.
 3. **Python timeline generator** (`timeline_models/models.py`). Pure stdlib; reads `../config.json`, prints one JSON timeline to stdout, writes a backup to `timelines/timeline_{requestId}.json`.
 
 ### Per-user timeline generation (the core flow)
@@ -54,6 +54,10 @@ The timeline mixes two stage shapes; the dispatcher in `loadStage()` (main.js ~1
 - **Game stages** use `game`: `practice`, `play`, `watch`, `choice`, `online-choice`, `blind`, `indicate`. Carry full `game_index`/`stage_index`/`session_index`/`round_index`.
 
 Adding a new stage means: extend the `gameLog.js` enum, write a `setup<Type>(stage)` function, add a `case` to `loadStage()`, and add a button label in `makeNextButton()` (~main.js 4743).
+
+### Visual theme
+
+Colors/fonts for canvas text come from the `THEME` object in `main.js`, which mirrors the CSS variables in `index.html`; buttons go through `makeButton()`. Phaser's `font` shorthand splits on spaces, so font family names must be single tokens (`Inter`, `Orbitron`). The canvas is `1000×620` game units scaled with `Phaser.Scale.FIT`; anything positioned in the DOM over the canvas must convert via the canvas's bounding rect (see `displayInstructionLayout`).
 
 ### Demonstrator visual identity
 
