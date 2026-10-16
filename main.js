@@ -2201,7 +2201,7 @@ function setupProlificIdForm(stage) {
   frame.style.visibility = 'hidden';
   overlay.style.visibility = 'visible';
   showPartnerRow('roster');
-  document.getElementById('summary-bar').style.zIndex = '10000';
+  raiseSummaryBarOverOverlay(true);
   const frameRect = frame.getBoundingClientRect();
   const content = document.getElementById('prolific-content');
   overlay.style.justifyContent = 'flex-start';
@@ -2352,11 +2352,20 @@ function setupFeedback(stage) {
  * change) and the decorative partner row in #summary-bar is lifted above the
  * overlay. The game frame first appears on the practice transition slide.
  *******************************************************/
+// The partner row is shown above the Prolific/intro/how-to overlays (z-index above
+// the overlay's 9999). It is display-only there, so clicks must pass through it:
+// on viewports shorter than ~945px the overlay's button sits under the row.
+function raiseSummaryBarOverOverlay(on) {
+  const bar = document.getElementById('summary-bar');
+  bar.style.zIndex = on ? '10000' : '';
+  bar.style.pointerEvents = on ? 'none' : '';
+}
+
 function restoreGameFrame() {
   document.getElementById('game-frame').style.visibility = '';
   document.getElementById('prolific-form-overlay').style.visibility = 'hidden';
   document.getElementById('page-overlay').style.visibility = 'hidden';
-  document.getElementById('summary-bar').style.zIndex = '';
+  raiseSummaryBarOverOverlay(false);
 }
 
 function escapeHtml(s) {
@@ -2385,7 +2394,7 @@ function showDomPage({ html, buttonLabel, onNext, partnerMode }) {
 
   overlay.style.visibility = 'visible';
   showPartnerRow(partnerMode);
-  document.getElementById('summary-bar').style.zIndex = '10000';
+  raiseSummaryBarOverOverlay(true);
   // Centre the panel within the frame's area so it sits just above the partner row
   // (same placement as the Prolific form).
   const frameRect = frame.getBoundingClientRect();
