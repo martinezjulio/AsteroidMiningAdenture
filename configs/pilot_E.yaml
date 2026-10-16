@@ -34,6 +34,9 @@ demonstrator_sampling_strategy: thompson
 demonstrator_filter: expert_gt_novice
 demonstrator_filter_max_attempts: 200
 bandit_assignment_mode: round_changing
+# Transition slide between two grid stages in the SAME zone: blackout (dim slide,
+# asteroids hidden) | keep_scene (asteroids stay on screen; pips/tank reset).
+same_zone_transition: keep_scene
 experience_message_text: null
 name_demonstrators: true
 present_demonstrators_apriori: true

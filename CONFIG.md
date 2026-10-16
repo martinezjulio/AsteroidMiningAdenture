@@ -117,6 +117,13 @@ Unknown tokens cause Python to raise `ValueError` at timeline-generation time.
 - **Required**.
 - **Effect**: `"session_fixed"` keeps one zone for all rounds in a session; `"round_changing"` assigns a fresh zone each round.
 
+### `same_zone_transition`
+- **Type**: string enum
+- **Accepted values**: `"blackout"` | `"keep_scene"`
+- **Default**: `"blackout"`.
+- **Read by**: Node (`server.js`), Browser.
+- **Effect**: picks the transition slide shown before a `play`/`watch` stage whose zone is the same as the last grid stage drawn (within a round under `round_changing`; across rounds too under `session_fixed`). `"blackout"` is the standard slide: scene cleared, dimmed zone background, title, body, partner/ship card. `"keep_scene"` leaves the asteroid grid and the `EXPEDITION`/`ZONE` pills in place, drops the pips and Reward Tank (the "rewards reset" cue), and puts the same title/body in a panel below the grid with the next actor's sprite beside it — so participants can *see* that the asteroids did not change instead of having to remember it. Zone changes, `round_recap`, `choice` and the first stage of an expedition always use the blackout slide. The copy itself is unchanged (`overlay-title` / `overlay-message` from `models.py`).
+
 ### `experience_message_text`
 - **Type**: string or `null`
 - **Default**: `null`.

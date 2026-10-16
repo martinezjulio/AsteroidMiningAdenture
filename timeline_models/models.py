@@ -500,7 +500,7 @@ def generate_timeline(
                     if new_zone:
                         body = f"New zone. {who} takes {n} shots. Watch which asteroids it chooses and what it gets."
                     else:
-                        body = f"Same zone, different partner. {who} takes {n} shots. Watch which asteroids it chooses and what it gets."
+                        body = f"You will continue in the same zone but now watch a different partner. {who} takes {n} shots. Watch which asteroids it chooses and what it gets."
                     seen_demonstrators.add(did)
 
                 if who not in watched_in_zone:
@@ -542,11 +542,11 @@ def generate_timeline(
                     if plays_in_zone == 0:
                         # First time mining in this zone.
                         if len(watched_in_zone) == 1 and just_watched:
-                            lead = "Same zone as the partner you just watched."
+                            lead = "You will continue in the same zone as the partner you just watched."
                         elif watched_in_zone:
-                            lead = f"Same zone where you watched {names} mine."
+                            lead = f"You will continue in the same zone where you watched {names} mine."
                         else:
-                            lead = "Same zone."
+                            lead = "You will continue in the same zone."
                     else:
                         # Played here before.
                         if watched_in_zone:

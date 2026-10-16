@@ -617,6 +617,10 @@ const PIP_RADIUS = 6;
 const PIP_SPACING = 14;
 const OUTCOME_TRACK_OFFSET = 8;  // thin line this far above each asteroid row; pips sit above it
 let outcomePips = {};              // "row,col" -> { hit, miss } pips drawn so far (reset per stage)
+// zone_global_index of the last stage that drew the asteroid grid. The transition
+// slide compares the next stage against it to decide whether the zone changes
+// (blackout slide) or stays (in-place slide, see showInPlaceTransition).
+let lastGridZone = null;
 
 // Logical game size. The canvas is created at GAME_W*DPR × GAME_H*DPR and the main
 // camera is zoomed by DPR, so every coordinate in this file stays in 1000×600 space
@@ -702,11 +706,17 @@ function addRichText(scene, cx, y, text, style, highlights, originY = 0.5) {
   return { objects, height: totalH, destroy: () => objects.forEach(o => o.destroy()) };
 }
 
-// [{ name, color }] for every demonstrator attached to a stage (watch: `demonstrator`;
-// presentation/choice: `demonstrator1`/`demonstrator2`).
+// [{ name, color }] for every partner a stage's copy may name: the demonstrators
+// attached to it (watch: `demonstrator`; presentation/choice: `demonstrator1`/
+// `demonstrator2`) plus every partner in the same session, because play copy names
+// the partners watched in the zone without carrying their data.
 function partnerHighlights(stage) {
-  return [stage.demonstrator, stage.demonstrator1, stage.demonstrator2]
-    .filter(d => d && d.demonstrator_name)
+  const sameSession = (timelineData || []).flatMap(flattenSession)
+    .filter(s => s.session_index !== undefined && s.session_index === stage.session_index);
+  const seen = new Set();
+  return [stage, ...sameSession]
+    .flatMap(s => [s.demonstrator, s.demonstrator1, s.demonstrator2])
+    .filter(d => d && d.demonstrator_name && !seen.has(d.demonstrator_name) && seen.add(d.demonstrator_name))
     .map(d => ({ name: d.demonstrator_name, color: partnerColor(d) || THEME.text }));
 }
 
@@ -1507,6 +1517,9 @@ function loadStage() {
 
   // Store the current stage for reference in other functions if needed
   window.currentStage = stage;
+  if (stage.zone && ['practice', 'play', 'watch', 'indicate', 'blind'].includes(stage.stage_type || stage.game)) {
+    lastGridZone = stage.zone.zone_global_index;
+  }
   ledgerLiveKey = null; // re-set by ledgerGameStarted below if this stage is a play/watch game
 
   // Initialize logging for gameplay stages
@@ -2367,6 +2380,9 @@ function showDomPage({ html, buttonLabel, onNext, partnerMode }) {
   const frameRect = frame.getBoundingClientRect();
   overlay.style.justifyContent = 'flex-start';
   overlay.style.paddingTop = `${Math.max(12, frameRect.top + (frameRect.height - content.offsetHeight) / 2)}px`;
+  // The button is disabled on click; a page that advances in steps (How to Play)
+  // re-enables it from onNext until the last step.
+  return btn;
 }
 
 // Intro copy from models.py uses [BOLD]title[/BOLD], [RED_BOLD]warning[/RED_BOLD] and the
@@ -2421,12 +2437,26 @@ function setupInstructions(stage) {
     return;
   }
   const scene = this;
-  showDomPage({
+  // Step-through: only the current panel is lit; each Next lights the following one,
+  // and Next on the last panel leaves the page.
+  const numSteps = (stage.instructions.panels || []).length;
+  let step = 0;
+  const showStep = () => {
+    document.querySelectorAll('#page-content .howto-item')
+      .forEach((el, i) => el.classList.toggle('howto-dim', i !== step));
+  };
+  const btn = showDomPage({
     html: howToPageHtml(stage),
     buttonLabel: 'Next',
-    onNext: () => nextStage.call(scene),
+    onNext: () => {
+      step += 1;
+      if (step >= numSteps) { nextStage.call(scene); return; }
+      showStep();
+      btn.disabled = false;
+    },
     partnerMode: 'prospector'
   });
+  showStep();
 }
 
 /**
@@ -4987,7 +5017,7 @@ function showEndOfGameMessage() {
     || "https://app.prolific.com/submissions/complete?cc=CTVM94DF";
 
   // Make sure every queued log row has reached the server before offering the link.
-  const statusText = addText(this, W / 2, y + 16, "Saving your data…", {
+  const statusText = addText(this, W / 2, y + 16, "Please wait while we process your results…", {
     font: `16px ${THEME.fontBody}`,
     fill: THEME.textMuted,
     align: 'center',
@@ -5288,6 +5318,26 @@ function getCellBelow(gridX, gridY, cellWidth, cellHeight, row, col) {
 }
 
 /**
+ * Grid placement for a bandit (rows x cols of payoffs): the same numbers
+ * setupPlayOrPractice / setupWatch compute inline, for code that must draw the grid
+ * in exactly the same place (the in-place transition slide).
+ */
+function gridGeometry(bandit) {
+  const numRows = bandit.length;
+  const numCols = bandit[0].length;
+  const cellWidth = BASE_CELL_SIZE;
+  const cellHeight = BASE_CELL_SIZE;
+  const totalGridWidth = numCols * cellWidth + (numCols - 1) * CELL_PADDING;
+  const totalGridHeight = numRows * cellHeight + (numRows - 1) * CELL_PADDING;
+  const gridOriginX = (GAME_W - totalGridWidth) / 2;
+  const gridOriginY = GRID_TOP_Y;
+  return {
+    numRows, numCols, cellWidth, cellHeight, totalGridWidth, totalGridHeight,
+    gridOriginX, gridOriginY, gridBottomY: gridOriginY + totalGridHeight
+  };
+}
+
+/**
  * Red bullet from the ship's nose to the asteroid, BULLET_FLIGHT_MS long. The
  * shot's flash/outcome is delayed by the same amount at the call sites.
  */
@@ -5466,27 +5516,9 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   // Hide controls during transition overlays
   updateControlsDisplay("hidden");
   
-  // Dimmed zone background (if the next stage has a zone) under a dark overlay, so
-  // the zone identity carries through the transition.
   const W = GAME_W;
   const H = GAME_H;
-  const overlay = scene.add.rectangle(0, 0, W, H, THEME.overlay, 0.72);
-  overlay.setOrigin(0, 0).setDepth(-1);
-  if (nextStage.zone && nextStage.zone.zone_global_index !== undefined) {
-    const bgKey = `zone_bg_${nextStage.zone.zone_global_index}`;
-    const addBg = () => {
-      if (!scene.textures.exists(bgKey)) return;
-      scene.add.image(0, 0, bgKey).setOrigin(0, 0).setDisplaySize(W, H).setDepth(-2);
-    };
-    if (scene.textures.exists(bgKey)) {
-      addBg();
-    } else {
-      scene.load.image(bgKey, `assets/zone_backgrounds/${mapZoneBackground(nextStage.zone.zone_global_index)}`);
-      scene.load.once('complete', addBg);
-      scene.load.start();
-    }
-  }
-  
+
   // Get stage type and set button text accordingly
   const stageType = nextStage.stage_type || nextStage.game;
   let buttonText;
@@ -5517,6 +5549,45 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   // Title (display font) + body. Timelines generated before overlay-title existed
   // fall back to the body alone, centered where the old message sat.
   const overlayTitle = stageType === 'online-choice' ? null : (nextStage["overlay-title"] || null);
+
+  // Secondary message (watch games only; experience_message_text in the YAML). No
+  // fallback: null means the experimenter omitted it.
+  let secondaryMessage = null;
+  if (stageType === 'watch' || stageType === 'indicate') {
+    secondaryMessage = nextStage["secondary-overlay-message"] || null;
+  }
+
+  // Same zone as the last grid stage drawn: keep the asteroids on screen and show the
+  // copy in a panel below them, so the participant can see that the zone did not
+  // change instead of having to remember it. Zone changes keep the blackout slide.
+  const gridStages = ['practice', 'play', 'watch', 'indicate', 'blind'];
+  const keepScene = gameConfig && gameConfig.same_zone_transition === 'keep_scene'
+    && gridStages.includes(stageType)
+    && nextStage.zone && nextStage.zone.zone_global_index === lastGridZone;
+  if (keepScene) {
+    showInPlaceTransition(scene, nextStage, overlayTitle, message, secondaryMessage, buttonText, startCallback);
+    return;
+  }
+
+  // Dimmed zone background (if the next stage has a zone) under a dark overlay, so
+  // the zone identity carries through the transition.
+  const overlay = scene.add.rectangle(0, 0, W, H, THEME.overlay, 0.72);
+  overlay.setOrigin(0, 0).setDepth(-1);
+  if (nextStage.zone && nextStage.zone.zone_global_index !== undefined) {
+    const bgKey = `zone_bg_${nextStage.zone.zone_global_index}`;
+    const addBg = () => {
+      if (!scene.textures.exists(bgKey)) return;
+      scene.add.image(0, 0, bgKey).setOrigin(0, 0).setDisplaySize(W, H).setDepth(-2);
+    };
+    if (scene.textures.exists(bgKey)) {
+      addBg();
+    } else {
+      scene.load.image(bgKey, `assets/zone_backgrounds/${mapZoneBackground(nextStage.zone.zone_global_index)}`);
+      scene.load.once('complete', addBg);
+      scene.load.start();
+    }
+  }
+  
   if (overlayTitle) {
     addText(scene, GAME_W / 2, 64, overlayTitle, {
       font: `bold 24px ${THEME.fontDisplay}`,
@@ -5539,14 +5610,6 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
     partnerHighlights(nextStage),
     0.5
   );
-  
-  // Add secondary message if it exists (for watch games)
-  let secondaryMessage = null;
-  if (stageType === 'watch' || stageType === 'indicate') {
-    // Only use secondary-overlay-message if it's explicitly set in the stage data
-    // Don't provide a fallback to respect the omit_explicit_experience_transfer_message config
-    secondaryMessage = nextStage["secondary-overlay-message"] || null;
-  }
   
   // Update the game container border color immediately to match the next stage's zone
   if (nextStage.zone) {
@@ -5584,6 +5647,101 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
     createOnlineChoiceZoneIcon(scene, '#888888', 0);
   }
   
+}
+
+/**
+ * Same-zone transition slide. The asteroid grid and the EXPEDITION/ZONE pills are
+ * redrawn where they were (same cached textures, same geometry, so nothing moves),
+ * the pips and Reward Tank are gone, and the title/body sit in a panel in the band
+ * below the grid where the ship and tank normally live. Used instead of the blackout
+ * slide when same_zone_transition is "keep_scene" and the next stage's zone equals
+ * lastGridZone. Copy is the same overlay-title / overlay-message from models.py.
+ */
+function showInPlaceTransition(scene, nextStage, title, message, secondaryMessage, buttonText, startCallback) {
+  const stageType = nextStage.stage_type || nextStage.game;
+  const zone = nextStage.zone;
+  const g = gridGeometry(zone.zone_bandit);
+
+  addZoneLabels(scene, zone.zone_global_index, nextStage.session_index);
+  createZoneBackgroundMask.call(scene, nextStage, g.gridOriginX, g.gridOriginY, g.numRows, g.numCols, g.cellWidth, g.cellHeight);
+
+  if (title) {
+    addText(scene, GAME_W / 2, 64, title, {
+      font: `bold 24px ${THEME.fontDisplay}`,
+      fill: THEME.text,
+      align: 'center',
+      backgroundColor: 'rgba(5, 7, 12, 0.75)',
+      padding: { x: 16, y: 8 }
+    }).setOrigin(0.5).setDepth(10000);
+  }
+
+  // Message panel: from just under the grid to just above the button.
+  const panelX = 90;
+  const panelW = GAME_W - 2 * panelX;
+  const panelTop = g.gridBottomY + 20;
+  const panelBottom = GAME_H - 100 - 48;
+  const panelH = panelBottom - panelTop;
+  const panel = scene.add.graphics().setDepth(100);
+  panel.fillStyle(THEME.panel, 0.88);
+  panel.fillRoundedRect(panelX, panelTop, panelW, panelH, 12);
+  panel.lineStyle(1, 0xffffff, 0.18);
+  panel.strokeRoundedRect(panelX, panelTop, panelW, panelH, 12);
+
+  // Who is up next (ship or partner) with its name, on the left of the panel.
+  const spriteX = panelX + 70;
+  const spriteY = panelTop + panelH / 2 - 12;
+  const isWatch = stageType === 'watch' || stageType === 'indicate';
+  const demo = isWatch ? nextStage.demonstrator : null;
+  const name = demo ? (demo.demonstrator_name || '') : 'Prospector';
+  const nameColor = demo ? (partnerColor(demo) || THEME.text) : THEME.text;
+  const placeSprite = (key) => {
+    const img = scene.add.image(spriteX, spriteY, key).setOrigin(0.5).setDepth(101);
+    setSpriteDisplaySizeWithAspectRatio(img, DEMO_SPRITE_SIZE);
+  };
+  if (demo && demo.demonstrator_global_index !== undefined) {
+    // Same key setupWatch uses, so a load here is not repeated when the stage starts.
+    const key = `watch_${demo.demonstrator_global_index}`;
+    if (scene.textures.exists(key)) {
+      placeSprite(key);
+    } else {
+      scene.load.image(key, `assets/demonstrators/${mapDemonstratorImage(demo.demonstrator_global_index, demo.demonstrator_style, demo.demonstrator_color)}`);
+      scene.load.once('complete', () => placeSprite(key));
+      scene.load.start();
+    }
+  } else {
+    placeSprite('user');
+  }
+  if (name) {
+    addText(scene, spriteX, spriteY + DEMO_SPRITE_SIZE / 2 + 15, name, {
+      font: `bold 14px ${THEME.fontBody}`,
+      fill: nameColor,
+      align: 'center',
+      stroke: '#000000',
+      strokeThickness: 3
+    }).setOrigin(0.5).setDepth(101);
+  }
+
+  // Body (partner names in their ship color), centered in the panel to the right of
+  // the sprite. Drops one font step if the longest copy would overflow the panel.
+  const textLeft = panelX + 140;
+  const textW = panelW - 140 - 30;
+  const textCx = textLeft + textW / 2;
+  const textCy = panelTop + panelH / 2;
+  const body = secondaryMessage ? `${message}\n\n${secondaryMessage}` : message;
+  const render = (px) => addRichText(scene, textCx, textCy, body, {
+    font: `${px}px ${THEME.fontBody}`,
+    fill: THEME.text,
+    wordWrap: { width: textW },
+    lineSpacing: 4
+  }, partnerHighlights(nextStage), 0.5);
+  let rich = render(21);
+  if (rich.height > panelH - 40) {
+    rich.destroy();
+    rich = render(19);
+  }
+  rich.objects.forEach(o => o.setDepth(101));
+
+  makeButton(scene, GAME_W / 2, GAME_H - 100, buttonText, startCallback, { width: 220 });
 }
 
 // Create a summary-style icon (similar to the summary bar)

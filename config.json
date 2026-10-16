@@ -51,6 +51,7 @@
     "demonstrator_filter": "expert_gt_novice",
     "demonstrator_filter_max_attempts": 200,
     "bandit_assignment_mode": "round_changing",
+    "same_zone_transition": "keep_scene",
     "experience_message_text": null,
     "name_demonstrators": true,
     "present_demonstrators_apriori": true,

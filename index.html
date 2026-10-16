@@ -368,11 +368,20 @@
     }
     /* How to Play: one wrapping row of panels (image, title, caption) and a closing note.
        Images are 580×644 captures from the live game (npm run capture-howto). */
-    .howto-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; margin-bottom: 12px; }
-    .howto-item { width: 200px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+    .howto-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-bottom: 12px; }
+    /* Each panel sits in its own rounded card. Four cards (206px) plus three gaps fit
+       the 868px content width of .page-content without wrapping. */
+    .howto-item {
+      width: 206px; padding: 8px 8px 10px;
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      background: var(--panel); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 12px;
+      transition: opacity 0.25s;
+    }
+    /* Step-through: setupInstructions dims every card except the current step. */
+    .howto-item.howto-dim { opacity: 0.3; }
     /* aspect-ratio reserves the box before the image loads, so showDomPage measures the
        final page height when it centres the content within the frame area. */
-    .howto-item img { width: 200px; height: auto; aspect-ratio: 580 / 644; border-radius: 8px; background: #000; }
+    .howto-item img { width: 100%; height: auto; aspect-ratio: 580 / 644; border-radius: 8px; background: #000; }
     .howto-title { margin-top: 2px; font: 700 13px var(--font-display); letter-spacing: 0.08em; text-transform: uppercase; }
     .howto-caption { font-size: 14px; line-height: 1.4; text-align: center; }
     .howto-key { /* inline key cap, same look as the .control-icon hints under the canvas */

@@ -94,6 +94,7 @@ app.get('/api/config', (req, res) => {
         total_reward_scope: config.total_reward_scope || 'per_session',
         report_play_rewards_between_rounds: config.report_play_rewards_between_rounds || false,
         bandit_assignment_mode: config.bandit_assignment_mode || 'session_fixed',
+        same_zone_transition: config.same_zone_transition || 'blackout',
         prolific_completion_url: config.prolific_completion_url || null,
         bonus_per_reward: typeof config.bonus_per_reward === 'number' ? config.bonus_per_reward : null,
         bonus_currency: config.bonus_currency || '£',
