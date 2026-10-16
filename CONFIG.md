@@ -104,6 +104,13 @@ Unknown tokens cause Python to raise `ValueError` at timeline-generation time.
 - **Default**: `"thompson"`.
 - **Effect**: **informational / log-only**. Behavior is hardcoded to Thompson sampling regardless of value. Logged to MongoDB so analyses can record which strategy was active.
 
+### `demonstrator_filter` / `demonstrator_filter_max_attempts`
+- **Type**: string enum / int ≥ 1
+- **Default**: `"none"` / `200`.
+- **Read by**: Browser (`main.js`, via `/api/config`'s `demonstrator_config`).
+- **Effect**: both partners' runs for a zone are drawn together the first time either is watched (`getZoneDemoTrajectory`), and the pair is redrawn until the filter holds or the attempt cap is reached. `"expert_gt_novice"`: demo-1's earned reward in the zone must strictly exceed demo-2's. Each partner keeps its own Thompson sampler and warmup, so the logged `demonstrator_actions` / `demonstrator_rewards` are unchanged in form. Every `trajectory_complete` row logs `demonstrator_filter`, `demonstrator_filter_attempts` and `demonstrator_filter_satisfied`.
+- **Analysis note**: with a filter on, realized demonstrator trajectories are a selected sample (conditioned on the filter), so ideal-observer models should condition the same way. With pilot E's payoffs and warmups, `expert_gt_novice` rejects about 25% of pairs and leaves the expert's policy noise essentially unchanged.
+
 ### `bandit_assignment_mode`
 - **Type**: string enum
 - **Accepted values**: `"session_fixed"` | `"round_changing"`

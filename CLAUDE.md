@@ -42,7 +42,7 @@ Concurrency is bounded by `MAX_CONCURRENT_GENERATIONS` (currently 4) in `server.
 
 ### Demonstrator trajectories (always inline)
 
-Demonstrator behavior in watch stages is generated **live in JS** by `ThompsonSampler` in `main.js` (Beta-Bernoulli, α=β=1). Warmup iterations (`demo_1_prior_experience` / `demo_2_prior_experience`) run invisibly first, then the visible run continues from the warmed-up posterior — so observed rewards causally drive observed actions. Full action/reward arrays (warmup + shown) are logged on a synthesized `action: "trajectory_complete"` row. The legacy "file mode" that loaded pre-computed trajectories from `bandits_data.json` was removed in the config-driven-rounds refactor.
+Demonstrator behavior in watch stages is generated **live in JS** by `ThompsonSampler` in `main.js` (Beta-Bernoulli, α=β=1). Warmup iterations (`demo_1_prior_experience` / `demo_2_prior_experience`) run invisibly first, then the visible run continues from the warmed-up posterior — so observed rewards causally drive observed actions. Full action/reward arrays (warmup + shown) are logged on a synthesized `action: "trajectory_complete"` row. Both partners' runs for a zone are drawn together at the first watch of that zone (`getZoneDemoTrajectory`) so `demonstrator_filter` can constrain the pair; the filter and attempt count are logged on the same row. The legacy "file mode" that loaded pre-computed trajectories from `bandits_data.json` was removed in the config-driven-rounds refactor.
 
 When adding logged fields, update the schema in `models/gameLog.js` — Mongoose silently drops fields not in the schema.
 

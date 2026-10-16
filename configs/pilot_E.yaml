@@ -28,6 +28,11 @@ bandit_payoffs:
   - 0.8
 
 demonstrator_sampling_strategy: thompson
+# Per-zone demonstrator-pair filter: both partners' runs for a zone are drawn together
+# at the first watch of that zone and redrawn until the constraint holds (or the attempt
+# cap is reached, which is logged). none | expert_gt_novice (demo-1 strictly out-earns demo-2).
+demonstrator_filter: expert_gt_novice
+demonstrator_filter_max_attempts: 200
 bandit_assignment_mode: round_changing
 experience_message_text: null
 name_demonstrators: true

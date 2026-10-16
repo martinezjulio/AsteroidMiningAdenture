@@ -139,6 +139,8 @@ def generate_timeline(
     demonstrator_sampling_strategy: str,
     total_reward_scope: str = 'per_session',
     report_play_rewards_between_rounds: bool = False,
+    bonus_per_reward: Optional[float] = None,
+    bonus_currency: str = "$",
 ) -> List[Any]:
 
     # --- 0) Validation ---
@@ -396,14 +398,18 @@ def generate_timeline(
         sess_i = (games[0]["session_index"] if games else end_stages[0]["session_index"])
         dem_ids = session_to_ids[sess_i]
         session_has_demos = any(s.get("game") == "watch" for s in games)
+        # Screen order of the two partner slots on the presentation and choice
+        # screens (slot 0 = demo-1). Drawn per session so slot 0 is not always
+        # "Partner A" / the left cell. Logged by the client as choice_display_order.
+        display_order = [0, 1] if random.random() < 0.5 else [1, 0]
 
         # 9a) demonstrator_presentation prepended (if enabled AND session has demos).
         # All-play sessions skip this — there's nothing to present.
         if present_demonstrators_apriori and session_has_demos:
             demo1_data = _build_demo_data(0, dem_ids, demo_style_color, demo_names, name_demonstrators)
             demo2_data = _build_demo_data(1, dem_ids, demo_style_color, demo_names, name_demonstrators)
-            n1 = demo1_data.get("demonstrator_name")
-            n2 = demo2_data.get("demonstrator_name")
+            slot_names = [demo1_data.get("demonstrator_name"), demo2_data.get("demonstrator_name")]
+            n1, n2 = slot_names[display_order[0]], slot_names[display_order[1]]
             partners = (
                 f"Two partner starships, {n1} and {n2}, are coming along."
                 if n1 and n2 else "Two partner starships are coming along."
@@ -414,6 +420,7 @@ def generate_timeline(
                 "session_total_rounds": num_rounds,
                 "demonstrator1": demo1_data,
                 "demonstrator2": demo2_data,
+                "display_order": list(display_order),
                 "title": f"EXPEDITION {sess_i} · {zones_title}, NEW PARTNERS",
                 "message": (
                     f"You're heading {zones_into}. {partners} "
@@ -425,6 +432,13 @@ def generate_timeline(
             print(f"DEBUG: Inserted demonstrator_presentation stage for session {sess_i}", file=sys.stderr)
 
         # 9b) Round games — inject zone_meta, demo data, overlay copy
+        # The last play in each zone gets its own transition copy (the horizon is
+        # made explicit). round_changing: last play of the round; session_fixed:
+        # last play of the session.
+        last_play_by_zone: Dict[int, int] = {}
+        for e in games:
+            if e.get("game") == "play":
+                last_play_by_zone[e["zone"]["zone_global_index"]] = e["game_index"]
         seen_demonstrators = set()
         prev_zone = None
         prev_game = None
@@ -486,16 +500,34 @@ def generate_timeline(
 
             elif e["game"] == "play":
                 n = num_pulls_per_play_game
-                if new_zone:
+                tail = f"You have {n} shots. Every shot counts toward your TOTAL REWARD."
+                # Every partner watched in this zone is named (never just the latest
+                # one) so the copy doesn't nudge the participant toward one of them.
+                names = _join_names(watched_in_zone)
+                nth = ordinals[plays_in_zone] if plays_in_zone < len(ordinals) else f"{plays_in_zone + 1}th"
+                if e["game_index"] == last_play_by_zone.get(z):
+                    # Final visit to this zone: say so, and that the next zone starts
+                    # from scratch, so there is no exploration motive on the last shots.
+                    title = "YOUR TURN · LAST SHOTS IN THIS ZONE"
+                    if plays_in_zone > 0 and watched_in_zone:
+                        recap = f"You've mined here, and you've watched {names} mine here. "
+                    elif plays_in_zone > 0:
+                        cardinals = ["once", "twice", "three times", "four times", "five times", "six times", "seven times", "eight times"]
+                        times = cardinals[plays_in_zone - 1] if plays_in_zone <= len(cardinals) else f"{plays_in_zone} times"
+                        recap = f"You've mined here {times} already. "
+                    elif watched_in_zone:
+                        recap = f"You've watched {names} mine here. "
+                    else:
+                        recap = ""
+                    visit = "final" if plays_in_zone > 0 else "only"
+                    body = (f"This is your {visit} visit to this zone. {recap}Use it now: the next zone "
+                            f"after this will start from scratch with new asteroids and new reward yields. {tail}")
+                elif new_zone:
                     title = "YOUR TURN · NEW ZONE"
-                    body = f"New zone, new asteroids. You have {n} shots. Every shot counts toward your TOTAL REWARD."
-                    plays_in_zone += 1
+                    body = f"New zone, new asteroids. {tail}"
                 else:
                     title = "YOUR TURN"
                     just_watched = prev_game == "watch"
-                    # Every partner watched in this zone is named (never just the latest
-                    # one) so the copy doesn't nudge the participant toward one of them.
-                    names = _join_names(watched_in_zone)
                     if plays_in_zone == 0:
                         # First time mining in this zone.
                         if len(watched_in_zone) == 1 and just_watched:
@@ -506,15 +538,14 @@ def generate_timeline(
                             lead = "Same zone."
                     else:
                         # Played here before.
-                        nth = ordinals[plays_in_zone] if plays_in_zone < len(ordinals) else f"{plays_in_zone + 1}th"
                         if watched_in_zone:
                             lead = (f"It's your turn to play in the same zone again: you've mined here, "
                                     f"and you've watched {names} mine here too. Use what you've learned.")
                         else:
                             lead = (f"It's your turn to play in the same zone again. This is your {nth} "
                                     "time mining here. Use what you've learned.")
-                    body = f"{lead} You have {n} shots. Every shot counts toward your TOTAL REWARD."
-                    plays_in_zone += 1
+                    body = f"{lead} {tail}"
+                plays_in_zone += 1
             # choice-like / feedback inside a round: no overlay copy — rare and the
             # experimenter is on their own. Stage still gets zone_meta from the dict swap above.
 
@@ -545,6 +576,7 @@ def generate_timeline(
             stage["demonstrator2"] = _build_demo_data(1, dem_ids, demo_style_color, demo_names, name_demonstrators)
 
             if stage.get("game") in CHOICE_LIKE_TOKENS:
+                stage["display_order"] = list(display_order)
                 stage["overlay-title"] = "END OF EXPEDITION · CHOOSE A PARTNER"
                 # Hypothetical: the participant never actually watches the chosen partner,
                 # and the choice zone is always a new, unplayed one.
@@ -555,6 +587,11 @@ def generate_timeline(
 
     # --- 10) Practice session ---
     practice_zone = zone_meta[0]
+    bonus_line = (
+        f"BONUS: You will receive a {bonus_currency}{bonus_per_reward:.2f} bonus for each point "
+        "you earn in mining rewards.\n\n"
+        if bonus_per_reward is not None else ""
+    )
     intro_message = (
         "[BOLD]PLEASE READ CAREFULLY:[/BOLD]\n\n"
         "Welcome to Fortune Frontier. In this game you will pilot the starship "
@@ -566,9 +603,12 @@ def generate_timeline(
         "ZONES: You will enter multiple asteroid zones (indicated by a zone number). "
         "Sometimes you will repeat the same zone with the same asteroids and hence the same reward yields. "
         "Sometimes you will move on to new zones with different asteroids and different reward yields.\n\n"
-        "STARSHIP PARTNERS: You will also watch starship partners shoot asteroids for rewards. "
-        "Pay close attention to them so that you can improve your reward mining when its your turn.\n\n"
-        "BONUS: You will receive a 10 cent bonus for each point you earn in mining rewards.\n\n"
+        "STARSHIP PARTNERS: You will also watch starship partners shoot asteroids. "
+        "Some partners are much better at finding rewarding asteroids than others, and a partner "
+        "that mines well in one zone will mine well in the next. Pay close attention to which "
+        "asteroids each partner shoots and what it gets, so you can decide how much to trust it "
+        "when it's your turn.\n\n"
+        + bonus_line +
         "[RED_BOLD]DO NOT RELOAD PAGE AT ANY TIME DURING GAME![/RED_BOLD]"
     )
 
@@ -667,6 +707,8 @@ if __name__ == "__main__":
     demonstrator_sampling_strategy = config.get('demonstrator_sampling_strategy', 'thompson')
     total_reward_scope = config.get('total_reward_scope', 'per_session')
     report_play_rewards_between_rounds = config.get('report_play_rewards_between_rounds', False)
+    bonus_per_reward = config.get('bonus_per_reward', None)
+    bonus_currency = config.get('bonus_currency', '$')
 
     # request_id from argv (used to name the backup file)
     if len(sys.argv) > 1:
@@ -695,6 +737,8 @@ if __name__ == "__main__":
         demonstrator_sampling_strategy=demonstrator_sampling_strategy,
         total_reward_scope=total_reward_scope,
         report_play_rewards_between_rounds=report_play_rewards_between_rounds,
+        bonus_per_reward=bonus_per_reward,
+        bonus_currency=bonus_currency,
     )
 
     print(json.dumps(tl))

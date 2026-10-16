@@ -199,6 +199,66 @@ class ThompsonSampler {
   }
 }
 
+/*****************************************
+ * Per-zone demonstrator runs
+ * Both partners' runs for a zone are drawn together the first time either is
+ * watched, so a config filter (demonstrator_config.demonstrator_filter) can
+ * constrain the PAIR, e.g. the expert must out-earn the novice in every zone.
+ * Each slot keeps its own sampler, so the warmup + shown history logged on
+ * trajectory_complete is exactly what it was when runs were drawn per stage.
+ ****************************************/
+let zoneDemoTrajectories = {}; // "s{session}:z{zone}" -> { 0: run, 1: run, filter, attempts, satisfied }
+
+function drawDemoRun(payoffs, warmup, numPulls) {
+  const sampler = new ThompsonSampler(payoffs.length, payoffs);
+  for (let i = 0; i < warmup; i++) sampler.step();
+  const trajectory = [];
+  const rewards = [];
+  for (let i = 0; i < numPulls; i++) {
+    const step = sampler.step();
+    trajectory.push(step.arm);
+    rewards.push(step.reward);
+  }
+  return { sampler, trajectory, rewards };
+}
+
+function demoPairPassesFilter(filter, runs) {
+  const sum = (a) => a.reduce((x, y) => x + y, 0);
+  if (filter === 'expert_gt_novice') return sum(runs[0].rewards) > sum(runs[1].rewards);
+  return true; // 'none' (or an unknown value, which the server never sends)
+}
+
+// Returns { sampler, trajectory, rewards, filter, attempts, satisfied } for one slot.
+function getZoneDemoTrajectory(stage, demoIdx, payoffs, numPulls) {
+  const key = `s${stage.session_index}:z${stage.zone.zone_global_index}`;
+  if (!zoneDemoTrajectories[key]) {
+    const cfg = demonstratorConfig || {};
+    const filter = cfg.demonstrator_filter || 'none';
+    const maxAttempts = Math.max(1, cfg.demonstrator_filter_max_attempts || 200);
+    const warmups = [cfg.demo_1_prior_experience || 0, cfg.demo_2_prior_experience || 0];
+    let runs = null;
+    let attempts = 0;
+    let satisfied = false;
+    while (attempts < maxAttempts && !satisfied) {
+      runs = [drawDemoRun(payoffs, warmups[0], numPulls), drawDemoRun(payoffs, warmups[1], numPulls)];
+      attempts++;
+      satisfied = demoPairPassesFilter(filter, runs);
+    }
+    zoneDemoTrajectories[key] = { 0: runs[0], 1: runs[1], filter, attempts, satisfied };
+    verboseLog(`Zone ${stage.zone.zone_global_index}: demonstrator pair drawn in ${attempts} attempt(s); filter=${filter}, satisfied=${satisfied}`);
+  }
+  const entry = zoneDemoTrajectories[key];
+  return { ...entry[demoIdx], filter: entry.filter, attempts: entry.attempts, satisfied: entry.satisfied };
+}
+
+// Screen order of the two partner slots on the presentation and choice screens:
+// order[i] is the slot (0 = demo-1, 1 = demo-2) drawn in cell i. Generated per
+// session in models.py so slot 0 is not always "Partner A" / the left cell.
+function displayOrderOf(stage) {
+  const o = stage && stage.display_order;
+  return (Array.isArray(o) && o.length === 2 && o.includes(0) && o.includes(1)) ? o : [0, 1];
+}
+
 // Request fullscreen mode with cross-browser compatibility
 function requestFullscreen() {
   const element = document.documentElement; // Use the entire document
@@ -553,8 +613,8 @@ const BASE_CELL_SIZE = (400 / 12) * 1.85; // ~85% larger than before
 const WATCH_START_DELAY = 500;     // Delay before starting watch demonstrations (ms)
 
 // Outcome tally pips drawn above each asteroid (one per pull on that cell).
-const PIP_RADIUS = 4;
-const PIP_SPACING = 10;
+const PIP_RADIUS = 6;
+const PIP_SPACING = 14;
 const OUTCOME_TRACK_OFFSET = 8;  // thin line this far above each asteroid row; pips sit above it
 let outcomePips = {};              // "row,col" -> number of pips drawn so far (reset per stage)
 
@@ -2928,18 +2988,12 @@ function setupWatch(stage) {
   verboseLog('Demonstrator index:', demoIdx);
   verboseLog(`Generating demo-${demoIdx + 1} trajectory with ${experienceLevel} warmup iterations`);
 
-  const thompsonSampler = new ThompsonSampler(flattenedPayoffs.length, flattenedPayoffs);
-  for (let i = 0; i < experienceLevel; i++) {
-    thompsonSampler.step();
-  }
-
-  const trajectory = [];
-  const rewards = [];
-  for (let i = 0; i < numArmPulls; i++) {
-    const stepResult = thompsonSampler.step();
-    trajectory.push(stepResult.arm);
-    rewards.push(stepResult.reward);
-  }
+  // Both partners' runs for this zone are drawn together (and optionally filtered)
+  // the first time either is watched; see getZoneDemoTrajectory.
+  const zoneRun = getZoneDemoTrajectory(stage, demoIdx, flattenedPayoffs, numArmPulls);
+  const thompsonSampler = zoneRun.sampler;
+  const trajectory = zoneRun.trajectory;
+  const rewards = zoneRun.rewards;
   const trajectoryData = { trajectory, rewards };
   verboseLog('Generated trajectory:', trajectory);
   verboseLog('Generated rewards:', rewards);
@@ -3175,7 +3229,10 @@ function setupWatch(stage) {
                         demonstrator_rewards: JSON.stringify(thompsonSampler.allRewards),
                         demonstrator_experience: getDemoPriorExperience(demoData, demonstratorConfig),
                         demonstrator_strategy: demonstratorConfig.demonstrator_sampling_strategy,
-                        demonstrator_bandit_payoffs: JSON.stringify(demonstratorConfig.bandit_payoffs)
+                        demonstrator_bandit_payoffs: JSON.stringify(demonstratorConfig.bandit_payoffs),
+                        demonstrator_filter: zoneRun.filter,
+                        demonstrator_filter_attempts: zoneRun.attempts,
+                        demonstrator_filter_satisfied: zoneRun.satisfied
                       });
                     }
                   }
@@ -3518,6 +3575,7 @@ function setupDemonstratorPresentation(stage) {
   
   // Configuration
   const numDemonstrators = demonstratorMappedImages.length;
+  const order = displayOrderOf(stage); // cell i shows slot order[i]
   const cellWidth = 150;
   const cellHeight = 150;
   const cellPadding = 60; // More space between partners
@@ -3585,7 +3643,7 @@ function setupDemonstratorPresentation(stage) {
     
     // Load demonstrator image - include session_index to make keys unique per session
     const imageKey = `presentation_demonstrator_s${stage.session_index}_${i}`;
-    this.load.image(imageKey, `assets/demonstrators/${demonstratorMappedImages[i]}`);
+    this.load.image(imageKey, `assets/demonstrators/${demonstratorMappedImages[order[i]]}`);
     
     // Store cell info
     cells.push({
@@ -3595,7 +3653,7 @@ function setupDemonstratorPresentation(stage) {
       background: cellBg,
       letterText: letterText,
       imageKey: imageKey,
-      demonstrator: i === 0 ? demonstrator1 : demonstrator2,
+      demonstrator: order[i] === 0 ? demonstrator1 : demonstrator2,
       image: null
     });
   }
@@ -3789,6 +3847,7 @@ function setupChoice(stage) {
   
   // Configuration
   const numDemonstrators = demonstratorMappedImages.length;
+  const order = displayOrderOf(stage); // cell i shows slot order[i]
   const cellWidth = 150;
   const cellHeight = 150;
   const cellPadding = 30;
@@ -3831,7 +3890,7 @@ function setupChoice(stage) {
   const controlsText = addText(this, 
     GAME_W / 2,
     gridY + cellHeight + 95,
-    "Use arrow keys to move and spacebar to select, or click a partner",
+    "Use the arrow keys to move and spacebar to select, or click a partner twice",
     { 
       font: `16px ${THEME.fontBody}`, 
       fill: THEME.textMuted,
@@ -3858,10 +3917,10 @@ function setupChoice(stage) {
   
   // Track selection
   let selectedDemonstrator = null;
-  let choicePosition = 0;
+  let choicePosition = null; // no cell preselected: the first arrow key or click picks one
   
   // Initialize position tracking for logging  
-  currentPosition = choicePosition;
+  currentPosition = -1; // the log schema needs a number; nothing is selected yet
   
   // Demonstrator cells array
   const cells = [];
@@ -3896,18 +3955,19 @@ function setupChoice(stage) {
     ).setOrigin(0.5);
     
     // Load demonstrator image - use a unique key for the texture that includes session index
-    const imageKey = `choice_s${sessionIndex}_demonstrator_${i}`;
+    const imageKey = `choice_s${sessionIndex}_demonstrator_${order[i]}`; // slot, not cell: addChoiceSelectionToSummary reads it back
     
     // Make sure the image path is correct
 
     
-    this.load.image(imageKey, `assets/demonstrators/${demonstratorMappedImages[i]}`);
+    this.load.image(imageKey, `assets/demonstrators/${demonstratorMappedImages[order[i]]}`);
     
     // Store cell info
     cells.push({
       x: x,
       y: y,
       letter: letter,
+      slot: order[i],
       background: cellBg,
       letterText: letterText,
       imageKey: imageKey,
@@ -3934,7 +3994,7 @@ function setupChoice(stage) {
       cell.image.setScale(scale);
       
       // Add demonstrator name below the image if available
-      const demonstrator = i === 0 ? demonstrator1 : demonstrator2;
+      const demonstrator = cells[i].slot === 0 ? demonstrator1 : demonstrator2;
       if (demonstrator && demonstrator.demonstrator_name) {
         const nameText = addText(currentScene, 
           cell.x,
@@ -3960,11 +4020,11 @@ function setupChoice(stage) {
       cells[0].x, cells[0].y,
       cellWidth + 10, cellHeight + 10,
       parseInt(zoneColor.replace('#', '0x')) || 0x888888
-    ).setOrigin(0.5).setAlpha(0.3);
+    ).setOrigin(0.5).setAlpha(0.3).setVisible(false); // shown once a cell is picked
     
     // Position for user sprite (below the cells)
     const userY = gridY + cellHeight + 40;
-    let userX = cells[0].x;
+    let userX = GAME_W / 2; // centred between the cells until one is picked
     
     // Add user sprite
     const userSprite = currentScene.add.image(userX, userY, 'user')
@@ -3999,9 +4059,10 @@ function setupChoice(stage) {
           userX = cells[choicePosition].x;
           userSprite.setPosition(userX, userY);
           highlightRect.setPosition(cells[choicePosition].x, cells[choicePosition].y);
+          highlightRect.setVisible(true);
           
           // Log movement action for regular choice
-          const moveAction = choicePosition > oldPosition ? 'right' : 'left';
+          const moveAction = oldPosition === null ? (choicePosition === 0 ? 'left' : 'right') : (choicePosition > oldPosition ? 'right' : 'left');
           logToMongoDB(moveAction, {
             reward_generated: false,
             shot: false,
@@ -4025,11 +4086,12 @@ function setupChoice(stage) {
       selectedDemonstrator = cells[index].letter;
       
       // Set global choice variables for logging
-      if (index === 0) {
+      const slot = cells[index].slot; // which demonstrator slot sits in the chosen cell
+      if (slot === 0) {
         choiceDemonstratorId = mapDemonstratorImage(demonstrator1.demonstrator_global_index, demonstrator1.demonstrator_style, demonstrator1.demonstrator_color);
         choiceDemonstratorIndex = demonstrator1.demonstrator_index ?? demonstrator1.demonstrator_session_index;
         choiceDemonstratorData = demonstrator1;
-      } else if (index === 1) {
+      } else if (slot === 1) {
         choiceDemonstratorId = mapDemonstratorImage(demonstrator2.demonstrator_global_index, demonstrator2.demonstrator_style, demonstrator2.demonstrator_color);
         choiceDemonstratorIndex = demonstrator2.demonstrator_index ?? demonstrator2.demonstrator_session_index;
         choiceDemonstratorData = demonstrator2;
@@ -4041,7 +4103,8 @@ function setupChoice(stage) {
         shot: true,
         choice_position: index,
         choice_letter: selectedDemonstrator,
-        selected_demonstrator: selectedDemonstrator
+        selected_demonstrator: selectedDemonstrator,
+        choice_display_order: JSON.stringify(order)
       });
         
         // Show selection feedback
@@ -4076,10 +4139,10 @@ function setupChoice(stage) {
       let oldPosition = choicePosition;
       
       if (evt.code === 'ArrowLeft') {
-        choicePosition = Math.max(0, choicePosition - 1);
+        choicePosition = choicePosition === null ? 0 : Math.max(0, choicePosition - 1);
       }
       if (evt.code === 'ArrowRight') {
-        choicePosition = Math.min(cells.length - 1, choicePosition + 1);
+        choicePosition = choicePosition === null ? cells.length - 1 : Math.min(cells.length - 1, choicePosition + 1);
       }
       
       // If position changed, update user sprite and highlight
@@ -4088,9 +4151,10 @@ function setupChoice(stage) {
         userX = cells[choicePosition].x;
         userSprite.setPosition(userX, userY);
         highlightRect.setPosition(cells[choicePosition].x, cells[choicePosition].y);
+        highlightRect.setVisible(true);
         
         // Log keyboard movement action
-        const moveAction = choicePosition > oldPosition ? 'right' : 'left';
+        const moveAction = oldPosition === null ? (choicePosition === 0 ? 'left' : 'right') : (choicePosition > oldPosition ? 'right' : 'left');
         logToMongoDB(moveAction, {
           reward_generated: false,
           shot: false,
@@ -4101,6 +4165,7 @@ function setupChoice(stage) {
       
       // Space to select
       if (evt.code === 'Space') {
+        if (choicePosition === null) return; // nothing picked yet
         selectDemonstrator.call(currentScene, choicePosition);
       }
     });

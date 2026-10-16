@@ -81,7 +81,11 @@ app.get('/api/config', (req, res) => {
         demo_1_prior_experience: config.demo_1_prior_experience,
         demo_2_prior_experience: config.demo_2_prior_experience,
         bandit_payoffs: config.bandit_payoffs,
-        demonstrator_sampling_strategy: config.demonstrator_sampling_strategy
+        demonstrator_sampling_strategy: config.demonstrator_sampling_strategy,
+        // Per-zone demonstrator-pair filter (see CONFIG.md): main.js draws both
+        // partners' runs for a zone together and redraws until the filter holds.
+        demonstrator_filter: config.demonstrator_filter || 'none',
+        demonstrator_filter_max_attempts: config.demonstrator_filter_max_attempts || 200
     };
     res.json({
         experiment_id,

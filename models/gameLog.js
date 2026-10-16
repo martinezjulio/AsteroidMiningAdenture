@@ -48,6 +48,9 @@ const gameLogSchema = new mongoose.Schema({
     demonstrator_experience: { type: Number, default: null }, // Warmup iterations
     demonstrator_strategy: { type: String, default: null }, // "thompson"
     demonstrator_bandit_payoffs: { type: String, default: null }, // JSON array of payoffs used for generation
+    demonstrator_filter: { type: String, default: null }, // pair filter active for this zone ("none" | "expert_gt_novice")
+    demonstrator_filter_attempts: { type: Number, default: null }, // pairs drawn before one passed (1 = first draw)
+    demonstrator_filter_satisfied: { type: Boolean, default: null }, // false if the attempt cap was hit
     
     // User play trajectory data (populated for play games only)
     play_actions: { type: String, default: null }, // JSON array of arm indices selected by user
@@ -65,6 +68,7 @@ const gameLogSchema = new mongoose.Schema({
     choice_demonstrator_id: { type: String, default: null }, // Demonstrator image filename of chosen demonstrator
     choice_demonstrator_index: { type: Number, default: null }, // 0 or 1 — which slot was chosen
     choice_demonstrator_type: { type: String, default: null }, // legacy field — preserved for old logs
+    choice_display_order: { type: String, default: null }, // JSON [slot in left cell, slot in right cell]; slot 0 = demo-1
     
     // Feedback-specific fields (null for non-feedback actions)
     feedback_text: { type: String, default: null }, // User's feedback response
