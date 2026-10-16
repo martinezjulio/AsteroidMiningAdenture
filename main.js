@@ -616,7 +616,7 @@ const WATCH_START_DELAY = 500;     // Delay before starting watch demonstrations
 const PIP_RADIUS = 6;
 const PIP_SPACING = 14;
 const OUTCOME_TRACK_OFFSET = 8;  // thin line this far above each asteroid row; pips sit above it
-let outcomePips = {};              // "row,col" -> number of pips drawn so far (reset per stage)
+let outcomePips = {};              // "row,col" -> { hit, miss } pips drawn so far (reset per stage)
 
 // Logical game size. The canvas is created at GAME_W*DPR × GAME_H*DPR and the main
 // camera is zoomed by DPR, so every coordinate in this file stays in 1000×600 space
@@ -1501,9 +1501,7 @@ function loadStage() {
 
   clearScene(this);
   outcomePips = {};
-  document.getElementById('prolific-form-overlay').style.visibility = 'hidden';
-  document.getElementById('game-frame').style.visibility = ''; // hidden only on the Prolific page
-  document.getElementById('summary-bar').style.zIndex = '';   // lifted above the overlay only on the Prolific page
+  restoreGameFrame(); // DOM pages (Prolific form, intro, how to play) hide the frame; they re-hide it in their setup
 
   const stage = currentStageContainer[effectiveStageIndex];
 
@@ -2323,128 +2321,97 @@ function setupFeedback(stage) {
   };
 }
 
-function setupIntroduction(stage) {
-  const message = stage.message || "Introduction";
-  
-  // Hide controls during introduction
+/*******************************************************
+ * DOM pages (introduction, how to play)
+ * Shown instead of the canvas, in the same fixed-overlay style as the Prolific
+ * form: #game-frame is hidden with visibility (layout and canvas size never
+ * change) and the decorative partner row in #summary-bar is lifted above the
+ * overlay. The game frame first appears on the practice transition slide.
+ *******************************************************/
+function restoreGameFrame() {
+  document.getElementById('game-frame').style.visibility = '';
+  document.getElementById('prolific-form-overlay').style.visibility = 'hidden';
+  document.getElementById('page-overlay').style.visibility = 'hidden';
+  document.getElementById('summary-bar').style.zIndex = '';
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// html: the page body. buttonLabel/onNext: the single action button under it.
+// partnerMode: 'roster' | 'prospector' row shown under the page (see showPartnerRow).
+function showDomPage({ html, buttonLabel, onNext, partnerMode }) {
   updateControlsDisplay("hidden");
-  showPartnerRow('roster');
-  
-  // Parse the message into distinct sections
-  const redBoldRegex = /\[RED_BOLD\](.*?)\[\/RED_BOLD\]/s;
-  const boldRegex = /\[BOLD\](.*?)\[\/BOLD\]/s;
-  
-  const redBoldMatch = message.match(redBoldRegex);
-  const boldMatch = message.match(boldRegex);
-  
-  if (redBoldMatch || boldMatch) {
-    // Split message into sections more carefully
-    let sections = [];
-    
-    // Parse the structured message
-    let messageParts = message.split('[BOLD]');
-    
-    // Welcome section (before [BOLD])
-    if (messageParts[0] && messageParts[0].trim()) {
-      sections.push({
-        text: messageParts[0].trim(),
-        type: 'welcome',
-        y: 40,  // Top of screen
-        font: `22px ${THEME.fontBody}`,
-        color: '#ffffff'
-      });
-    }
-    
-    // Bold section and main content (after [BOLD])
-    if (messageParts[1]) {
-      let afterBold = messageParts[1];
-      
-      // Extract bold text (between [BOLD] and [/BOLD])
-      if (boldMatch) {
-        const boldText = boldMatch[1].trim();
-        sections.push({
-          text: boldText,
-          type: 'bold',
-          y: 100,  // Below welcome with good spacing
-          font: `bold 30px ${THEME.fontDisplay}`,
-          color: '#ffffff'
-        });
-        
-        // Remove the bold tags and content to get main content
-        afterBold = afterBold.replace(/.*?\[\/BOLD\]/, '').trim();
-      }
-      
-      // Handle red bold section
-      if (redBoldMatch) {
-        const redBoldText = redBoldMatch[1].trim();
-        sections.push({
-          text: redBoldText,
-          type: 'redBold',
-          y: GAME_H - 80,  // Moved up from bottom
-          font: `bold 18px ${THEME.fontBody}`,
-          color: '#ff0000',
-          background: true
-        });
-        
-        // Remove red bold section from main content
-        afterBold = afterBold.replace(redBoldRegex, '').trim();
-      }
-      
-      // Main content (everything that's left)
-      if (afterBold) {
-        sections.push({
-          text: afterBold,
-          type: 'main',
-          y: 320,  // Moved down further from bold section
-          font: `20px ${THEME.fontBody}`,
-          color: '#ffffff'
-        });
-      }
-    }
-    
-    // Flow the sections top-down (welcome → title → body → warning) so the body
-    // can be any length without colliding with the title or the warning.
-    const order = { welcome: 0, bold: 1, main: 2, redBold: 3 };
-    sections.sort((a, b) => order[a.type] - order[b.type]);
-    const W = GAME_W;
-    let cursorY = 36;
-    sections.forEach(section => {
-      const textStyle = {
-        font: section.type === 'main' ? `16px ${THEME.fontBody}` : section.font,
-        fill: section.color,
-        align: 'center',
-        wordWrap: { width: section.type === 'main' ? 820 : 760 },
-        lineSpacing: section.type === 'main' ? 4 : 1,
-        resolution: window.devicePixelRatio || 2
-      };
+  const frame = document.getElementById('game-frame');
+  const overlay = document.getElementById('page-overlay');
+  const content = document.getElementById('page-content');
+  frame.style.visibility = 'hidden';
+  content.innerHTML = html;
 
-      if (section.background) {
-        textStyle.backgroundColor = 'rgba(239, 68, 68, 0.15)';
-        textStyle.padding = { x: 12, y: 6 };
-      }
+  const actions = document.createElement('div');
+  actions.className = 'page-actions';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn';
+  btn.textContent = buttonLabel;
+  btn.onclick = () => { btn.disabled = true; onNext(); };
+  actions.appendChild(btn);
+  content.appendChild(actions);
 
-      // Main content: left-aligned paragraph
-      if (section.type === 'main') {
-        textStyle.align = 'left';
-      }
+  overlay.style.visibility = 'visible';
+  showPartnerRow(partnerMode);
+  document.getElementById('summary-bar').style.zIndex = '10000';
+  // Centre the panel within the frame's area so it sits just above the partner row
+  // (same placement as the Prolific form).
+  const frameRect = frame.getBoundingClientRect();
+  overlay.style.justifyContent = 'flex-start';
+  overlay.style.paddingTop = `${Math.max(12, frameRect.top + (frameRect.height - content.offsetHeight) / 2)}px`;
+}
 
-      const t = addText(this, W / 2, cursorY, section.text, textStyle).setOrigin(0.5, 0);
-      cursorY += t.height + (section.type === 'bold' ? 14 : 18);
-    });
+// Intro copy from models.py uses [BOLD]title[/BOLD], [RED_BOLD]warning[/RED_BOLD] and the
+// inline highlights [BLUE]…[/BLUE] / [ORANGE]…[/ORANGE]. Rendered as title → paragraphs → warning.
+function introMarkupToHtml(message) {
+  let text = escapeHtml(message);
+  let title = '';
+  let warning = '';
+  text = text.replace(/\[BOLD\]([\s\S]*?)\[\/BOLD\]/, (m, t) => { title = t.trim(); return ''; });
+  text = text.replace(/\[RED_BOLD\]([\s\S]*?)\[\/RED_BOLD\]/, (m, t) => { warning = t.trim(); return ''; });
+  const paragraphs = text.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean).map(p =>
+    `<p>${p.replace(/\[BLUE\]([\s\S]*?)\[\/BLUE\]/g, '<span class="intro-hl">$1</span>')
+           .replace(/\[ORANGE\]([\s\S]*?)\[\/ORANGE\]/g, '<span class="intro-hl-orange">$1</span>')
+           .replace(/\n/g, '<br>')}</p>`
+  );
+  return (title ? `<h2 class="page-title">${title}</h2>` : '')
+    + `<div class="page-body">${paragraphs.join('')}</div>`
+    + (warning ? `<p class="intro-warning">${warning}</p>` : '');
+}
 
-  } else {
-    // Original behavior for messages without special formatting
-  addText(this, 
-    GAME_W/2,
-    GAME_H/2,
-      message,
-      { font: `20px ${THEME.fontBody}`, fill: '#ffffff', align: 'center', wordWrap: { width: 600 }, resolution: window.devicePixelRatio || 2 }
-  ).setOrigin(0.5);
-  }
-
-  makeNextButton.call(this, "Begin Training", () => {
-    nextStage.call(this);
+function setupIntroduction(stage) {
+  const scene = this;
+  showDomPage({
+    html: introMarkupToHtml(stage.message || "Introduction"),
+    buttonLabel: 'Begin Training',
+    onNext: () => nextStage.call(scene),
+    partnerMode: 'roster'
   });
+}
+
+// How-to-play layout: three items (move left, move right, shoot) over two (reward,
+// no reward), each an image from assets/introduction with its caption; GIFs animate
+// as plain <img>. Optional instruction6 is a closing note.
+function howToPageHtml(stage) {
+  const ins = stage.instructions;
+  const item = (i) => {
+    const img = ins[`instruction${i}_image`];
+    const caption = escapeHtml(ins[`instruction${i}`] || '').replace(/\n/g, '<br>');
+    const imgHtml = img ? `<img src="assets/introduction/${escapeHtml(img)}" alt="">` : '';
+    return `<div class="howto-item">${imgHtml}<div class="howto-caption">${caption}</div></div>`;
+  };
+  const row = (idxs) => `<div class="howto-row">${idxs.map(item).join('')}</div>`;
+  return `<h2 class="page-title">${escapeHtml(stage.message || 'How to Play')}</h2>`
+    + row([1, 2, 3]) + row([4, 5])
+    + (ins.instruction6 ? `<p class="howto-note">${escapeHtml(ins.instruction6)}</p>` : '');
 }
 
 function setupInstructions(stage) {
@@ -2452,205 +2419,12 @@ function setupInstructions(stage) {
     console.error("Missing instructions data");
     return;
   }
-
-  const instructions = stage.instructions;
-  
-  // Update controls display for single-row mode since all games appear to be asteroid mode
-  updateControlsDisplay("single-row");
-  showPartnerRow('prospector');
-  
-  // Display title
-  addText(this, 
-    GAME_W / 2,
-    38,
-    stage.message || "Game Instructions",
-    { font: `bold 26px ${THEME.fontDisplay}`, fill: '#ffffff', align: 'center', resolution: window.devicePixelRatio || 2 }
-  ).setOrigin(0.5);
-
-  // Store reference for loading images
-  const currentScene = this;
-  
-  // Separate GIF and PNG images
-  const gifImages = [];
-  const pngImages = [];
-  
-  for (let i = 1; i <= 5; i++) {
-    const imageName = instructions[`instruction${i}_image`];
-    if (imageName && imageName.endsWith('.gif')) {
-      gifImages.push({ index: i, imageName });
-    } else if (imageName && imageName.endsWith('.png')) {
-      pngImages.push({ index: i, imageName });
-      // Load PNG images through Phaser
-      if (!this.textures.exists(`instruction_${i}`)) {
-        this.load.image(`instruction_${i}`, `assets/introduction/${imageName}`);
-      }
-    }
-  }
-
-  // Load PNG images if any
-  if (pngImages.length > 0) {
-    this.load.once('complete', () => {
-      displayInstructionLayout.call(currentScene, instructions, gifImages);
-    });
-    this.load.start();
-  } else {
-    // If no PNG images to load, display immediately
-    displayInstructionLayout.call(currentScene, instructions, gifImages);
-  }
-}
-
-function displayInstructionLayout(instructions, gifImages) {
-  const gameWidth = GAME_W;
-  const gameHeight = GAME_H;
-  
-  // Animated GIFs can't be Phaser textures, so they're <img> elements placed over the
-  // canvas. The canvas is scaled (Scale.FIT), so convert game coordinates → CSS pixels
-  // and position relative to #game-container (the canvas's offset parent).
-  const canvas = this.sys.game.canvas;
-  const rect = canvas.getBoundingClientRect();
-  const cssScaleX = rect.width / gameWidth;
-  const cssScaleY = rect.height / gameHeight;
-  const gifHost = document.getElementById('game-container');
-  const placeGif = (imageName, centerX, topY) => {
-    const imgElement = document.createElement('img');
-    imgElement.src = `assets/introduction/${imageName}`;
-    imgElement.style.position = 'absolute';
-    imgElement.style.left = `${canvas.offsetLeft + (centerX - maxImageSize / 2) * cssScaleX}px`;
-    imgElement.style.top = `${canvas.offsetTop + topY * cssScaleY}px`;
-    imgElement.style.width = `${maxImageSize * cssScaleX}px`;
-    imgElement.style.height = `${maxImageSize * cssScaleY}px`;
-    imgElement.style.objectFit = 'contain';
-    imgElement.style.zIndex = '1000';
-    imgElement.style.pointerEvents = 'none';
-    imgElement.className = 'instruction-gif';
-    gifHost.appendChild(imgElement);
-  };
-
-  // Layout configuration
-  const maxImageSize = 180;
-  const columnSpacing = 28; // Spacing between columns
-
-  // Simple positioning - images at fixed Y positions, text positioned relative to images
-  const row1ImagesY = 66;      // First row images top edge
-  const row3ImagesY = 302;     // Second row images top edge (captions end ~26px above the Next button)
-  
-  // First section: 3 instructions in 3 columns (move left, move right, mine)
-  const topSectionWidth = 3 * maxImageSize + 2 * columnSpacing;
-  const topStartX = (gameWidth - topSectionWidth) / 2;
-  
-  for (let i = 1; i <= 3; i++) {
-    const x = topStartX + (i - 1) * (maxImageSize + columnSpacing) + maxImageSize / 2;
-    const imageKey = `instruction_${i}`;
-    const imageName = instructions[`instruction${i}_image`];
-    const instructionText = instructions[`instruction${i}`];
-    
-    // Add image (Row 1)
-    if (imageName && imageName.endsWith('.gif')) {
-      placeGif(imageName, x, row1ImagesY);
-    } else if (this.textures.exists(imageKey)) {
-      // Add Phaser image for PNG
-      const pngCenterY = row1ImagesY + maxImageSize/2;
-      const image = this.add.image(x, pngCenterY, imageKey); // Position PNG center
-      const scale = Math.min(
-        maxImageSize / image.width,
-        maxImageSize / image.height
-      );
-      image.setScale(scale);
-      image.setOrigin(0.5);
-      
-      // Debug logging
-      
-    }
-    
-    // Add text (Row 2) - just below the image
-    const textY = row1ImagesY + maxImageSize + 14;
-    
-    
-    
-    addText(this, 
-      x,
-      textY, // Position text much closer to images
-      instructionText,
-      {
-        font: `16px ${THEME.fontBody}`,
-        fill: '#ffffff',
-        align: 'center',
-        wordWrap: { width: maxImageSize + 20 },
-        lineSpacing: 4,
-        resolution: window.devicePixelRatio || 2
-      }
-    ).setOrigin(0.5);
-  }
-  
-  // Second section: 2 instructions in 2 columns (successful mine, unsuccessful mine)
-  const bottomSectionWidth = 2 * maxImageSize + columnSpacing;
-  const bottomStartX = (gameWidth - bottomSectionWidth) / 2;
-  
-  for (let i = 4; i <= 5; i++) {
-    const x = bottomStartX + (i - 4) * (maxImageSize + columnSpacing) + maxImageSize / 2;
-    const imageKey = `instruction_${i}`;
-    const imageName = instructions[`instruction${i}_image`];
-    const instructionText = instructions[`instruction${i}`];
-    
-    // Add image (Row 3)
-    if (imageName && imageName.endsWith('.gif')) {
-      placeGif(imageName, x, row3ImagesY);
-    } else if (this.textures.exists(imageKey)) {
-      // Add Phaser image for PNG
-      const image = this.add.image(x, row3ImagesY + maxImageSize/2, imageKey); // Position PNG center
-      const scale = Math.min(
-        maxImageSize / image.width,
-        maxImageSize / image.height
-      );
-      image.setScale(scale);
-      image.setOrigin(0.5);
-    }
-    
-    // Add text (Row 4) - just below the image
-    const textY2 = row3ImagesY + maxImageSize + 18;
-    
-    
-    addText(this, 
-      x,
-      textY2, // Position text below images with small gap
-      instructionText,
-      {
-        font: `16px ${THEME.fontBody}`,
-        fill: '#ffffff',
-        align: 'center',
-        wordWrap: { width: maxImageSize + 40 },
-        lineSpacing: 4,
-        resolution: window.devicePixelRatio || 2
-      }
-    ).setOrigin(0.5);
-  }
-  
-  // Final instruction text (Row 5) - position it below the second section
-  if (instructions.instruction6) {
-    const finalTextY = row3ImagesY + maxImageSize + 70;
-  
-    
-    addText(this, 
-      gameWidth / 2,
-      finalTextY, // Position below second section text with spacing
-      instructions.instruction6,
-      { 
-        font: `18px ${THEME.fontBody}`, 
-        fill: '#ffffff', 
-        align: 'center',
-        wordWrap: { width: 800 },
-        lineSpacing: 4
-      }
-    ).setOrigin(0.5);
-  }
-  
-  // Add next button
-  makeNextButton.call(this, "Next", () => {
-    // Clean up HTML elements before proceeding
-    const gifElements = document.querySelectorAll('.instruction-gif');
-    gifElements.forEach(element => element.remove());
-    
-    nextStage.call(this);
+  const scene = this;
+  showDomPage({
+    html: howToPageHtml(stage),
+    buttonLabel: 'Next',
+    onNext: () => nextStage.call(scene),
+    partnerMode: 'prospector'
   });
 }
 
@@ -3708,7 +3482,9 @@ function setupDemonstratorPresentation(stage) {
  */
 // Participants never see the word "round": in round_changing mode each round is a
 // zone, so the recap talks about zones. Returns { title, body, button }.
-function buildZoneRecapCopy(roundIdx, nextZone) {
+// isLastRound: the recap after the session's final round wraps up the expedition
+// (totals only, plain Continue) instead of pointing at a next zone.
+function buildZoneRecapCopy(roundIdx, nextZone, isLastRound = false) {
   const rewardWord = (n) => `${n} reward${n === 1 ? '' : 's'}`;
   const sessionFixed = gameConfig && gameConfig.bandit_assignment_mode === 'session_fixed';
   const sums = [];
@@ -3718,13 +3494,21 @@ function buildZoneRecapCopy(roundIdx, nextZone) {
   }
   const current = sums.length ? sums[sums.length - 1] : { zone: null, total: 0 };
   const zoneName = (z) => (z === null || z === undefined) ? 'this zone' : `zone ${z}`;
+  const expeditionTotal = sums.reduce((a, x) => a + x.total, 0);
+  const completeTitle = current.zone !== null ? `ZONE ${current.zone} COMPLETE` : 'ZONE COMPLETE';
 
   if (sessionFixed) {
+    if (isLastRound) {
+      return {
+        title: completeTitle,
+        body: `Good job! You earned ${rewardWord(expeditionTotal)} in ${zoneName(current.zone)} this expedition.`,
+        button: 'Continue'
+      };
+    }
     // Same zone continues next round: no "complete", no "next zone".
-    const soFar = sums.reduce((a, x) => a + x.total, 0);
     return {
       title: current.zone !== null ? `ZONE ${current.zone} · KEEP GOING` : 'KEEP GOING',
-      body: `You've earned ${rewardWord(soFar)} in ${zoneName(current.zone)} so far. Can you keep it up?`,
+      body: `You've earned ${rewardWord(expeditionTotal)} in ${zoneName(current.zone)} so far. Can you keep it up?`,
       button: 'Continue'
     };
   }
@@ -3733,9 +3517,18 @@ function buildZoneRecapCopy(roundIdx, nextZone) {
   const list = items.length <= 1 ? (items[0] || 'your rewards')
     : items.length === 2 ? `${items[0]} and ${items[1]}`
     : `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
+  if (isLastRound) {
+    return {
+      title: completeTitle,
+      body: items.length <= 1
+        ? `Good job! You earned ${list} this expedition.`
+        : `Good job! You earned ${list}, ${rewardWord(expeditionTotal)} in total this expedition.`,
+      button: 'Continue'
+    };
+  }
   const next = (nextZone === null || nextZone === undefined) ? 'the next zone' : `zone ${nextZone}`;
   return {
-    title: current.zone !== null ? `ZONE ${current.zone} COMPLETE` : 'ZONE COMPLETE',
+    title: completeTitle,
     body: `Good job! You earned ${list}. Can you beat that in ${next}?`,
     button: 'Continue to next zone'
   };
@@ -3765,7 +3558,9 @@ function setupRoundRecap(stage) {
   const overlay = this.add.rectangle(0, 0, W, H, THEME.overlay, 0.85);
   overlay.setOrigin(0, 0);
 
-  const copy = buildZoneRecapCopy(stage.round_index, nextZoneAfterCurrentStage());
+  const isLastRound = typeof stage.session_total_rounds === 'number'
+    && stage.round_index === stage.session_total_rounds - 1;
+  const copy = buildZoneRecapCopy(stage.round_index, nextZoneAfterCurrentStage(), isLastRound);
 
   addText(this, W / 2, H / 2 - 110, copy.title, {
     font: `bold 26px ${THEME.fontDisplay}`,
@@ -3877,7 +3672,7 @@ function setupChoice(stage) {
     GAME_W / 2,
     118,
     stage["overlay-message"] ||
-      `Imagine you were about to play again in ${transferText} and could watch one partner shoot first. Which starship would you choose?`,
+      `Imagine you are about to play again in ${transferText} and could watch only one of the partners from this expedition shoot in that zone first. Which partner would you choose to help you play better?`,
     {
       font: `18px ${THEME.fontBody}`,
       fill: '#ffffff',
@@ -5454,24 +5249,22 @@ function drawRewardTank(container, totalSlots, outcomes) {
 }
 
 /**
- * Outcome tally: one pip per pull, drawn in a row just above the asteroid that was
- * mined (left → right in pull order, wrapping upward). White ring + green/red fill
- * so it reads on any asteroid color and on the space background.
+ * Outcome tally above the asteroid that was mined: two columns stacking upward
+ * from the track line, rewards (green) on the left and misses (red) on the right,
+ * so the count of each reads at a glance. One pip per pull; reset per stage.
+ * White ring + green/red fill so it reads on any asteroid color and the space background.
  */
 function drawMarkerDot(gridX, gridY, cellWidth, cellHeight, row, col, outcome) {
   const key = `${row},${col}`;
-  const n = outcomePips[key] || 0;
-  outcomePips[key] = n + 1;
+  const tally = outcomePips[key] || (outcomePips[key] = { hit: 0, miss: 0 });
+  const hit = outcome === 1;
+  const n = hit ? tally.hit++ : tally.miss++; // pips already in this column
 
-  const perRow = Math.max(1, Math.floor((cellWidth + 2) / PIP_SPACING));
-  const pipRow = Math.floor(n / perRow);
-  const pipCol = n % perRow;
-
-  const cellLeft = gridX + col * (cellWidth + CELL_PADDING);
+  const cellCenterX = gridX + col * (cellWidth + CELL_PADDING) + cellWidth / 2;
   const cellTop = gridY + row * (cellHeight + CELL_PADDING);
-  const x = cellLeft + 1 + PIP_RADIUS + pipCol * PIP_SPACING;
-  const y = cellTop - OUTCOME_TRACK_OFFSET - 8 - PIP_RADIUS - pipRow * PIP_SPACING;
-  const color = (outcome === 1) ? THEME.success : THEME.fail;
+  const x = cellCenterX + (hit ? -PIP_SPACING / 2 : PIP_SPACING / 2);
+  const y = cellTop - OUTCOME_TRACK_OFFSET - 8 - PIP_RADIUS - n * PIP_SPACING;
+  const color = hit ? THEME.success : THEME.fail;
 
   const pip = this.add.circle(x, y, PIP_RADIUS, color);
   pip.setStrokeStyle(1.5, 0xffffff, 1);
@@ -5665,6 +5458,9 @@ function clearScene(scene) {
 function showTransitionOverlay(scene, nextStage, startCallback) {
   // Clear existing scene elements
   clearScene(scene);
+  // A DOM page (intro / how to play) may have hidden the frame; bring it back before
+  // the slide is drawn, so the canvas frame first appears on the practice slide.
+  restoreGameFrame();
   
   // Hide controls during transition overlays
   updateControlsDisplay("hidden");

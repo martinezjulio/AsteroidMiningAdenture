@@ -87,6 +87,17 @@ def _build_stage_for_token(
     raise ValueError(f"Unhandled token {token!r}")
 
 
+def _bonus_phrase(amount: float, currency: str) -> str:
+    """'2 cent' / '10 pence' for whole sub-unit amounts, else '$1.50'. The intro reads
+    in cents because that is easier to take in; the rest of the game shows dollars."""
+    cents = amount * 100
+    whole = round(cents)
+    if abs(cents - whole) < 1e-9 and 0 < whole < 100:
+        unit = "pence" if currency == "£" else "cent"
+        return f"{int(whole)} {unit}"
+    return f"{currency}{amount:.2f}"
+
+
 def _join_names(names):
     """'X' / 'both X and Y' / 'X, Y and Z' for participant-facing copy."""
     if not names:
@@ -199,10 +210,10 @@ def generate_timeline(
                 idx += 1
             games.extend(round_stages)
 
+            # Recap after every round that had a play game, including the last one of
+            # the session (the client words that one as the expedition's wrap-up).
             has_play = any(s.get("game") == "play" for s in round_stages)
-            if (report_play_rewards_between_rounds
-                    and round_idx < num_rounds - 1
-                    and has_play):
+            if report_play_rewards_between_rounds and has_play:
                 games.append({
                     "stage_type": "round_recap",
                     "game_index": idx,
@@ -514,14 +525,14 @@ def generate_timeline(
                     elif plays_in_zone > 0:
                         cardinals = ["once", "twice", "three times", "four times", "five times", "six times", "seven times", "eight times"]
                         times = cardinals[plays_in_zone - 1] if plays_in_zone <= len(cardinals) else f"{plays_in_zone} times"
-                        recap = f"You've mined here {times} already. "
+                        recap = f"You've mined here {times} before. "
                     elif watched_in_zone:
                         recap = f"You've watched {names} mine here. "
                     else:
                         recap = ""
                     visit = "final" if plays_in_zone > 0 else "only"
-                    body = (f"This is your {visit} visit to this zone. {recap}Use it now: the next zone "
-                            f"after this will start from scratch with new asteroids and new reward yields. {tail}")
+                    body = (f"This is your {visit} visit to this zone. {recap}The next zone after this "
+                            f"will start from scratch with new asteroids and new reward yields. {tail}")
                 elif new_zone:
                     title = "YOUR TURN · NEW ZONE"
                     body = f"New zone, new asteroids. {tail}"
@@ -581,14 +592,14 @@ def generate_timeline(
                 # Hypothetical: the participant never actually watches the chosen partner,
                 # and the choice zone is always a new, unplayed one.
                 stage["overlay-message"] = (
-                    "Imagine you were about to play again in a brand-new zone and could watch one partner shoot first. "
-                    "Which starship would you choose?"
+                    "Imagine you are about to play again in a new zone and could watch only one of the partners "
+                    "from this expedition shoot in that zone first. Which partner would you choose to help you play better?"
                 )
 
     # --- 10) Practice session ---
     practice_zone = zone_meta[0]
     bonus_line = (
-        f"BONUS: You will receive a {bonus_currency}{bonus_per_reward:.2f} bonus for each point "
+        f"[ORANGE]BONUS[/ORANGE]: You will receive a {_bonus_phrase(bonus_per_reward, bonus_currency)} bonus for each point "
         "you earn in mining rewards.\n\n"
         if bonus_per_reward is not None else ""
     )
@@ -604,8 +615,8 @@ def generate_timeline(
         "Sometimes you will repeat the same zone with the same asteroids and hence the same reward yields. "
         "Sometimes you will move on to new zones with different asteroids and different reward yields.\n\n"
         "STARSHIP PARTNERS: You will also watch starship partners shoot asteroids. "
-        "Some partners are much better at finding rewarding asteroids than others, and a partner "
-        "that mines well in one zone will mine well in the next. Pay close attention to which "
+        "[BLUE]Some partners are much better at finding rewarding asteroids than others, and a partner "
+        "that mines well in one zone will mine well in the next.[/BLUE] Pay close attention to which "
         "asteroids each partner shoots and what it gets, so you can decide how much to trust it "
         "when it's your turn.\n\n"
         + bonus_line +

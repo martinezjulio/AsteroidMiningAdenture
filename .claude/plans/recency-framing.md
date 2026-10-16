@@ -18,6 +18,11 @@ Approved 2026-10-15. Full rationale in the session plan; decisions: keep the tas
 - [x] 4. Pips: PIP_RADIUS 4→6, PIP_SPACING 10→14 — main.js (~2 lines)
 - [x] 5. CLAUDE.md: one sentence on per-zone pair draw + filter
 
+- [x] 6. Intro + How to Play as DOM pages; game frame first appears on the practice slide — index.html, main.js
+- [x] 7. [BLUE] highlight for the partner sentence — models.py, main.js, index.html
+- [x] 8. Intro bonus in cents (rest of game stays in dollars) — models.py
+- [x] 9. Reward recap after the last round of every expedition (expedition-total wording, Continue) — models.py, main.js, CONFIG.md
+
 ## Findings
 - 1.1: solo-session recap uses number words ("You've mined here three times already."); first-and-last play in a zone says "only visit".
 - 2.2: `position` is `required: Number` in the log schema, so the unselected choice cursor logs as -1, not null.
