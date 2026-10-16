@@ -48,7 +48,7 @@ const gameLogSchema = new mongoose.Schema({
     demonstrator_experience: { type: Number, default: null }, // Warmup iterations
     demonstrator_strategy: { type: String, default: null }, // "thompson"
     demonstrator_bandit_payoffs: { type: String, default: null }, // JSON array of payoffs used for generation
-    demonstrator_filter: { type: String, default: null }, // pair filter active for this zone ("none" | "expert_gt_novice")
+    demonstrator_filter: { type: String, default: null }, // pair filter active for this zone ("none" | "expert_gt_novice" | "expert_policy_gt_novice")
     demonstrator_filter_attempts: { type: Number, default: null }, // pairs drawn before one passed (1 = first draw)
     demonstrator_filter_satisfied: { type: Boolean, default: null }, // false if the attempt cap was hit
     

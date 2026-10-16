@@ -48,7 +48,7 @@
         0.8
     ],
     "demonstrator_sampling_strategy": "thompson",
-    "demonstrator_filter": "expert_gt_novice",
+    "demonstrator_filter": "expert_policy_gt_novice",
     "demonstrator_filter_max_attempts": 200,
     "bandit_assignment_mode": "round_changing",
     "same_zone_transition": "keep_scene",

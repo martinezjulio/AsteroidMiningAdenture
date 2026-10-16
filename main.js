@@ -203,7 +203,9 @@ class ThompsonSampler {
  * Per-zone demonstrator runs
  * Both partners' runs for a zone are drawn together the first time either is
  * watched, so a config filter (demonstrator_config.demonstrator_filter) can
- * constrain the PAIR, e.g. the expert must out-earn the novice in every zone.
+ * constrain the PAIR: 'expert_gt_novice' (expert's realized reward strictly
+ * higher) or 'expert_policy_gt_novice' (expert's chosen arms have a strictly
+ * higher true-payoff sum, so any novice win is reward noise, not a better policy).
  * Each slot keeps its own sampler, so the warmup + shown history logged on
  * trajectory_complete is exactly what it was when runs were drawn per stage.
  ****************************************/
@@ -222,9 +224,12 @@ function drawDemoRun(payoffs, warmup, numPulls) {
   return { sampler, trajectory, rewards };
 }
 
-function demoPairPassesFilter(filter, runs) {
+function demoPairPassesFilter(filter, runs, payoffs) {
   const sum = (a) => a.reduce((x, y) => x + y, 0);
+  // Expected value of a run: sum of the TRUE payoffs of the arms chosen (ignores reward noise).
+  const ev = (arms) => arms.reduce((s, arm) => s + payoffs[arm], 0);
   if (filter === 'expert_gt_novice') return sum(runs[0].rewards) > sum(runs[1].rewards);
+  if (filter === 'expert_policy_gt_novice') return ev(runs[0].trajectory) > ev(runs[1].trajectory);
   return true; // 'none' (or an unknown value, which the server never sends)
 }
 
@@ -242,7 +247,7 @@ function getZoneDemoTrajectory(stage, demoIdx, payoffs, numPulls) {
     while (attempts < maxAttempts && !satisfied) {
       runs = [drawDemoRun(payoffs, warmups[0], numPulls), drawDemoRun(payoffs, warmups[1], numPulls)];
       attempts++;
-      satisfied = demoPairPassesFilter(filter, runs);
+      satisfied = demoPairPassesFilter(filter, runs, payoffs);
     }
     zoneDemoTrajectories[key] = { 0: runs[0], 1: runs[1], filter, attempts, satisfied };
     verboseLog(`Zone ${stage.zone.zone_global_index}: demonstrator pair drawn in ${attempts} attempt(s); filter=${filter}, satisfied=${satisfied}`);
