@@ -623,44 +623,51 @@ def generate_timeline(
         "[RED_BOLD]DO NOT RELOAD PAGE AT ANY TIME DURING GAME![/RED_BOLD]"
     )
 
+    # How to Play panels. Images live in assets/introduction/ and are regenerated from
+    # the live game with `npm run capture-howto`. Captions may wrap key caps in [KEY]…[/KEY].
+    howto_panels = [
+        {
+            "title": "Move",
+            "image": "move.gif",
+            "caption": (
+                "[KEY]←[/KEY] [KEY]→[/KEY] move your starship to another asteroid. "
+                "You can also click an asteroid."
+            ),
+        },
+        {
+            "title": "Shoot",
+            "image": "shoot.gif",
+            "caption": (
+                "[KEY]Space[/KEY] shoots the asteroid above your ship. "
+                f"You get {num_pulls_per_play_game} shots each time it is your turn."
+            ),
+        },
+        {
+            "title": "Reward",
+            "image": "reward.png",
+            "caption": (
+                "Green means the asteroid paid out: a slot in the Reward Tank turns green "
+                "and a green pip appears above that asteroid."
+            ),
+        },
+        {
+            "title": "No reward",
+            "image": "no_reward.png",
+            "caption": "Red means it paid nothing this time: the slot and the pip turn red.",
+        },
+    ]
+    howto_note = (
+        "Pips add up above each asteroid as you shoot, so you can see at a glance which ones "
+        "have paid out. Some asteroids pay out far more often than others. Find them."
+    )
+
     practice_session = [
         {"stage_type": "prolific_id_form", "message": "Please enter your Prolific ID below:"},
-        {
-            "stage_type": "introduction",
-            "message": intro_message,
-            "instructions": {
-                "instruction1": "move left with left arrow",
-                "instruction1_image": "move_left.gif",
-                "instruction2": "move right with right arrow",
-                "instruction2_image": "move_right.gif",
-                "instruction3": "shoot the asteroid with spacebar",
-                "instruction3_image": "mine.gif",
-                "instruction4": "green indicates successful mining\n(increases reward)",
-                "instruction4_image": "successful_mine.png",
-                "instruction5": "red indicates unsuccessful mining\n(no reward)",
-                "instruction5_image": "unsuccessful_mine.png",
-                "instruction6": (
-                    "You mine rewards from asteroids by shooting them. "
-                    "Some asteroids yield reward more often than others. "
-                    "Get optimal rewards by finding the asteroids that yield reward often!"
-                ),
-            },
-        },
+        {"stage_type": "introduction", "message": intro_message},
         {
             "stage_type": "instructions",
             "message": "How to Play",
-            "instructions": {
-                "instruction1": "← move left key",
-                "instruction1_image": "move_left.gif",
-                "instruction2": "→ move right key",
-                "instruction2_image": "move_right.gif",
-                "instruction3": "shoot asteroids with spacebar",
-                "instruction3_image": "mine.gif",
-                "instruction4": "green\nindicates reward",
-                "instruction4_image": "successful_mine.png",
-                "instruction5": "red\nindicates no reward",
-                "instruction5_image": "unsuccessful_mine.png",
-            },
+            "instructions": {"panels": howto_panels, "note": howto_note},
         },
         {
             "game": "practice",

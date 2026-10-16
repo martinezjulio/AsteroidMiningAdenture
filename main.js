@@ -2397,21 +2397,22 @@ function setupIntroduction(stage) {
   });
 }
 
-// How-to-play layout: three items (move left, move right, shoot) over two (reward,
-// no reward), each an image from assets/introduction with its caption; GIFs animate
-// as plain <img>. Optional instruction6 is a closing note.
+// How-to-play layout: stage.instructions.panels ({ title, image, caption }) in a
+// wrapping row, plus an optional closing note. Images come from assets/introduction
+// (regenerated with `npm run capture-howto`; GIFs animate as plain <img>). Captions
+// may mark key caps as [KEY]…[/KEY].
 function howToPageHtml(stage) {
   const ins = stage.instructions;
-  const item = (i) => {
-    const img = ins[`instruction${i}_image`];
-    const caption = escapeHtml(ins[`instruction${i}`] || '').replace(/\n/g, '<br>');
-    const imgHtml = img ? `<img src="assets/introduction/${escapeHtml(img)}" alt="">` : '';
-    return `<div class="howto-item">${imgHtml}<div class="howto-caption">${caption}</div></div>`;
-  };
-  const row = (idxs) => `<div class="howto-row">${idxs.map(item).join('')}</div>`;
+  const caption = (s) => escapeHtml(s || '')
+    .replace(/\[KEY\]([\s\S]*?)\[\/KEY\]/g, '<span class="howto-key">$1</span>')
+    .replace(/\n/g, '<br>');
+  const panel = (p) => '<div class="howto-item">'
+    + (p.image ? `<img src="assets/introduction/${escapeHtml(p.image)}" alt="">` : '')
+    + (p.title ? `<div class="howto-title">${escapeHtml(p.title)}</div>` : '')
+    + `<div class="howto-caption">${caption(p.caption)}</div></div>`;
   return `<h2 class="page-title">${escapeHtml(stage.message || 'How to Play')}</h2>`
-    + row([1, 2, 3]) + row([4, 5])
-    + (ins.instruction6 ? `<p class="howto-note">${escapeHtml(ins.instruction6)}</p>` : '');
+    + `<div class="howto-grid">${(ins.panels || []).map(panel).join('')}</div>`
+    + (ins.note ? `<p class="howto-note">${caption(ins.note)}</p>` : '');
 }
 
 function setupInstructions(stage) {

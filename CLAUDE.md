@@ -10,6 +10,7 @@ npm run build-config     # compile configs/<ACTIVE_CONFIG> (YAML) → config.jso
 npm start                # node server.js  → http://localhost:8080 (loads .env via dotenv at startup)
 npm run dev              # nodemon (auto-restart on change)
 npm run test-concurrency # simulate N concurrent /api/timeline requests (axios)
+npm run capture-howto    # regenerate assets/introduction media from the live game (needs npm start + ffmpeg)
 
 # Manually generate a timeline (useful when debugging the Python side)
 cd timeline_models && python3 models.py <request_id> '<demonstrator_config_json>'

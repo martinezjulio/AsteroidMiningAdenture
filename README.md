@@ -268,43 +268,27 @@ The generated timeline (one per participant; backups in `timelines/`) defines th
 ```json
 {
   "stage_type": "introduction",
-  "message": "Welcome text that appears on screen",
-  "instructions": {
-    "instruction1": "Move left and right with arrow keys",
-    "instruction1_image": "move_left_right.gif",
-    "instruction2": "Move up and down with arrow keys", 
-    "instruction2_image": "move_up_down.gif",
-    "instruction3": "Press spacebar to mine asteroid",
-    "instruction3_image": "mine.gif",
-    "instruction4": "green indicates successful mining\n(increases reward)",
-    "instruction4_image": "success.png",
-    "instruction5": "red indicates unsuccessful mining\n(no reward)",
-    "instruction5_image": "failure.png",
-    "instruction6": "Final instruction text (optional)"
-  }
+  "message": "Welcome text ([BOLD]…[/BOLD] title, [BLUE]/[ORANGE] highlights, [RED_BOLD] warning)"
 }
 ```
 
-### 3. **Instructions**
+### 3. **Instructions** (How to Play)
 ```json
 {
-  "stage_type": "instructions", 
-  "message": "Game Instructions",
+  "stage_type": "instructions",
+  "message": "How to Play",
   "instructions": {
-    "instruction1": "Move left and right with arrow keys",
-    "instruction1_image": "move_left_right.gif",
-    "instruction2": "Move up and down with arrow keys", 
-    "instruction2_image": "move_up_down.gif",
-    "instruction3": "Press spacebar to mine asteroid",
-    "instruction3_image": "mine.gif",
-    "instruction4": "green indicates successful mining\n(increases reward)",
-    "instruction4_image": "success.png",
-    "instruction5": "red indicates unsuccessful mining\n(no reward)",
-    "instruction5_image": "failure.png",
-    "instruction6": "Final instruction text (optional)"
+    "panels": [
+      { "title": "Move",      "image": "move.gif",      "caption": "[KEY]←[/KEY] [KEY]→[/KEY] move your starship …" },
+      { "title": "Shoot",     "image": "shoot.gif",     "caption": "[KEY]Space[/KEY] shoots the asteroid above your ship …" },
+      { "title": "Reward",    "image": "reward.png",    "caption": "Green means the asteroid paid out …" },
+      { "title": "No reward", "image": "no_reward.png", "caption": "Red means it paid nothing this time …" }
+    ],
+    "note": "Closing note under the panels (optional)"
   }
 }
 ```
+Images are served from `assets/introduction/`; `[KEY]…[/KEY]` in a caption renders as a key cap. The media are captures of the live game — regenerate them with `npm run capture-howto` (server running, ffmpeg on PATH; see `scripts/capture_howto_media.mjs`).
 
 ### 4. **Practice**
 ```json
