@@ -172,8 +172,9 @@
 
     /* Reward ledger (reward_breakdown_display: per_game): one row per expedition,
        one mini Reward Tank per play game and a same-size named placeholder per
-       watch game, total underneath. Only the current game's box is bright; the
-       caption dims once its expedition is over. */
+       watch game, grouped by zone with the zone number underneath (as on the end
+       screen), total below. Only the current game's box is bright; the caption and
+       zone labels dim once their expedition is over. */
     .ledger {
       display: inline-flex;
       flex-direction: column;
@@ -181,21 +182,33 @@
       gap: 6px;
       padding-top: 2px;
     }
-    .ledger-row { display: flex; align-items: center; gap: 4px; height: 22px; }
+    /* Row height = 22px boxes + 2px gap + 10px zone label; setLedgerRowHeight() reserves it. */
+    .ledger-row { display: flex; align-items: flex-start; gap: 10px; height: 34px; }
     .ledger { gap: 4px; }
     .ledger-cap.dimmed { opacity: 0.4; }
     .ledger-cap {
       width: 104px;
-      margin-right: 8px;
+      margin-right: 2px;
       text-align: right;
       font: 600 11px var(--font-body);
+      line-height: 22px; /* centred on the box row, above the zone labels */
       letter-spacing: 0.06em;
       text-transform: uppercase;
       color: var(--muted);
       text-shadow: none;
       white-space: nowrap;
     }
-    .ledger-zone { display: flex; gap: 4px; }
+    .ledger-zone { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+    .ledger-zone-boxes { display: flex; gap: 4px; }
+    .ledger-zone-label {
+      height: 10px;
+      font: 700 9px var(--font-body);
+      line-height: 10px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .ledger-zone-label.dimmed { opacity: 0.4; }
     .ledger-box {
       display: flex;
       gap: 1px;

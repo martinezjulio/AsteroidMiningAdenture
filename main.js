@@ -1890,7 +1890,7 @@ function ledgerSessionCount() {
 // canvas never moves when rows appear. #game-frame's fit formula reads the same var.
 function setLedgerRowHeight() {
   let h = 60;
-  if (rewardBreakdownDisplay === 'per_game') h = ledgerSessionCount() * 26 + 64;
+  if (rewardBreakdownDisplay === 'per_game') h = ledgerSessionCount() * 38 + 64; // 34px .ledger-row + 4px gap
   if (bonusRate() !== null) h += 18; // .ledger-bonus line under the total
   document.documentElement.style.setProperty('--reward-rows-h', `${h}px`);
 }
@@ -1925,6 +1925,7 @@ function buildRewardLedgerDOM() {
     r.appendChild(cap);
     row.groups.forEach(grp => {
       const z = mk('ledger-zone');
+      const boxes = mk('ledger-zone-boxes');
       grp.games.forEach(g => {
         const box = mk('ledger-box ' + g.kind + (ledgerIsCurrent(g) ? ' active' : ' dimmed'));
         box.style.borderColor = grp.color;
@@ -1942,8 +1943,13 @@ function buildRewardLedgerDOM() {
             box.appendChild(mk('ledger-slot' + cls));
           }
         }
-        z.appendChild(box);
+        boxes.appendChild(box);
       });
+      z.appendChild(boxes);
+      const label = mk('ledger-zone-label' + (row.dimmed ? ' dimmed' : ''));
+      label.textContent = `ZONE ${grp.zone}`;
+      label.style.color = grp.color;
+      z.appendChild(label);
       r.appendChild(z);
     });
     wrap.appendChild(r);
