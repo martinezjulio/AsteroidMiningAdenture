@@ -685,6 +685,18 @@ def generate_timeline(
         },
     ]
 
+    # --- 10) Condition labels for analysis ---
+    # `sessions` and `raw_sessions` are index-aligned. Every stage of a session
+    # (incl. the presentation and recap stages inserted above) carries its own
+    # condition label and the participant's whole shuffled order, so the client
+    # can log them verbatim (session_condition / condition_order in gameLog.js).
+    condition_labels = ["-".join(cond) for cond in sessions]
+    condition_order = "|".join(condition_labels)
+    for (games, end_stages), label in zip(raw_sessions, condition_labels):
+        for stage in games + end_stages:
+            stage["condition"] = label
+            stage["condition_order"] = condition_order
+
     return [practice_session] + raw_sessions
 
 

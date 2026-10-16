@@ -387,6 +387,8 @@ async function logToMongoDB(action, additionalData = {}) {
     experiment_id: experimentID,
     prolific_study_id: prolificStudyID,
     prolific_session_id: prolificSessionID,
+    session_condition: stage.condition || null,
+    condition_order: stage.condition_order || null,
     ...additionalData
   };
 

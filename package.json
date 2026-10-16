@@ -8,7 +8,8 @@
     "dev": "nodemon server.js",
     "test-concurrency": "node test_concurrency.js",
     "build-config": "node scripts/build-config.js",
-    "capture-howto": "node scripts/capture_howto_media.mjs"
+    "capture-howto": "node scripts/capture_howto_media.mjs",
+    "export-bonuses": "node scripts/export-bonuses.js"
   },
   "dependencies": {
     "dotenv": "^17.4.2",

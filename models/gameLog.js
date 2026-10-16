@@ -26,6 +26,8 @@ const gameLogSchema = new mongoose.Schema({
     // Session configuration
     transfer: { type: Boolean, default: false },
     game_sequence: { type: String, default: "" },
+    session_condition: { type: String, default: null }, // this session's round token list, e.g. "watch-demo-1-play-watch-demo-2-play"
+    condition_order: { type: String, default: null },   // all sessions' labels in played order, "|"-separated (same on every row)
     
     // Stage/game identifiers
     game_index: { type: Number, required: true },
