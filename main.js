@@ -238,7 +238,8 @@ function getZoneDemoTrajectory(stage, demoIdx, payoffs, numPulls) {
   const key = `s${stage.session_index}:z${stage.zone.zone_global_index}`;
   if (!zoneDemoTrajectories[key]) {
     const cfg = demonstratorConfig || {};
-    const filter = cfg.demonstrator_filter || 'none';
+    // Practice (session 0) shows only the novice, so its run is not conditioned on an unseen expert run.
+    const filter = stage.session_index === 0 ? 'none' : (cfg.demonstrator_filter || 'none');
     const maxAttempts = Math.max(1, cfg.demonstrator_filter_max_attempts || 200);
     const warmups = [cfg.demo_1_prior_experience || 0, cfg.demo_2_prior_experience || 0];
     let runs = null;
@@ -1543,7 +1544,8 @@ function loadStage() {
       // and a clean per-round-play-reward map. round_index is reused across sessions
       // (0..num_rounds-1), so wiping prevents a later round_recap from picking up
       // plays from a prior session's same round_index.
-      if (currentSessionIndex >= 1) {
+      // Session 0 (practice) included: its ledger row shows PRACTICE without totals.
+      if (currentSessionIndex >= 0) {
         if (!(currentSessionIndex in sessionTotals)) {
           sessionTotals[currentSessionIndex] = 0;
         }
@@ -1558,7 +1560,7 @@ function loadStage() {
     // Reset game tracking for new game
     const numArmPulls = stage.num_arm_pulls || 0;
     resetGameTracking(gameType, numArmPulls);
-    if (gameType === 'play' || gameType === 'watch') ledgerGameStarted(stage);
+    if (gameType === 'play' || gameType === 'watch' || gameType === 'practice') ledgerGameStarted(stage);
   }
 
   // demonstrator_presentation isn't in the gameplay-stage list above, so it doesn't
@@ -1619,6 +1621,9 @@ function loadStage() {
       break;
     case 'demonstrator_presentation':
       setupDemonstratorPresentation.call(this, stage);
+      break;
+    case 'practice_end':
+      setupPracticeEnd.call(this, stage);
       break;
     case 'round_recap':
       setupRoundRecap.call(this, stage);
@@ -1788,6 +1793,12 @@ function updateTotalRewardDisplay() {
     el.style.visibility = 'hidden';
     return;
   }
+  // Practice shows the per-game ledger (no totals) only; a plain running total has
+  // nothing to show before Expedition 1.
+  if (currentSessionIndex === 0 && rewardBreakdownDisplay !== 'per_game') {
+    el.style.visibility = 'hidden';
+    return;
+  }
   // Live in-game display is single-line in both modes:
   //   per_session     → just the current session's tally
   //   across_sessions → the running sum across every session
@@ -1843,12 +1854,12 @@ function ledgerKey(stage) {
 }
 
 function ledgerSessionStarted(sessionIndex) {
-  if (sessionIndex < 1 || ledgerSessions.includes(sessionIndex)) return;
+  if (sessionIndex < 0 || ledgerSessions.includes(sessionIndex)) return;
   ledgerSessions.push(sessionIndex);
 }
 
 function ledgerGameStarted(stage) {
-  if (!stage || !stage.zone || stage.session_index < 1) return;
+  if (!stage || !stage.zone || stage.session_index < 0) return;
   const key = ledgerKey(stage);
   if (!playGames[key]) {
     const demoName = stage.demonstrator && stage.demonstrator.demonstrator_name;
@@ -1876,7 +1887,7 @@ function ledgerIsCurrent(g) {
 
 function ledgerRecordShot(outcome) {
   const stage = window.currentStage;
-  if (!stage || stage.game !== 'play') return;
+  if (!stage || (stage.game !== 'play' && stage.game !== 'practice')) return;
   const g = playGames[ledgerKey(stage)];
   if (!g) return;
   g.outcomes.push(outcome);
@@ -1928,7 +1939,7 @@ function buildRewardLedgerDOM() {
   ledgerRows(true).forEach(row => {
     const r = mk('ledger-row');
     const cap = mk('ledger-cap' + (row.dimmed ? ' dimmed' : ''));
-    cap.textContent = `EXPEDITION ${row.session}`;
+    cap.textContent = row.session === 0 ? 'PRACTICE' : `EXPEDITION ${row.session}`;
     r.appendChild(cap);
     row.groups.forEach(grp => {
       const z = mk('ledger-zone');
@@ -1961,11 +1972,13 @@ function buildRewardLedgerDOM() {
     });
     wrap.appendChild(r);
   });
-  const total = mk('ledger-total');
-  total.textContent = `TOTAL REWARD ${getUserTotalReward()}`;
-  wrap.appendChild(total);
-  const bonus = buildBonusLineDOM(getUserTotalReward());
-  if (bonus) wrap.appendChild(bonus);
+  if (currentSessionIndex >= 1) { // practice earns nothing, so no total or bonus line
+    const total = mk('ledger-total');
+    total.textContent = `TOTAL REWARD ${getUserTotalReward()}`;
+    wrap.appendChild(total);
+    const bonus = buildBonusLineDOM(getUserTotalReward());
+    if (bonus) wrap.appendChild(bonus);
+  }
   return wrap;
 }
 
@@ -1986,7 +1999,7 @@ function drawRewardLedgerCanvas(scene, cx, y) {
   const gfx = scene.add.graphics();
   rows.forEach((row, ri) => {
     const ry = y + ri * rowH;
-    addText(scene, x0 + capW, ry + boxH / 2, `EXPEDITION ${row.session}`, {
+    addText(scene, x0 + capW, ry + boxH / 2, row.session === 0 ? 'PRACTICE' : `EXPEDITION ${row.session}`, {
       font: `bold 13px ${THEME.fontBody}`, fill: THEME.textMuted
     }).setOrigin(1, 0.5);
     let x = x0 + capW + capGap;
@@ -2367,6 +2380,7 @@ function restoreGameFrame() {
   document.getElementById('game-frame').style.visibility = '';
   document.getElementById('prolific-form-overlay').style.visibility = 'hidden';
   document.getElementById('page-overlay').style.visibility = 'hidden';
+  document.getElementById('summary-bar').style.transform = '';
   raiseSummaryBarOverOverlay(false);
 }
 
@@ -2401,7 +2415,14 @@ function showDomPage({ html, buttonLabel, onNext, partnerMode }) {
   // (same placement as the Prolific form).
   const frameRect = frame.getBoundingClientRect();
   overlay.style.justifyContent = 'flex-start';
-  overlay.style.paddingTop = `${Math.max(12, frameRect.top + (frameRect.height - content.offsetHeight) / 2)}px`;
+  const paddingTop = Math.max(12, frameRect.top + (frameRect.height - content.offsetHeight) / 2);
+  overlay.style.paddingTop = `${paddingTop}px`;
+  // On short viewports the page is taller than the frame's area and would run over
+  // the partner row, so slide the row down to sit under the button. A transform keeps
+  // the document layout behind the overlay unchanged; restoreGameFrame clears it.
+  const bar = document.getElementById('summary-bar');
+  const overflow = paddingTop + content.offsetHeight + 8 - bar.getBoundingClientRect().top;
+  bar.style.transform = overflow > 0 ? `translateY(${Math.round(overflow)}px)` : '';
   // The button is disabled on click; a page that advances in steps (How to Play)
   // re-enables it from onNext until the last step.
   return btn;
@@ -2704,7 +2725,7 @@ function setupPlayOrPractice(stage, isPractice) {
           
           // Record outcome and update tank
           pullOutcomes.push(outcome);
-          if (currentGameType === 'play') ledgerRecordShot(outcome);
+          if (currentGameType === 'play' || currentGameType === 'practice') ledgerRecordShot(outcome);
         drawMarkerDot.call(scene, gridOriginX, gridOriginY, cellWidth, cellHeight, row, col, outcome);
         drawRewardTank.call(scene, rewardTankContainer, num_arm_pulls, pullOutcomes);
 
@@ -3386,6 +3407,27 @@ function setupIndicate(stage) {
 /**
  * DEMONSTRATOR PRESENTATION stage - show both demonstrators at session start
  */
+// Slide between the last practice play and Expedition 1 (stage_type: practice_end in
+// models.py): title + message + Next. No zone, nothing logged.
+function setupPracticeEnd(stage) {
+  updateControlsDisplay("hidden");
+  if (stage.title) {
+    addText(this, GAME_W / 2, 56, stage.title, {
+      font: `bold 24px ${THEME.fontDisplay}`,
+      fill: THEME.text,
+      align: 'center',
+      wordWrap: { width: 820 }
+    }).setOrigin(0.5);
+  }
+  addRichText(this, GAME_W / 2, GAME_H / 2 - 20, stage.message || '', {
+    font: `21px ${THEME.fontBody}`,
+    fill: THEME.text,
+    wordWrap: { width: 680 },
+    lineSpacing: 4
+  }, [], 0.5);
+  makeButton(this, GAME_W / 2, GAME_H - 100, 'Next', () => nextStage.call(this), { width: 220 });
+}
+
 function setupDemonstratorPresentation(stage) {
   // Hide controls during presentation
   updateControlsDisplay("hidden");
@@ -4866,6 +4908,21 @@ function nextStage() {
 
     currentSessionIndex++;
     currentStageIndex = 0;
+
+    // Practice is over: its PRACTICE ledger row does not carry into the expeditions.
+    if (currentSessionIndex === 1) {
+      ledgerSessions = ledgerSessions.filter(si => si !== 0);
+      Object.keys(playGames).forEach(k => { if (k.startsWith('s0:')) delete playGames[k]; });
+    }
+
+    // Open the new expedition's ledger row now, so it is already under the canvas on
+    // the expedition's opening slide (presentation or first-play transition), not only
+    // once its first game loads. loadStage's session-boundary init is idempotent.
+    if (currentSessionIndex < timelineData.length) {
+      if (!(currentSessionIndex in sessionTotals)) sessionTotals[currentSessionIndex] = 0;
+      ledgerSessionStarted(currentSessionIndex);
+      updateTotalRewardDisplay();
+    }
     
     // Clear summary icons when starting a new session
     summaryIcons = [];

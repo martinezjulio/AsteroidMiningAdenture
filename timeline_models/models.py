@@ -324,6 +324,10 @@ def generate_timeline(
     session_to_ids: Dict[int, List[int]] = {}
     for sess_i in range(1, len(raw_sessions) + 1):
         session_to_ids[sess_i] = [available_ids.pop(), available_ids.pop()]
+    # The practice watch has its own partner (session 0) so it gets a name and a
+    # style+color that no real expedition reuses.
+    practice_demo_id = available_ids.pop()
+    session_to_ids[0] = [practice_demo_id]
 
     all_demo_ids = set()
     for ids in session_to_ids.values():
@@ -661,6 +665,40 @@ def generate_timeline(
         "have paid out. Some asteroids pay out far more often than others. Find them."
     )
 
+    # Practice is a miniature of the real task: shoot, watch a NOVICE partner in the
+    # same zone (same asteroids), shoot again. Slot 1 is the novice (demo_2_prior_experience).
+    # The client bypasses the demonstrator pair filter for session 0.
+    practice_partner = _build_demo_data(
+        1, [None, practice_demo_id], demo_style_color, demo_names, name_demonstrators
+    )
+    practice_name = practice_partner.get("demonstrator_name")
+
+    def _practice_stage(game_index: int, game: str, title: str, body: str) -> Dict[str, Any]:
+        return {
+            "game": game,
+            "demonstrator": practice_partner if game == "watch" else None,
+            "game_index": game_index,
+            "num_arm_pulls": num_pulls_per_watch_game if game == "watch" else num_pulls_per_play_game,
+            "transfer": None,
+            "stage_index": game_index,
+            "round_index": 0,
+            "session_index": 0,
+            "session_total_rounds": 0,
+            "zone": practice_zone,
+            "overlay-title": title,
+            "overlay-message": body,
+        }
+
+    practice_watch = _practice_stage(
+        1, "watch",
+        f"PRACTICE · WATCH {practice_name.upper()}" if practice_name else "PRACTICE · WATCH A PARTNER",
+        (f"Now you will watch a partner, {practice_name}, play in the same zone with the same asteroids. "
+         if practice_name else
+         "Now you will watch a partner play in the same zone with the same asteroids. ")
+        + "Watch closely since you will play again to see if you can learn which asteroids are worth shooting.",
+    )
+    practice_watch["demonstrator_index"] = 1
+
     practice_session = [
         {"stage_type": "prolific_id_form", "message": "Please enter your Prolific ID below:"},
         {"stage_type": "introduction", "message": intro_message},
@@ -669,19 +707,24 @@ def generate_timeline(
             "message": "How to Play",
             "instructions": {"panels": howto_panels, "note": howto_note},
         },
+        _practice_stage(
+            0, "practice", "PRACTICE",
+            f"Get a feel for the controls. You have {num_pulls_per_play_game} shots. "
+            "Practice doesn't count toward your reward.",
+        ),
+        practice_watch,
+        _practice_stage(
+            2, "practice", "PRACTICE · YOUR TURN AGAIN",
+            "Now you will practice playing a final time in the same zone again. "
+            "See if you can use what you learned from watching to shoot the best asteroids.",
+        ),
         {
-            "game": "practice",
-            "demonstrator": None,
-            "game_index": 0,
-            "num_arm_pulls": num_pulls_per_play_game,
-            "transfer": None,
-            "stage_index": 0,
-            "round_index": 0,
-            "session_index": 0,
-            "session_total_rounds": 0,
-            "zone": practice_zone,
-            "overlay-title": "PRACTICE",
-            "overlay-message": "Get a feel for the controls. This round doesn't count toward your reward.",
+            "stage_type": "practice_end",
+            "title": "PRACTICE COMPLETE",
+            "message": (
+                "Now get ready to play. All rewards now will count towards your TOTAL REWARD.\n\n"
+                "Click Next to begin your first expedition."
+            ),
         },
     ]
 
