@@ -156,7 +156,7 @@ async function startPractice(page, baseUrl) {
 
   const info = await practiceInfo(page);
   await page.waitForFunction((n) => {
-    if (typeof currentGameType === 'undefined' || currentGameType !== 'practice') return false;
+    if (typeof currentGameType === 'undefined' || currentGameType !== 'practice-play') return false;
     const list = game.scene.scenes[0].children.list;
     const hasUser = list.some((o) => o.texture && o.texture.key === 'user');
     const asteroids = list.filter((o) => o.texture && String(o.texture.key).startsWith('asteroid_')).length;

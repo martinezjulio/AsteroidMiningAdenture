@@ -580,7 +580,14 @@ function resetGameTracking(gameType, numArmPulls = 0) {
   } else {
     currentGameType = gameType;
   }
-  
+
+  // Practice (session 0) logs under its own game types so analyses can filter on
+  // the "practice" prefix; stage tokens and game_sequence keep the plain names.
+  if (currentSessionIndex === 0) {
+    if (gameType === 'practice') currentGameType = 'practice-play';
+    else if (gameType === 'watch') currentGameType = 'practice-watch';
+  }
+
   currentShotsRemaining = numArmPulls;
   currentPosition = 0;
   
@@ -2725,7 +2732,7 @@ function setupPlayOrPractice(stage, isPractice) {
           
           // Record outcome and update tank
           pullOutcomes.push(outcome);
-          if (currentGameType === 'play' || currentGameType === 'practice') ledgerRecordShot(outcome);
+          if (currentGameType === 'play' || currentGameType === 'practice-play') ledgerRecordShot(outcome);
         drawMarkerDot.call(scene, gridOriginX, gridOriginY, cellWidth, cellHeight, row, col, outcome);
         drawRewardTank.call(scene, rewardTankContainer, num_arm_pulls, pullOutcomes);
 

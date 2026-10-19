@@ -71,7 +71,7 @@ Style+color is assigned **at timeline generation time in Python**, not at runtim
 
 ### Online-choice logging quirk
 
-The `online-choice` game type is one stage in the timeline but logs as **two** game types: the choice phase logs as `game: "choice"` and the watch phase as `game: "watch"`. Analyses don't need to special-case it.
+The `online-choice` game type is one stage in the timeline but logs as **two** game types: the choice phase logs as `game: "choice"` and the watch phase as `game: "watch"`. Analyses don't need to special-case it. Practice stages (session 0) log as `practice-play` / `practice-watch`, so filter practice out by the `practice` prefix or `session_index == 0`.
 
 ### Config surface
 
