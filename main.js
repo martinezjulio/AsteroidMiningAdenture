@@ -71,7 +71,12 @@ let ledgerSessions = []; // sessions (expeditions) that have started, in order â
 let playGames = {}; // "s{session}:g{game_index}" -> { session, zone, gameIndex, kind, label, shots, outcomes: [] }, insertion-ordered
 let ledgerLiveKey = null; // key of the game in progress (bright ledger box); cleared when the participant clicks Next
 let currentGameReward = 0; // Reset for each game
-let refreshCount = parseInt(localStorage.getItem('refreshCount') || '0', 10);
+// Reloads / tab closures of this study attempt before the current page load. Keyed by the
+// Prolific SESSION_ID (unique per attempt) so the count never carries over from an earlier
+// study on the same domain; a reload keeps the URL, so the key survives it.
+const REFRESH_COUNT_KEY = 'refreshCount:' + (new URLSearchParams(window.location.search).get('SESSION_ID') || 'local');
+let refreshCount = parseInt(localStorage.getItem(REFRESH_COUNT_KEY) || '0', 10);
+let leavingIntentionally = false; // set before the end-of-study redirect so beforeunload does not count it
 
 let currentGameSequence = ""; // Track sequence of games in session as string
 let currentGameType = null;
@@ -484,14 +489,24 @@ function drainLogQueue(timeoutMs = 20000) {
   });
 }
 
-// Function to log page refresh. Uses sendBeacon so the request survives unload.
+// Called from beforeunload (reload, tab close, navigating away â€” not the end-of-study
+// redirect). Bumps the client counter that every later log row carries and records the
+// event as its own row in the PageUnload collection. Existing game-log rows are never
+// modified. Uses sendBeacon so the request survives unload.
 function logPageRefresh() {
   refreshCount++;
-  localStorage.setItem('refreshCount', refreshCount.toString());
+  localStorage.setItem(REFRESH_COUNT_KEY, refreshCount.toString());
   const payload = JSON.stringify({
     prolific_id: prolificID,
+    prolific_study_id: prolificStudyID,
+    prolific_session_id: prolificSessionID,
     uid: userUID,
-    session_id: sessionID
+    session_id: sessionID,
+    session_index: currentSessionIndex,
+    stage_index: currentStageIndex,
+    game: currentGameType,
+    refresh_count: refreshCount,
+    experiment_id: experimentID
   });
   try {
     if (navigator.sendBeacon) {
@@ -599,8 +614,9 @@ function resetGameTracking(gameType, numArmPulls = 0) {
   }
 }
 
-// Track page refresh events
+// Track page refresh events (skipped for the intentional "Return to Prolific" redirect)
 window.addEventListener('beforeunload', () => {
+  if (leavingIntentionally) return;
   logPageRefresh();
 });
 
@@ -5119,6 +5135,7 @@ function showEndOfGameMessage() {
       statusText.setStyle({ fill: '#fbbf24' });
     }
     makeButton(this, W / 2, buttonY, "Return to Prolific", () => {
+      leavingIntentionally = true; // leaving on purpose: not a refresh
       window.location.href = returnUrl;
     }, { width: 280 });
   });

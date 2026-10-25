@@ -5,6 +5,7 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const mongoose = require('mongoose');
 const GameLog = require('./models/gameLog'); // Import the model
+const PageUnload = require('./models/pageUnload'); // beforeunload events (reload / tab close)
 const app = express();
 
 const PORT = process.env.PORT || 8080;
@@ -410,30 +411,22 @@ app.post('/api/log', async (req, res) => {
     }
 });
 
-// Endpoint to log page refresh
+// Endpoint hit by the client's beforeunload beacon (reload, tab close, navigating away;
+// the end-of-study redirect is excluded client-side). Stores the event as its own row.
+// It must never modify existing GameLog rows: their refresh_count is the value at log
+// time, and a retroactive $inc here used to stamp 1 onto every row of the final
+// expedition when participants clicked "Return to Prolific".
 app.post('/api/log-refresh', async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+        return res.status(503).json({ success: false, error: 'database unavailable' });
+    }
     try {
-        const { prolific_id, uid, session_id } = req.body;
-        
-        // Find the most recent log entry for this user and increment refresh count
-        const lastLog = await GameLog.findOne({ 
-            prolific_id: prolific_id,
-            uid: uid,
-            session_id: session_id 
-        }).sort({ timestamp: -1 });
-        
-        if (lastLog) {
-            // Update all logs for this user session with incremented refresh count
-            await GameLog.updateMany(
-                { prolific_id: prolific_id, uid: uid, session_id: session_id },
-                { $inc: { refresh_count: 1 } }
-            );
-        }
-        
+        await new PageUnload(req.body).save();
         res.status(200).json({ success: true });
     } catch (error) {
-        console.error('Error logging refresh:', error);
-        res.status(500).json({ success: false, error: error.message });
+        console.error('Error logging page unload:', error);
+        const status = error.name === 'ValidationError' ? 400 : 500;
+        res.status(status).json({ success: false, error: error.message });
     }
 });
 

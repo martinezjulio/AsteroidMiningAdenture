@@ -602,7 +602,7 @@ The system logs the following variables for every user action:
 - `zone_bandit_id`: Identifier for payoff structure
 
 #### Tracking
-- `refresh_count`: Page refresh counter
+- `refresh_count`: Number of times this browser tab was reloaded or closed (any `beforeunload`) during this Prolific session *before the row was logged*. Stamped at log time and never modified afterwards. The end-of-study "Return to Prolific" redirect is not counted. A reload restarts the study with a new `uid`, so a participant with more than one `uid` has reloaded even if every row shows `refresh_count: 0`. Each unload event is also stored as its own row in the `PageUnload` collection (`models/pageUnload.js`) with its timestamp and the stage the participant was on.
 
 ### Delivery guarantees
 
@@ -681,10 +681,10 @@ Log a game action to MongoDB.
 - **Response**: Confirmation of logged data
 
 #### `POST /api/log-refresh`
-Log a page refresh event.
+Record a `beforeunload` event (reload, tab close, navigating away) as a row in the `PageUnload` collection. Sent via `sendBeacon`; the end-of-study redirect is excluded by the client. Never modifies existing `GameLog` rows.
 
-- **Body**: User identification data
-- **Response**: Confirmation of logged refresh
+- **Body**: User identification, current `session_index` / `stage_index` / `game`, and the post-increment `refresh_count`
+- **Response**: Confirmation of logged event
 
 #### `GET /api/logs/:prolific_id`
 Retrieve all logs for a specific user (for debugging).
