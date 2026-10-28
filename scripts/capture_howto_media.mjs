@@ -33,7 +33,6 @@ const CROP = { x: 355, y: 140, w: 290, h: 322 };
 const GIF_WIDTH = 580; // the crop at DPR 2, i.e. 1:1 with the captured pixels
 const CAPTURE_FPS = 25;
 const KEY_BADGE_MS = 350;
-const PROLIFIC_ID = 'HOWTO_CAPTURE';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -138,11 +137,10 @@ async function hideKey(page) {
 /* ---------- driving the game into the practice round ---------- */
 
 async function startPractice(page, baseUrl) {
+  // No PROLIFIC_PID in the URL, so the game runs in demo mode and logs nothing to Mongo.
   await page.goto(baseUrl, { waitUntil: 'load' });
-  const input = page.locator('#prolific-id-input');
-  await input.waitFor({ state: 'visible' });
-  await input.fill(PROLIFIC_ID);
-  await page.locator('#prolific-submit-btn:not([disabled])').click();
+  await page.getByRole('button', { name: /i agree to participate/i }).click();
+  await page.locator('#start-btn:not([disabled])').click();
   await page.getByRole('button', { name: /begin training/i }).click();
   await page.getByRole('button', { name: /^next$/i }).click();
 

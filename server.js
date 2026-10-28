@@ -6,6 +6,7 @@ const { spawn } = require('child_process');
 const mongoose = require('mongoose');
 const GameLog = require('./models/gameLog'); // Import the model
 const PageUnload = require('./models/pageUnload'); // beforeunload events (reload / tab close)
+const Consent = require('./models/consent'); // consent decisions (agree / decline) from the consent page
 const app = express();
 
 const PORT = process.env.PORT || 8080;
@@ -97,6 +98,7 @@ app.get('/api/config', (req, res) => {
         bandit_assignment_mode: config.bandit_assignment_mode || 'session_fixed',
         same_zone_transition: config.same_zone_transition || 'blackout',
         prolific_completion_url: config.prolific_completion_url || null,
+        prolific_no_consent_url: config.prolific_no_consent_url || null,
         bonus_per_reward: typeof config.bonus_per_reward === 'number' ? config.bonus_per_reward : null,
         bonus_currency: config.bonus_currency || '£',
         reward_breakdown_display: config.reward_breakdown_display || 'none',
@@ -425,6 +427,22 @@ app.post('/api/log-refresh', async (req, res) => {
         res.status(200).json({ success: true });
     } catch (error) {
         console.error('Error logging page unload:', error);
+        const status = error.name === 'ValidationError' ? 400 : 500;
+        res.status(status).json({ success: false, error: error.message });
+    }
+});
+
+// Consent decision (agree or decline) from the consent page: one row in the Consent
+// collection, timestamped and keyed by Prolific ID as Prolific's guidance requires.
+app.post('/api/log-consent', async (req, res) => {
+    if (mongoose.connection.readyState !== 1) {
+        return res.status(503).json({ success: false, error: 'database unavailable' });
+    }
+    try {
+        await new Consent(req.body).save();
+        res.status(200).json({ success: true });
+    } catch (error) {
+        console.error('Error logging consent:', error);
         const status = error.name === 'ValidationError' ? 400 : 500;
         res.status(status).json({ success: false, error: error.message });
     }

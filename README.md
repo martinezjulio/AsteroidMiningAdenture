@@ -256,15 +256,30 @@ The generated timeline (one per participant; backups in `timelines/`) defines th
 
 ## Game Types
 
-### 1. **Prolific ID Form**
+### 1. **Consent**
 ```json
 {
-  "stage_type": "prolific_id_form",
-  "message": "Please enter your Prolific ID below:"
+  "stage_type": "consent",
+  "title": "Consent",
+  "paragraphs": ["You are participating in a study … contact us at [EMAIL]. …", "We record only … may be shared with other researchers or made public."],
+  "contact_email": "juliomz@stanford.edu",
+  "decline_message": "Thank you. You have chosen not to participate.",
+  "decline_redirect_note": "You are being returned to Prolific.",
+  "decline_close_note": "You may close this window."
 }
 ```
+`[EMAIL]` renders as a `mailto:` link. "I agree to participate" logs `consented: true` and continues; "I do not agree" logs `consented: false` and, in Prolific mode, redirects to `prolific_no_consent_url` (see CONFIG.md). Both rows go to the `Consent` collection (`models/consent.js`).
 
-### 2. **Introduction**
+### 2. **Welcome**
+```json
+{
+  "stage_type": "welcome",
+  "message": "Press Start when you are ready to begin."
+}
+```
+The Prolific ID is read from the `PROLIFIC_PID` URL parameter at page load, so this page only has a Start button (which also requests fullscreen).
+
+### 3. **Introduction**
 ```json
 {
   "stage_type": "introduction",
@@ -272,7 +287,7 @@ The generated timeline (one per participant; backups in `timelines/`) defines th
 }
 ```
 
-### 3. **Instructions** (How to Play)
+### 4. **Instructions** (How to Play)
 ```json
 {
   "stage_type": "instructions",
@@ -290,7 +305,7 @@ The generated timeline (one per participant; backups in `timelines/`) defines th
 ```
 Images are served from `assets/introduction/`; `[KEY]…[/KEY]` in a caption renders as a key cap. The media are captures of the live game — regenerate them with `npm run capture-howto` (server running, ffmpeg on PATH; see `scripts/capture_howto_media.mjs`).
 
-### 4. **Practice**
+### 5. **Practice**
 ```json
 {
   "game": "practice",
@@ -305,7 +320,7 @@ Images are served from `assets/introduction/`; `[KEY]…[/KEY]` in a caption ren
 }
 ```
 
-### 5. **Play**
+### 6. **Play**
 ```json
 {
   "game": "play", 
@@ -320,7 +335,7 @@ Images are served from `assets/introduction/`; `[KEY]…[/KEY]` in a caption ren
 }
 ```
 
-### 6. **Watch** 
+### 7. **Watch** 
 ```json
 {
   "game": "watch",
@@ -336,7 +351,7 @@ Images are served from `assets/introduction/`; `[KEY]…[/KEY]` in a caption ren
 }
 ```
 
-### 7. **Choice**
+### 8. **Choice**
 ```json
 {
   "game": "choice",
@@ -353,7 +368,7 @@ Images are served from `assets/introduction/`; `[KEY]…[/KEY]` in a caption ren
 }
 ```
 
-### 8. **Online-Choice**
+### 9. **Online-Choice**
 ```json
 {
   "game": "online-choice",
@@ -425,7 +440,7 @@ Images are served from `assets/introduction/`; `[KEY]…[/KEY]` in a caption ren
 The timeline uses two different property naming patterns:
 
 **Meta Stages** (setup/instruction phases):
-- Use `stage_type`: "prolific_id_form", "introduction", "instructions"
+- Use `stage_type`: "consent", "welcome", "introduction", "instructions"
 - Do not have `game_index`, `session_index`, etc.
 
 **Game Stages** (actual gameplay):
@@ -544,7 +559,7 @@ The game automatically logs all user actions to MongoDB with comprehensive track
 The system logs the following variables for every user action:
 
 #### User Information
-- `prolific_id`: Participant's Prolific ID
+- `prolific_id`: Participant's Prolific ID, read from the `PROLIFIC_PID` URL parameter (never typed)
 - `uid`: Auto-generated unique identifier
 - `session_id`: MongoDB session identifier
 
@@ -607,6 +622,10 @@ The system logs the following variables for every user action:
 ### Delivery guarantees
 
 The browser keeps an in-order log queue (`enqueueLog` / `flushLogQueue` in `main.js`). A failed `POST /api/log` (network error, 5xx, or the 503 the server returns while MongoDB is disconnected) is retried with exponential backoff rather than dropped; 4xx responses (schema rejections) are not retried. The end-of-game screen waits for the queue to drain (up to 20 s) before showing the Prolific button and tells the participant if anything could not be saved.
+
+### Prolific mode vs demo mode
+
+The study link on Prolific must be `https://<service>/?PROLIFIC_PID={{%PROLIFIC_PID%}}&STUDY_ID={{%STUDY_ID%}}&SESSION_ID={{%SESSION_ID%}}`; the browser reads the three parameters once at load. With a `PROLIFIC_PID` the game is in **Prolific mode**: every action is logged and the end and decline screens redirect to Prolific. Without one (local `npm start`, the bare link) it is in **demo mode**: the consent page is skipped (the run starts at the welcome page), `enqueueLog`, `logPageRefresh` and `logConsent` send nothing, and the end screen has no Prolific button. The config and timeline fetches still happen in both modes; they carry no participant data.
 
 ### Logged Actions
 
@@ -684,6 +703,12 @@ Log a game action to MongoDB.
 Record a `beforeunload` event (reload, tab close, navigating away) as a row in the `PageUnload` collection. Sent via `sendBeacon`; the end-of-study redirect is excluded by the client. Never modifies existing `GameLog` rows.
 
 - **Body**: User identification, current `session_index` / `stage_index` / `game`, and the post-increment `refresh_count`
+- **Response**: Confirmation of logged event
+
+#### `POST /api/log-consent`
+Record the consent decision (agree or decline) as a row in the `Consent` collection (`models/consent.js`), timestamped and keyed by Prolific ID. Sent from the consent page, before the welcome page; demo mode (no `PROLIFIC_PID`) sends nothing.
+
+- **Body**: `prolific_id`, `prolific_study_id`, `prolific_session_id`, `uid`, `consented` (boolean), `experiment_id`
 - **Response**: Confirmation of logged event
 
 #### `GET /api/logs/:prolific_id`
@@ -862,7 +887,7 @@ num_watch_arm_pulls=6
 4. Add the case to the switch statement in `loadStage()`
 5. Update the `maybeAddSummaryIcon()` function if needed
 
-**Note**: Meta stages (prolific_id_form, introduction, instructions) use `stage_type`, while gameplay stages (practice, play, watch, choice, online-choice) use `game` property.
+**Note**: Meta stages (consent, welcome, introduction, instructions) use `stage_type`, while gameplay stages (practice, play, watch, choice, online-choice) use `game` property.
 
 ### Timeline Generation
 Use the Python scripts in `timeline_models/` to generate timelines programmatically rather than editing by hand.

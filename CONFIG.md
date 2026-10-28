@@ -172,7 +172,20 @@ Unknown tokens cause Python to raise `ValueError` at timeline-generation time.
 - **Type**: string (URL) or omitted.
 - **Default**: none — the browser falls back to a hard-coded completion URL in `showEndOfGameMessage` (main.js).
 - **Read by**: Node (`server.js`), Browser.
-- **Effect**: where the "Return to Prolific" button on the final screen sends the participant. Put the study's completion code here (`https://app.prolific.com/submissions/complete?cc=XXXXXXXX`) so a new study only needs a YAML change.
+- **Effect**: where the "Return to Prolific" button on the final screen sends the participant. Put the study's completion code here (`https://app.prolific.com/submissions/complete?cc=XXXXXXXX`) so a new study only needs a YAML change. Not used in demo mode (see `prolific_no_consent_url`).
+
+### `prolific_no_consent_url`
+- **Type**: string (URL) or omitted.
+- **Default**: none — a participant who declines consent stays on the decline page (console warning).
+- **Read by**: Node (`server.js`), Browser.
+- **Effect**: where a participant who clicks "I do not agree" on the consent page is sent once the decision has been logged. In the Prolific study, add a completion path labelled **No consent** with the action **Request a return** (Data collection → Completion paths) and paste its URL here, so the submission is returned rather than paid; Prolific asks that such participants are never rejected, and un-reviewed submissions auto-approve after 21 days. The decision itself is stored in the `Consent` collection (`models/consent.js`; `consented: false`), which is how to find these submissions.
+- **Prolific study URL**: the game reads the participant's ID from the URL and never asks for it, so the study link on Prolific must be `https://<service>/?PROLIFIC_PID={{%PROLIFIC_PID%}}&STUDY_ID={{%STUDY_ID%}}&SESSION_ID={{%SESSION_ID%}}`. Without `PROLIFIC_PID` the game runs in **demo mode**: the consent page is skipped, nothing is sent to the server (no game-log, page-unload or consent rows) and neither this URL nor `prolific_completion_url` is used.
+
+### `contact_email`
+- **Type**: string (email address).
+- **Default**: `juliomz@stanford.edu` (hard-coded in `models.py`).
+- **Read by**: Python (`models.py`).
+- **Effect**: rendered as the `mailto:` link in the consent text. The consent and decline copy themselves live in `models.py` next to `intro_message`.
 
 ### `bonus_per_reward` / `bonus_currency`
 - **Type**: number (money per reward point) / string (currency prefix).

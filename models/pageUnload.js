@@ -5,7 +5,7 @@ const mongoose = require('mongoose');
 // `refresh_count` as it stood when they were logged and are never modified afterwards;
 // this collection records the unload events themselves, with their timing and context.
 const pageUnloadSchema = new mongoose.Schema({
-    prolific_id: { type: String, default: "" },           // "" if the participant left before the ID form
+    prolific_id: { type: String, default: "" },           // from the PROLIFIC_PID URL parameter (rows exist only in Prolific mode)
     prolific_study_id: { type: String, default: null },
     prolific_session_id: { type: String, default: null },
     uid: { type: String, required: true },                // regenerated on every page load

@@ -152,6 +152,7 @@ def generate_timeline(
     report_play_rewards_between_rounds: bool = False,
     bonus_per_reward: Optional[float] = None,
     bonus_currency: str = "$",
+    contact_email: str = "juliomz@stanford.edu",
 ) -> List[Any]:
 
     # --- 0) Validation ---
@@ -627,6 +628,31 @@ def generate_timeline(
         "[RED_BOLD]DO NOT RELOAD PAGE AT ANY TIME DURING GAME![/RED_BOLD]"
     )
 
+    # Consent page, shown before anything else. [EMAIL] is rendered by the client as a
+    # mailto link to contact_email. On decline the client shows decline_message followed by
+    # the redirect note (Prolific mode: sent to the study's "No consent" completion path)
+    # or the close note (demo mode / no URL configured). See setupConsent in main.js.
+    consent_paragraphs = [
+        "You are participating in a study being performed by cognitive scientists in the "
+        "Stanford Department of Psychology. If you have questions about this research, please "
+        "contact us at [EMAIL]. You must be at least 18 years old to participate. Your "
+        "participation in this research is voluntary. You may decline further participation, "
+        "at any time, without adverse consequences. Your anonymity is assured; the researchers "
+        "who have requested your participation will not receive any personal information about you.",
+        "We record only your actions and responses in the task, together with your Prolific ID, "
+        "which is used solely to pay you. Before any data are shared, your Prolific ID is replaced "
+        "with an anonymous code. De-identified data may be shared with other researchers or made public.",
+    ]
+    consent_stage = {
+        "stage_type": "consent",
+        "title": "Consent",
+        "paragraphs": consent_paragraphs,
+        "contact_email": contact_email,
+        "decline_message": "Thank you. You have chosen not to participate.",
+        "decline_redirect_note": "You are being returned to Prolific.",
+        "decline_close_note": "You may close this window.",
+    }
+
     # How to Play panels. Images live in assets/introduction/ and are regenerated from
     # the live game with `npm run capture-howto`. Captions may wrap key caps in [KEY]…[/KEY].
     howto_panels = [
@@ -700,7 +726,8 @@ def generate_timeline(
     practice_watch["demonstrator_index"] = 1
 
     practice_session = [
-        {"stage_type": "prolific_id_form", "message": "Please enter your Prolific ID below:"},
+        consent_stage,
+        {"stage_type": "welcome", "message": "Press Start when you are ready to begin."},
         {"stage_type": "introduction", "message": intro_message},
         {
             "stage_type": "instructions",
@@ -782,6 +809,7 @@ if __name__ == "__main__":
     report_play_rewards_between_rounds = config.get('report_play_rewards_between_rounds', False)
     bonus_per_reward = config.get('bonus_per_reward', None)
     bonus_currency = config.get('bonus_currency', '$')
+    contact_email = config.get('contact_email', 'juliomz@stanford.edu')
 
     # request_id from argv (used to name the backup file)
     if len(sys.argv) > 1:
@@ -812,6 +840,7 @@ if __name__ == "__main__":
         report_play_rewards_between_rounds=report_play_rewards_between_rounds,
         bonus_per_reward=bonus_per_reward,
         bonus_currency=bonus_currency,
+        contact_email=contact_email,
     )
 
     print(json.dumps(tl))

@@ -52,6 +52,13 @@ verbose: false
 # Where participants are sent after the final screen (Prolific completion URL).
 prolific_completion_url: https://app.prolific.com/submissions/complete?cc=CTVM94DF
 
+# Prolific "No consent" completion path (Data collection → Completion paths, action
+# "Request a return"). Participants who decline consent are redirected here.
+prolific_no_consent_url: https://app.prolific.com/submissions/complete?cc=C1D7GT57
+
+# Contact address shown as a mailto link on the consent page.
+contact_email: juliomz@stanford.edu
+
 # Bonus shown on the final screen: TOTAL REWARD × bonus_per_reward, formatted with
 # bonus_currency. Omit bonus_per_reward to hide the bonus line.
 bonus_per_reward: 0.02

@@ -48,14 +48,18 @@ Demonstrator behavior in watch stages is generated **live in JS** by `ThompsonSa
 
 When adding logged fields, update the schema in `models/gameLog.js` — Mongoose silently drops fields not in the schema.
 
+### Prolific mode vs demo mode
+
+The Prolific ID is read from the `PROLIFIC_PID` URL parameter at load (`PROLIFIC_MODE` in main.js) and never typed. Without it the game runs in demo mode: the consent page is skipped, `enqueueLog`, `logPageRefresh` and `logConsent` send nothing, and there are no Prolific redirects. Consent decisions (agree and decline) go to their own `Consent` collection (`models/consent.js`), not `GameLog`; declining redirects to `prolific_no_consent_url` (see CONFIG.md).
+
 ### Stage dispatch (`stage_type` vs `game`)
 
 The timeline mixes two stage shapes; the dispatcher in `loadStage()` (main.js ~1061) reads `stage.stage_type || stage.game`:
 
-- **Meta stages** use `stage_type`: `prolific_id_form`, `introduction`, `instructions`, `feedback`, `demonstrator_presentation`. No `game_index`/`session_index`.
+- **Meta stages** use `stage_type`: `consent`, `welcome`, `introduction`, `instructions`, `feedback`, `demonstrator_presentation`. No `game_index`/`session_index`.
 - **Game stages** use `game`: `practice`, `play`, `watch`, `choice`, `online-choice`, `blind`, `indicate`. Carry full `game_index`/`stage_index`/`session_index`/`round_index`.
 
-Adding a new stage means: extend the `gameLog.js` enum, write a `setup<Type>(stage)` function, add a `case` to `loadStage()`, and add a button label in `makeNextButton()` (~main.js 4743). Every stage change goes through `clearScene()` (destroys objects, kills timers/tweens/loader callbacks) — never `children.removeAll()`, which leaves hit areas and timers alive across stages.
+Adding a new stage means: write a `setup<Type>(stage)` function, add a `case` to `loadStage()`, extend the `gameLog.js` `game` enum if it logs, and add a label in `showTransitionOverlay()` if it is a gameplay stage. Every stage change goes through `clearScene()` (destroys objects, kills timers/tweens/loader callbacks) — never `children.removeAll()`, which leaves hit areas and timers alive across stages.
 
 ### Visual theme
 

@@ -14,9 +14,22 @@
 let timelineData = null;        
 let currentSessionIndex = 0;      // Which session we're on
 let currentStageIndex = 0;        // Which stage within the session we're on      
-let prolificID = "";
-let prolificStudyID = null;       // STUDY_ID from the Prolific URL, if present
-let prolificSessionID = null;     // SESSION_ID from the Prolific URL, if present
+// Prolific opens the study as ?PROLIFIC_PID=…&STUDY_ID=…&SESSION_ID=… (placeholders set in
+// the study URL on Prolific). The ID is read here once and never typed by the participant.
+const URL_PARAMS = new URLSearchParams(window.location.search);
+const prolificID = (URL_PARAMS.get('PROLIFIC_PID') || '').trim();
+const prolificStudyID = URL_PARAMS.get('STUDY_ID') || null;
+const prolificSessionID = URL_PARAMS.get('SESSION_ID') || null;
+// Prolific mode: a PROLIFIC_PID is present, every action is logged and the end / decline
+// screens redirect to Prolific. Demo mode (no PROLIFIC_PID: local testing, the bare link):
+// identical screens, but nothing is ever sent to the server and there are no redirects.
+const PROLIFIC_MODE = prolificID !== '';
+function logModeBanner() {
+  console.info(PROLIFIC_MODE
+    ? 'Prolific mode: actions are logged.'
+    : 'Demo mode: no PROLIFIC_PID in the URL, so nothing is logged and there are no Prolific redirects.');
+}
+logModeBanner();
 
 // We'll store summary icons (one per "game" stage).
 let summaryIcons = [];
@@ -74,7 +87,7 @@ let currentGameReward = 0; // Reset for each game
 // Reloads / tab closures of this study attempt before the current page load. Keyed by the
 // Prolific SESSION_ID (unique per attempt) so the count never carries over from an earlier
 // study on the same domain; a reload keeps the URL, so the key survives it.
-const REFRESH_COUNT_KEY = 'refreshCount:' + (new URLSearchParams(window.location.search).get('SESSION_ID') || 'local');
+const REFRESH_COUNT_KEY = 'refreshCount:' + (prolificSessionID || 'local');
 let refreshCount = parseInt(localStorage.getItem(REFRESH_COUNT_KEY) || '0', 10);
 let leavingIntentionally = false; // set before the end-of-study redirect so beforeunload does not count it
 
@@ -417,6 +430,7 @@ let logBackoffMs = LOG_BACKOFF_MIN_MS; // current delay; grows on failure, reset
 let logDeadLetters = 0;         // rows that exhausted their retries (never expected)
 
 function enqueueLog(data) {
+  if (!PROLIFIC_MODE) return Promise.resolve(null); // demo mode: nothing leaves the browser
   const p = new Promise((resolve, reject) => {
     LOG_QUEUE.push({ data, resolve, reject, attempts: 0 });
     flushLogQueue();
@@ -494,6 +508,7 @@ function drainLogQueue(timeoutMs = 20000) {
 // event as its own row in the PageUnload collection. Existing game-log rows are never
 // modified. Uses sendBeacon so the request survives unload.
 function logPageRefresh() {
+  if (!PROLIFIC_MODE) return; // demo mode: nothing leaves the browser
   refreshCount++;
   localStorage.setItem(REFRESH_COUNT_KEY, refreshCount.toString());
   const payload = JSON.stringify({
@@ -522,6 +537,33 @@ function logPageRefresh() {
   } catch (error) {
     console.error('Error logging page refresh:', error);
   }
+}
+
+// Consent decision (agree / decline): one row in the Consent collection (models/consent.js).
+// Sent before the welcome page, so identity comes from the URL parameters. Returns a promise
+// so the decline path can wait for it (bounded) before redirecting. Demo mode sends nothing.
+function logConsent(consented) {
+  if (!PROLIFIC_MODE) return Promise.resolve();
+  const payload = JSON.stringify({
+    prolific_id: prolificID,
+    prolific_study_id: prolificStudyID,
+    prolific_session_id: prolificSessionID,
+    uid: userUID,
+    consented,
+    experiment_id: experimentID
+  });
+  return fetch('api/log-consent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: payload,
+    keepalive: true
+  }).then((resp) => {
+    if (!resp.ok) console.error('Consent log rejected:', resp.status);
+  }).catch((error) => console.error('Error logging consent:', error));
+}
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // Initialize game sequence tracking
@@ -1618,8 +1660,14 @@ function loadStage() {
 
   // Switch to correct stage based on the determined stage type
   switch(stageType) {
-    case 'prolific_id_form':
-      setupProlificIdForm.call(this, stage);
+    case 'consent':
+      // Demo mode has no participant and records nothing, so there is no consent to
+      // collect: skip straight to the welcome page.
+      if (!PROLIFIC_MODE) { nextStage.call(this); return; }
+      setupConsent.call(this, stage);
+      break;
+    case 'welcome':
+      setupWelcome.call(this, stage);
       break;
     case 'introduction':
       setupIntroduction.call(this, stage);
@@ -2067,14 +2115,21 @@ function drawRewardLedgerCanvas(scene, cx, y) {
  * Decorative starship row under the canvas, shown only before practice. It lives in
  * #summary-bar (empty until then) so it takes no extra space and is wiped by
  * redrawSummaryBarDOM() on the next stage. The row spans the game frame.
- *  - 'roster' (Prolific form + introduction): shuffled partner images; CSS clips to
+ *  - 'roster' (welcome page + introduction): shuffled partner images; CSS clips to
  *    one centred line so only as many as fit are shown.
  *  - 'prospector' (instructions): the player's ship with its name underneath.
+ *  - 'none' (consent / declined pages): the bar is emptied. The declined page is not a
+ *    stage change, so redrawSummaryBarDOM() would not clear it otherwise.
  */
 function showPartnerRow(mode = 'roster') {
   const bar = document.getElementById('summary-bar');
   const frame = document.getElementById('game-frame');
   if (!bar || !frame) return;
+
+  if (mode === 'none') {
+    bar.innerHTML = "";
+    return;
+  }
 
   if (mode === 'prospector') {
     bar.innerHTML = "";
@@ -2226,62 +2281,37 @@ function buildSummaryCell(iconData, isLast) {
 /*******************************************************
  * Setup Functions for Each Stage Type
  *******************************************************/
-function setupProlificIdForm(stage) {
-  // Hide controls during prolific ID form
+function setupWelcome(stage) {
+  // Hide controls during the welcome page
   updateControlsDisplay("hidden");
 
   // The fixed overlay covers the page; hide the empty game frame behind it. The
   // partner row goes in #summary-bar (lifted above the overlay) so it sits in exactly
-  // the same spot as on the introduction page, and the form is centred within the
+  // the same spot as on the introduction page, and the panel is centred within the
   // frame's area so it lands just above the row.
   const frame = document.getElementById('game-frame');
-  const overlay = document.getElementById('prolific-form-overlay');
+  const overlay = document.getElementById('welcome-overlay');
   frame.style.visibility = 'hidden';
   overlay.style.visibility = 'visible';
   showPartnerRow('roster');
   raiseSummaryBarOverOverlay(true);
   const frameRect = frame.getBoundingClientRect();
-  const content = document.getElementById('prolific-content');
+  const content = document.getElementById('welcome-content');
   overlay.style.justifyContent = 'flex-start';
   overlay.style.paddingTop = `${Math.max(0, frameRect.top + (frameRect.height - content.offsetHeight) / 2)}px`;
-  const msgEl = document.getElementById('prolific-form-message');
-  msgEl.innerText = stage.message || "Please enter your Prolific ID:";
+  document.getElementById('welcome-message').innerText = stage.message || "Press Start when you are ready to begin.";
 
-  const inputEl = document.getElementById('prolific-id-input');
-  const errorEl = document.getElementById('prolific-form-error');
-  const hintEl = document.getElementById('prolific-id-hint');
-
-  // Prolific appends ?PROLIFIC_PID=…&STUDY_ID=…&SESSION_ID=… to the study URL.
-  // Prefill (participants can still edit) and remember the study/session ids for logging.
-  const params = new URLSearchParams(window.location.search);
-  const pidFromUrl = (params.get('PROLIFIC_PID') || '').trim();
-  prolificStudyID = params.get('STUDY_ID') || null;
-  prolificSessionID = params.get('SESSION_ID') || null;
-  if (pidFromUrl && !inputEl.value) {
-    inputEl.value = pidFromUrl;
-    hintEl.hidden = false;
-  }
-
-  const showError = (text) => { errorEl.textContent = text; errorEl.hidden = !text; };
-  showError('');
-  inputEl.oninput = () => showError('');
-  inputEl.onkeydown = (e) => { if (e.key === 'Enter') submitBtn.click(); };
-  setTimeout(() => inputEl.focus(), 0);
-
-  // The button starts disabled ("Loading…") in index.html; the timeline is in hand now.
-  const submitBtn = document.getElementById('prolific-submit-btn');
-  submitBtn.disabled = false;
-  submitBtn.textContent = 'Start';
-  submitBtn.onclick = () => {
-    prolificID = inputEl.value.trim();
-    if (!prolificID) {
-      showError("Please enter your Prolific ID to continue.");
-      inputEl.focus();
-      return;
-    }
+  // The Prolific ID comes from the URL (PROLIFIC_MODE at the top of this file); nothing to
+  // type. The button starts disabled ("Loading…") in index.html; the timeline is in hand now.
+  const startBtn = document.getElementById('start-btn');
+  startBtn.disabled = false;
+  startBtn.textContent = 'Start';
+  startBtn.onclick = () => {
+    startBtn.disabled = true;
 
     // Clear console to remove any harmless 404 errors from initial asset loading
     console.clear();
+    logModeBanner();
 
     // Request fullscreen mode before proceeding to the game
     requestFullscreen();
@@ -2401,7 +2431,7 @@ function raiseSummaryBarOverOverlay(on) {
 
 function restoreGameFrame() {
   document.getElementById('game-frame').style.visibility = '';
-  document.getElementById('prolific-form-overlay').style.visibility = 'hidden';
+  document.getElementById('welcome-overlay').style.visibility = 'hidden';
   document.getElementById('page-overlay').style.visibility = 'hidden';
   document.getElementById('summary-bar').style.transform = '';
   raiseSummaryBarOverOverlay(false);
@@ -2411,9 +2441,11 @@ function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// html: the page body. buttonLabel/onNext: the single action button under it.
-// partnerMode: 'roster' | 'prospector' row shown under the page (see showPartnerRow).
-function showDomPage({ html, buttonLabel, onNext, partnerMode }) {
+// html: the page body. buttonLabel/onNext: the action button under it (none when
+// buttonLabel is falsy, e.g. a terminal message). secondary: optional { label, onClick }
+// for a second, outlined button beside it (the consent page's "I do not agree").
+// partnerMode: 'roster' | 'prospector' | 'none' row shown under the page (see showPartnerRow).
+function showDomPage({ html, buttonLabel, onNext, partnerMode, secondary }) {
   updateControlsDisplay("hidden");
   const frame = document.getElementById('game-frame');
   const overlay = document.getElementById('page-overlay');
@@ -2421,21 +2453,35 @@ function showDomPage({ html, buttonLabel, onNext, partnerMode }) {
   frame.style.visibility = 'hidden';
   content.innerHTML = html;
 
-  const actions = document.createElement('div');
-  actions.className = 'page-actions';
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'btn';
-  btn.textContent = buttonLabel;
-  btn.onclick = () => { btn.disabled = true; onNext(); };
-  actions.appendChild(btn);
-  content.appendChild(actions);
+  let btn = null;
+  if (buttonLabel) {
+    const actions = document.createElement('div');
+    actions.className = 'page-actions';
+    btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn';
+    btn.textContent = buttonLabel;
+    actions.appendChild(btn);
+    let secondaryBtn = null;
+    if (secondary) {
+      secondaryBtn = document.createElement('button');
+      secondaryBtn.type = 'button';
+      secondaryBtn.className = 'btn btn-secondary';
+      secondaryBtn.textContent = secondary.label;
+      actions.appendChild(secondaryBtn);
+    }
+    // Either click disables both buttons so a choice cannot be made twice.
+    const disableAll = () => { btn.disabled = true; if (secondaryBtn) secondaryBtn.disabled = true; };
+    btn.onclick = () => { disableAll(); onNext(); };
+    if (secondaryBtn) secondaryBtn.onclick = () => { disableAll(); secondary.onClick(); };
+    content.appendChild(actions);
+  }
 
   overlay.style.visibility = 'visible';
   showPartnerRow(partnerMode);
   raiseSummaryBarOverOverlay(true);
   // Centre the panel within the frame's area so it sits just above the partner row
-  // (same placement as the Prolific form).
+  // (same placement as the welcome page).
   const frameRect = frame.getBoundingClientRect();
   overlay.style.justifyContent = 'flex-start';
   const paddingTop = Math.max(12, frameRect.top + (frameRect.height - content.offsetHeight) / 2);
@@ -2476,6 +2522,52 @@ function setupIntroduction(stage) {
     buttonLabel: 'Begin Training',
     onNext: () => nextStage.call(scene),
     partnerMode: 'roster'
+  });
+}
+
+// Consent page (the first stage). Copy comes from models.py: stage.paragraphs carry an
+// [EMAIL] marker that becomes a mailto link to stage.contact_email. Agreeing logs the
+// decision and moves on to the welcome page; declining goes to showConsentDeclined.
+function setupConsent(stage) {
+  const scene = this;
+  const email = stage.contact_email || '';
+  const mailto = `<a href="mailto:${escapeHtml(email).replace(/"/g, '&quot;')}">${escapeHtml(email)}</a>`;
+  const paragraphs = (stage.paragraphs || []).map(p =>
+    `<p>${escapeHtml(p).split('[EMAIL]').join(mailto)}</p>`
+  );
+  showDomPage({
+    html: `<h2 class="page-title">${escapeHtml(stage.title || 'Consent')}</h2>`
+      + `<div class="page-body">${paragraphs.join('')}</div>`,
+    buttonLabel: 'I agree to participate',
+    onNext: () => { logConsent(true); nextStage.call(scene); },
+    secondary: { label: 'I do not agree', onClick: () => showConsentDeclined(stage) },
+    partnerMode: 'none'
+  });
+}
+
+// Declined consent: a terminal page with no button. In Prolific mode the decision is
+// logged (bounded wait) and, once the message has been readable for a moment, the
+// participant is sent to the study's "No consent" completion path
+// (prolific_no_consent_url) so the submission is returned rather than paid. Demo mode,
+// or a missing URL, just leaves the message on screen.
+function showConsentDeclined(stage) {
+  const url = PROLIFIC_MODE ? (gameConfig && gameConfig.prolific_no_consent_url) : null;
+  const note = url ? stage.decline_redirect_note : stage.decline_close_note;
+  const text = [stage.decline_message || 'Thank you. You have chosen not to participate.', note]
+    .filter(Boolean).join(' ');
+  showDomPage({
+    html: `<div class="page-body"><p>${escapeHtml(text)}</p></div>`,
+    buttonLabel: null,
+    partnerMode: 'none'
+  });
+  const logged = Promise.race([logConsent(false), delay(5000)]);
+  if (!url) {
+    if (PROLIFIC_MODE) console.warn('prolific_no_consent_url is not configured; staying on the decline page.');
+    return;
+  }
+  Promise.all([logged, delay(3000)]).then(() => {
+    leavingIntentionally = true; // leaving on purpose: not a refresh
+    window.location.href = url;
   });
 }
 
@@ -5111,6 +5203,18 @@ function showEndOfGameMessage() {
     if (rewardBreakdownDisplay !== 'per_game') {
       y += drawBonusLines(this, W / 2, y - lineHeight / 2 + 10, combined);
     }
+  }
+
+  // Demo mode (no PROLIFIC_PID): nothing was logged and there is no Prolific submission
+  // to return to, so close with a thank-you line and no button.
+  if (!PROLIFIC_MODE) {
+    addText(this, W / 2, y + 16, "Thanks for playing!", {
+      font: `16px ${THEME.fontBody}`,
+      fill: THEME.textMuted,
+      align: 'center',
+      wordWrap: { width: 700 }
+    }).setOrigin(0.5);
+    return;
   }
 
   // Completion URL comes from the YAML (prolific_completion_url) via /api/config.

@@ -11,6 +11,11 @@ Approve or reject every submission before paying bonuses. Prolific pays a bonus 
 submission status and cannot refund it, so a rejected participant still gets paid if
 their line is in the list.
 
+Participants who declined consent never reach a play game, so they are absent from the
+export. They appear only in the `Consent` collection (`consented: false`) and were sent to
+the study's "No consent" completion path: request a return on those submissions rather
+than rejecting them (un-reviewed submissions auto-approve after 21 days).
+
 ## 2. Point the script at the production database
 
 `.env` normally holds the localhost URI. Temporarily set it to the Atlas connection

@@ -53,13 +53,13 @@ def assert_pilot_d_shape(tl, run_idx):
     check(isinstance(practice, list), "practice should be a flat list")
     practice_types = [s.get("stage_type") or s.get("game") for s in practice]
     check(
-        practice_types == ["prolific_id_form", "introduction", "instructions", "practice", "watch", "practice", "practice_end"],
+        practice_types == ["consent", "welcome", "introduction", "instructions", "practice", "watch", "practice", "practice_end"],
         f"practice shape mismatch: {practice_types}",
     )
-    if len(practice) >= 6:
-        check(practice[3]["num_arm_pulls"] == 6, "practice play should have 6 pulls")
-        check(practice[5]["num_arm_pulls"] == 6, "final practice play should have 6 pulls")
-        check(practice[4].get("demonstrator_index") == 1, "practice watch should be the novice (slot 1)")
+    if len(practice) >= 7:
+        check(practice[4]["num_arm_pulls"] == 6, "practice play should have 6 pulls")
+        check(practice[6]["num_arm_pulls"] == 6, "final practice play should have 6 pulls")
+        check(practice[5].get("demonstrator_index") == 1, "practice watch should be the novice (slot 1)")
 
     # Each session: [games, end_stages]
     seen_demo_orderings = set()

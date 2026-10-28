@@ -344,6 +344,10 @@
     }
     .btn:hover { background: var(--accent-hover); transform: translateY(-1px); }
     .btn:disabled { background: #4b5563; cursor: not-allowed; transform: none; }
+    /* Outlined variant for the less-wanted choice (consent: "I do not agree"). The inset
+       shadow, not a border, keeps it the same height as a plain .btn. */
+    .btn-secondary { background: transparent; color: var(--muted); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25); }
+    .btn-secondary:hover { background: rgba(255, 255, 255, 0.06); color: var(--text); }
     .form-error {
       color: var(--fail);
       font-size: 14px;
@@ -352,8 +356,8 @@
     }
     .form-error[hidden] { display: block; visibility: hidden; }
 
-    /* Full-page DOM screens (introduction, how to play): shown instead of the canvas,
-       in the same overlay style as the Prolific page. The game frame stays hidden
+    /* Full-page DOM screens (consent, introduction, how to play): shown instead of the
+       canvas, in the same overlay style as the welcome page. The game frame stays hidden
        until the practice transition slide. */
     #page-overlay { overflow-y: auto; padding-bottom: 24px; }
     /* No card: the content sits directly on the page background. */
@@ -367,6 +371,7 @@
       margin: 0 0 14px;
     }
     .page-body p { margin: 0 0 12px; font-size: 16px; line-height: 1.5; }
+    .page-body a { color: #60a5fa; text-decoration: underline; }   /* mailto link on the consent page */
     .intro-hl { color: #60a5fa; font-weight: 700; }          /* [BLUE] highlight in the intro copy */
     .intro-hl-orange { color: #f5a623; font-weight: 700; }   /* [ORANGE] highlight (the word BONUS) */
     .intro-warning {
@@ -406,8 +411,9 @@
     .howto-note { max-width: 760px; margin: 10px auto 0; text-align: center; font-size: 15px; line-height: 1.45; color: var(--muted); }
     .page-actions { text-align: center; margin-top: 6px; }
     .page-actions .btn { margin-top: 8px; }
+    .page-actions .btn + .btn { margin-left: 12px; }
 
-    #prolific-welcome-title {
+    #welcome-title {
       font-family: var(--font-display);
       font-size: 38px;
       font-weight: 700;
@@ -416,7 +422,7 @@
       margin: 0 0 6px;
       text-align: center;
     }
-    #prolific-welcome-subtitle {
+    #welcome-subtitle {
       font-family: var(--font-body);
       font-size: 20px;
       font-weight: 400;
@@ -424,9 +430,7 @@
       margin: 0 0 28px;
       text-align: center;
     }
-    #prolific-content { display: flex; flex-direction: column; align-items: center; }
-    #prolific-id-row { display: flex; gap: 8px; align-items: stretch; }
-    #prolific-id-row .btn { margin-top: 0; white-space: nowrap; }
+    #welcome-content { display: flex; flex-direction: column; align-items: center; }
     #prolific-id-hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
 
     #feedback-question { font-weight: 700; color: #fbbf24; }
@@ -476,20 +480,16 @@
     </div>
   </div>
 
-  <!-- Overlaid Prolific form -->
-  <div id="prolific-form-overlay" class="overlay">
-   <div id="prolific-content">
-    <h1 id="prolific-welcome-title">Fortune Frontier</h1>
-    <h2 id="prolific-welcome-subtitle">The Asteroid Mining Adventure</h2>
-    <form class="panel" onsubmit="return false;">
-      <p id="prolific-form-message">Please enter your Prolific ID below:</p>
-      <div id="prolific-id-row">
-        <input type="text" id="prolific-id-input" placeholder="Prolific ID" autocomplete="off" spellcheck="false"/>
-        <button type="button" class="btn" id="prolific-submit-btn" disabled>Loading…</button>
-      </div>
-      <p id="prolific-id-hint" hidden>We filled this in from your Prolific link. Check it and press Start.</p>
-      <p class="form-error" id="prolific-form-error" hidden></p>
-    </form>
+  <!-- Overlaid welcome page. The Prolific ID comes from the URL (main.js), so there is
+       nothing to type: just Start. -->
+  <div id="welcome-overlay" class="overlay">
+   <div id="welcome-content">
+    <h1 id="welcome-title">Fortune Frontier</h1>
+    <h2 id="welcome-subtitle">The Asteroid Mining Adventure</h2>
+    <div class="panel">
+      <p id="welcome-message">Press Start when you are ready to begin.</p>
+      <button type="button" class="btn" id="start-btn" disabled>Loading…</button>
+    </div>
    </div>
   </div>
 
