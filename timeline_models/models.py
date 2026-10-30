@@ -638,10 +638,13 @@ def generate_timeline(
         "contact us at [EMAIL]. You must be at least 18 years old to participate. Your "
         "participation in this research is voluntary. You may decline further participation, "
         "at any time, without adverse consequences. Your anonymity is assured; the researchers "
-        "who have requested your participation will not receive any personal information about you.",
-        "We record only your actions and responses in the task, together with your Prolific ID, "
-        "which is used solely to pay you. Before any data are shared, your Prolific ID is replaced "
-        "with an anonymous code. De-identified data may be shared with other researchers or made public.",
+        "who have requested your participation will not receive your name, contact details or "
+        "any other information that could identify you.",
+        "We record your actions and responses in the task, together with your Prolific ID, which "
+        "is used solely to pay you. We also receive the demographic and prescreen information that "
+        "Prolific provides to researchers (age, sex and colour-vision status), which is reported "
+        "only in summary form. Before any data are shared, your Prolific ID is replaced with an "
+        "anonymous code. De-identified data may be shared with other researchers or made public.",
     ]
     consent_stage = {
         "stage_type": "consent",
