@@ -640,11 +640,12 @@ def generate_timeline(
         "at any time, without adverse consequences. Your anonymity is assured; the researchers "
         "who have requested your participation will not receive your name, contact details or "
         "any other information that could identify you.",
-        "We record your actions and responses in the task, together with your Prolific ID, which "
-        "is used solely to pay you. We also receive the demographic and prescreen information that "
-        "Prolific provides to researchers (age, sex and colour-vision status), which is reported "
-        "only in summary form. Before any data are shared, your Prolific ID is replaced with an "
-        "anonymous code. De-identified data may be shared with other researchers or made public.",
+        "We record your actions and responses in the task; these are the data of the study. We "
+        "also record your Prolific ID, which is used solely to pay you, and we receive the "
+        "demographic and prescreen information that Prolific provides to researchers (age, sex "
+        "and colour-vision status), which is reported only in summary form. Before any data are "
+        "shared, your Prolific ID is replaced with an anonymous code. De-identified data may be "
+        "shared with other researchers or made public.",
     ]
     consent_stage = {
         "stage_type": "consent",
