@@ -8,8 +8,8 @@
  *   no_reward.png  the state right after an unrewarded shot
  *
  * It drives the real game in the installed Google Chrome (playwright-core with
- * channel "chrome", so no browser download), steps through the Prolific form, the
- * intro and the how-to page into the practice round, then crops Phaser renderer
+ * channel "chrome", so no browser download), steps through the welcome page, the
+ * intro and the how-to panels into the practice round, then crops Phaser renderer
  * snapshots to the ship, four asteroids and the Reward Tank. Shot outcomes are
  * forced by patching Math.random around each shot. GIFs are assembled with ffmpeg.
  *
@@ -136,13 +136,26 @@ async function hideKey(page) {
 
 /* ---------- driving the game into the practice round ---------- */
 
+async function pageOverlayVisible(page) {
+  return page.evaluate(() => {
+    const o = document.querySelector('#page-overlay');
+    return !!o && getComputedStyle(o).visibility !== 'hidden';
+  });
+}
+
 async function startPractice(page, baseUrl) {
-  // No PROLIFIC_PID in the URL, so the game runs in demo mode and logs nothing to Mongo.
+  // No PROLIFIC_PID in the URL, so the game runs in demo mode: the consent page is
+  // skipped (nothing is logged to Mongo) and the run starts at the welcome page.
   await page.goto(baseUrl, { waitUntil: 'load' });
-  await page.getByRole('button', { name: /i agree to participate/i }).click();
   await page.locator('#start-btn:not([disabled])').click();
   await page.getByRole('button', { name: /begin training/i }).click();
-  await page.getByRole('button', { name: /^next$/i }).click();
+
+  // How to Play steps through its panels: each Next lights the next one and only the
+  // Next on the last panel leaves the page (the DOM overlay hides, the canvas takes over).
+  for (let i = 0; i < 10 && (await pageOverlayVisible(page)); i++) {
+    await page.getByRole('button', { name: /^next$/i }).click();
+    await sleep(400);
+  }
 
   // The transition slide is drawn on the canvas; wait for its PRACTICE button.
   await page.waitForFunction(() => {
