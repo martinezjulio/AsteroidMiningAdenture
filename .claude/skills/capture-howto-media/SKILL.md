@@ -88,6 +88,6 @@ into one longer frame, which is why a hold costs nothing.
   images measure 0 before they load and the Next button ends up under the Prospector
   row. If the capture dimensions change, change that ratio.
 - Four panels at 200 px fit on one row inside the 900 px page; check the page in Chrome
-  afterwards: step through consent → Start → Begin Training, confirm the GIFs animate,
-  the Next button clears the Prospector row with no scrolling, and Next starts practice.
-- README.md documents the `panels` / `note` shape of the `instructions` stage.
+  afterwards: step through Start → Begin Training, confirm the GIFs animate,
+  the Next button clears the Prospector row with no scrolling, and the last Next (one per panel) starts practice.
+- ARCHITECTURE.md (stage catalogue) documents the `panels` / `note` shape of the `instructions` stage.

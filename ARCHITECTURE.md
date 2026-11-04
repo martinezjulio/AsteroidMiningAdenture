@@ -156,7 +156,7 @@ Each demonstrator ID gets a `(style, colour)` pair when the timeline is generate
 - The two demonstrators of a session differ in both style and colour.
 - Each `(style, colour)` pair is used at most once per timeline.
 
-Six styles × six colours gives 36 pairs for at most 20 IDs, so the greedy assignment always succeeds. The client only reads the values: `mapDemonstratorImage()` resolves `assets/demonstrators/styles/style{1-6}/{red,orange,blue,green,yellow,purple}.png`. The `demonstrator_XX.png` files next to `styles/` are legacy and unused.
+Six styles × six colours gives 36 pairs for at most 20 IDs, so the greedy assignment always succeeds. The client only reads the values: `mapDemonstratorImage()` resolves `assets/demonstrators/styles/style{1-6}/{red,orange,blue,green,yellow,purple}.png`.
 
 ## Participant-facing naming
 
@@ -250,7 +250,6 @@ assets/
   landscapes/          4 PNGs for the landscape zone mode, which the generator no longer emits
   demonstrators/
     styles/style{1-6}/{red,orange,blue,green,yellow,purple}.png
-    demonstrator_XX.png   legacy, unused
   introduction/       move.gif, shoot.gif, reward.png, no_reward.png  (npm run capture-howto)
   user.png            the participant's ship
 vendor/phaser.min.js
