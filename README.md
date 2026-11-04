@@ -1,1022 +1,145 @@
 # Fortune Frontier (Asteroid Mining Adventure)
 
-A spatial multi-armed bandit game with MongoDB logging, featuring asteroid mining, demonstrator learning, and choice-based gameplay.
+A browser game for running multi-armed-bandit experiments on Prolific. Participants fly a starship over a row of asteroids, shoot the ones they think pay out, watch partner starships do the same, and say which partner they would take along next time. Every shot, watch and choice is logged to MongoDB.
 
 <img width="848" alt="Fortune Frontier" src="https://github.com/user-attachments/assets/37a1bf48-4178-451c-a4bd-d93a9445038a" />
 
-## Quick Start
+Built with Phaser (client), Express (server) and a small Python script that generates a fresh, randomized timeline for every participant. Internals are described in [ARCHITECTURE.md](./ARCHITECTURE.md).
 
-### Prerequisites
-- **Node.js** (version 14 or higher)
-- **MongoDB** (local installation or remote access)
+## Prerequisites
 
-### Installation
+- **Node.js 20** (the production image is `node:20-slim`).
+- **Python 3** on your `PATH` as `python3`, `python` or `py`. Standard library only, nothing to install.
+- **MongoDB**: a local server for development, MongoDB Atlas in production.
+- **ffmpeg**, only if you regenerate the How-to-Play media (`npm run capture-howto`).
+
+## Quick start
+
 ```bash
-# Clone the repository
-git clone [your-repo-url]
-cd AsteroidMiningAdenture
-
-# Install dependencies
 npm install
+cp .env.example .env        # ACTIVE_CONFIG, MONGODB_URI, PORT
+npm run build-config        # compiles configs/<ACTIVE_CONFIG> → config.json
+npm start                   # or: npm run dev  (nodemon, auto-restart)
 ```
 
-### Running the Game
+Open `http://localhost:8080`. Without Prolific parameters in the URL the game runs in **demo mode** (see below), so you can play through without writing to the database.
 
-The server reads its MongoDB connection string from the `MONGODB_URI` environment variable (required — the server exits if it's unset).
+`.env` is gitignored and holds three values:
 
-#### Development Mode (Local)
-```bash
-# Start a local MongoDB
-brew services start mongodb-community   # macOS
-# sudo systemctl start mongod           # Linux
-# net start MongoDB                     # Windows
+| Variable | Read by | Meaning |
+|---|---|---|
+| `ACTIVE_CONFIG` | `npm run build-config`, `./deploy.sh` | Which YAML in `configs/` to compile into `config.json` |
+| `MONGODB_URI` | `npm start` | Connection string. **Required**: the server exits without it. |
+| `PORT` | `npm start` | Defaults to 8080. Cloud Run sets its own. |
 
-# One-time setup: copy .env.example to .env (provides ACTIVE_CONFIG, MONGODB_URI, PORT)
-cp .env.example .env
+Shell variables take precedence over `.env`, so `PORT=3000 npm start` works as expected.
 
-# Build config.json from configs/<ACTIVE_CONFIG> (the YAML named in .env)
-npm run build-config
+Start MongoDB before `npm start` (macOS: `brew services start mongodb-community`). If MongoDB is down the server still serves the game, but `/api/log` answers 503 and the client keeps retrying until it comes back.
 
-# Start with auto-restart on file changes
-npm run dev
+## Demo mode vs Prolific mode
 
-# Or start normally
-npm start
+The study URL on Prolific must be
+
 ```
-Game accessible at `http://localhost:8080`.
-
-`MONGODB_URI` and `PORT` are loaded from `.env` automatically. Shell-level env vars still take precedence (e.g. `PORT=3000 npm start` overrides the `.env` value).
-
-#### Production Deployment
-
-The recommended production deployment is **Google Cloud Run + MongoDB Atlas** — see [Deploying to Cloud Run + Atlas](#deploying-to-cloud-run--atlas) below.
-
-If you prefer a self-hosted VM, just export `MONGODB_URI` (and `NODE_ENV=production` to bind on `0.0.0.0`) before running `npm start`. Front it with whatever reverse proxy you like.
-
-## Deploying to Cloud Run + Atlas
-
-The repo ships with a `Dockerfile` and `.dockerignore` for Google Cloud Run.
-
-### One-time setup
-
-1. **MongoDB Atlas** (cloud.mongodb.com)
-   - Create a free **M0** cluster.
-   - **Database Access** → add a user with `readWrite` on database `AMGDB`.
-   - **Network Access** → allow `0.0.0.0/0` (Cloud Run egresses from a dynamic IP pool unless a Serverless VPC connector is configured).
-   - Grab the SRV connection string and substitute the password and database:
-     `mongodb+srv://USER:PASSWORD@CLUSTER.mongodb.net/AMGDB?retryWrites=true&w=majority`
-
-2. **Google Cloud project** — pick or create one and link a billing account (Cloud Run free tier still applies; billing is required to enable APIs).
-
-### Deploy
-
-```bash
-# 1. Project + APIs (one-time)
-gcloud config set project YOUR_PROJECT_ID
-gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
-    artifactregistry.googleapis.com secretmanager.googleapis.com
-
-# 2. Store the Atlas URI in Secret Manager (one-time)
-printf '%s' 'mongodb+srv://USER:PASSWORD@CLUSTER.mongodb.net/AMGDB?...' \
-  | gcloud secrets create MONGODB_URI --data-file=- --replication-policy=automatic
-
-# Grant the default Cloud Run service account read access
-PROJECT_NUMBER=$(gcloud projects describe $(gcloud config get-value project) --format='value(projectNumber)')
-gcloud secrets add-iam-policy-binding MONGODB_URI \
-  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
-  --role="roles/secretmanager.secretAccessor"
-
-# 3. Deploy (idempotent — re-run to push updates)
-gcloud run deploy asteroid-mining-game \
-  --source . \
-  --region us-east4 \
-  --allow-unauthenticated \
-  --memory 1Gi \
-  --cpu 1 \
-  --concurrency 8 \
-  --timeout 60 \
-  --min-instances 0 \
-  --max-instances 4 \
-  --set-secrets MONGODB_URI=MONGODB_URI:latest
+https://<service-url>/?PROLIFIC_PID={{%PROLIFIC_PID%}}&STUDY_ID={{%STUDY_ID%}}&SESSION_ID={{%SESSION_ID%}}
 ```
 
-Pick a Cloud Run region close to your Atlas region — `us-east4` (Virginia) co-locates with Atlas AWS `us-east-1`.
+The client reads the three parameters once at load. The Prolific ID is never typed.
 
-### Updating the Atlas password later
+| | Prolific mode (`PROLIFIC_PID` present) | Demo mode (no `PROLIFIC_PID`) |
+|---|---|---|
+| Consent page | Shown. Declining redirects to `prolific_no_consent_url`. | Skipped |
+| Logging | Every action, the consent decision and every page unload | Nothing is sent |
+| End screen | Waits for the log queue to drain, then shows "Return to Prolific" (`prolific_completion_url`) | "Thanks for playing!" |
+
+Both URLs come from the active YAML (see [CONFIG.md](./CONFIG.md)).
+
+## Configuration
+
+The YAML files in `configs/` are the source of truth. `.env`'s `ACTIVE_CONFIG` picks one, and `npm run build-config` compiles it to `config.json`, which both the server and the Python generator read at runtime. **Never hand-edit `config.json`.** The current study is `configs/pilot_E.yaml`.
+
+To run a new condition:
+
+1. Copy `configs/pilot_E.yaml` to a new file and edit it. Set its `experiment_config` field to its own filename so logged rows carry the right `experiment_id`.
+2. Point `.env` at it: `ACTIVE_CONFIG=<file>.yaml`.
+3. Locally: `npm run build-config && npm start`. Production: `./deploy.sh`.
+
+Every field, its accepted values and where it is read are documented in [CONFIG.md](./CONFIG.md).
+
+Install the pre-commit hook once per clone so the committed `config.json` can never drift from the active YAML:
 
 ```bash
-printf '%s' 'mongodb+srv://NEW_URI...' \
+ln -sf ../../scripts/pre-commit .git/hooks/pre-commit
+```
+
+The hook rebuilds `config.json` and fails the commit if the result differs from what is staged.
+
+## Scripts
+
+| Command | What it does |
+|---|---|
+| `npm start` | Start the server (`node server.js`). |
+| `npm run dev` | Same, with auto-restart (nodemon). |
+| `npm run build-config` | Compile `configs/<ACTIVE_CONFIG>` to `config.json`. |
+| `npm run test-concurrency` | Fire 10 simultaneous `/api/timeline` requests at a running local server. |
+| `npm run capture-howto` | Re-record the How-to-Play GIFs and screenshots from the live game. Needs the server running and ffmpeg. |
+| `npm run export-bonuses -- --study <ID>` | Build the Prolific bulk-bonus list from MongoDB. See [After a study](#after-a-study). |
+| `python3 scripts/equivalence_check.py [N]` | Regenerate the pilot D timeline N times and check its session structure is unchanged. |
+
+## Deployment
+
+Production runs on **Google Cloud Run** with **MongoDB Atlas**. The `Dockerfile` installs Node 20 and Python 3 and sets `NODE_ENV=production`, which makes the server bind to `0.0.0.0`.
+
+Redeploy with:
+
+```bash
+./deploy.sh                      # extra flags pass through, e.g. ./deploy.sh --no-traffic
+```
+
+The script runs `npm run build-config` first, so the deployed `config.json` reflects **your** `.env`, not whatever is committed. It then runs `gcloud run deploy --source .`. Memory, CPU, concurrency, instance limits and the secret binding persist from the first deploy, so no flags are needed.
+
+`deploy.sh` is committed with the real project id and region. First-time setup (enabling APIs, creating the `MONGODB_URI` secret, the initial deploy with all flags) is written up in the comments of [`deploy.example.sh`](./deploy.example.sh).
+
+On the Atlas side, once: create an M0 cluster, add a database user with `readWrite` on `AMGDB`, allow network access from `0.0.0.0/0` (Cloud Run egresses from a dynamic IP pool), and store the SRV connection string in Secret Manager. To rotate the password later:
+
+```bash
+printf '%s' 'mongodb+srv://USER:NEW_PASSWORD@CLUSTER.mongodb.net/AMGDB?retryWrites=true&w=majority' \
   | gcloud secrets versions add MONGODB_URI --data-file=-
 ```
-Cloud Run picks up the new version on the next request because the deploy uses `MONGODB_URI:latest`.
 
-## Game Configuration
+The service is bound to `MONGODB_URI:latest`, so new instances pick the new version up without a redeploy.
 
-Game behavior is driven by a YAML config in `configs/`. The YAML named by `.env`'s `ACTIVE_CONFIG` is compiled to `config.json` (the runtime artifact loaded by the server) via `npm run build-config`. **See [CONFIG.md](./CONFIG.md) for the field-by-field reference** — every accepted value, default, and read-site is documented there. The current pilot lives in `configs/pilot_E.yaml`.
+## After a study
 
-The narrative sections below explain the higher-level meaning of two of the most consequential fields (`bandit_assignment_mode`, the `feedback` end stage) and the workflow for switching configs.
-
-### Bandit Assignment Modes Explained
-
-#### Session Fixed Mode (`"session_fixed"`)
-- **Default behavior**
-- All rounds within a session share the same bandit/zone
-- Example: Session 1 has 3 rounds, all using Zone 1 with the same asteroid reward rates
-- Different sessions use different bandits/zones
-
-#### Round Changing Mode (`"round_changing"`)
-- Each round within a session uses a different bandit/zone
-- Example: Session 1 has 3 rounds using Zone 1, Zone 2, and Zone 3 respectively
-- Provides more variety within each session
-- Useful for studying adaptation to changing environments
-
-### End-of-session feedback
-
-Add the `feedback` token to `session_end_stages` (the pilot uses `[choice, feedback]`) to show a free-text form after the choice:
-
-- Displays the partner the participant just chose and asks: "Why did you choose the following partner?"
-- The participant must answer before continuing; the answer is saved as a `game: "feedback"` row in MongoDB.
-- Sessions with no `watch-demo-*` token drop `feedback` automatically (nothing to ask about).
-- The final screen waits for every queued log row to reach the server, then shows the "Return to Prolific" button. The destination comes from `prolific_completion_url` in the YAML.
-
-### Switching configs
-
-To run a different experimental condition:
-
-1. **Author a new YAML in `configs/`** (start by copying `configs/pilot_E.yaml`). Per-field semantics and accepted values are in [CONFIG.md](./CONFIG.md).
-2. **Point `.env` at it**: edit `ACTIVE_CONFIG=<your-file>.yaml`.
-3. **Rebuild + restart locally**: `npm run build-config && npm start`. The pre-commit hook also rebuilds, so committed `config.json` always matches the active YAML.
-4. **Deploy**: `./deploy.sh` runs `npm run build-config` first (using the deploying machine's `.env`), then ships everything to Cloud Run. The deployed `config.json` always reflects the deployer's local `ACTIVE_CONFIG`.
-
-**Note**: existing users who already have generated timelines continue with their original assignment until they start a new session.
-
-## Dynamic Timeline System
-
-The game generates **fresh, randomized timelines** for each user, ensuring no two participants have the same experience.
-
-### How It Works
-
-1. **User visits site** → Frontend requests timeline from `/api/timeline`
-2. **Server receives request** → Checks concurrency capacity and queues if needed
-3. **Python generates timeline** → Runs `models.py` script with randomized parameters
-4. **Server returns timeline** → Frontend loads the unique timeline
-5. **User plays game** → With their personalized, randomized experience
-
-### Concurrency Management
-
-The system handles multiple simultaneous users safely and efficiently:
-
-- **Maximum 4 concurrent Python processes** (`MAX_CONCURRENT_GENERATIONS` in `server.js`)
-- **Automatic queuing** for additional requests (FIFO)
-- **Unique request handling** with request IDs: `timeline_{timestamp}_{random}`
-- **Separate backup files** prevent conflicts: `timelines/timeline_{requestId}.json`
-- **Automatic cleanup** of old backup files (hourly)
-- **Timeout protection**: 30-second maximum generation time
-
-### Request Flow
-
-```
-User Request → Queue Check → Process or Queue → Python Generation → Response
-                    ↓                               ↓
-          If capacity available              Unique backup file
-                    ↓                               ↓
-              Start generation                 JSON to stdout
-                    ↓                               ↓
-           Track active count                Return to user
-```
-
-### Python Execution
-
-- **Auto-detects** Python command (`python3`, `python`, or `py`)
-- **Failure handling**: if generation fails, the client shows an error screen asking the participant to refresh (nothing is logged for that attempt)
-- **Generation time**: Typically 1-3 seconds per timeline
-- **No caching**: Fresh generation per user ensures uniqueness
-
-### Benefits
-
-**For Researchers:**
-- Better experimental control - no order effects from repeated timelines
-- Increased statistical power - each participant has unique randomization
-- Reproducible - session-specific randomization seeds can be logged
-
-**For Participants:**
-- Fresh experience - no predictability from shared timelines
-- Improved validity - authentic decision-making without prior knowledge
-
-**For Deployment:**
-- No manual updates - timeline generation is automatic
-- Scalable - handles multiple concurrent users
-- Robust - fallback to static timeline if generation fails
-
-## Timeline.json Structure
-
-The generated timeline (one per participant; backups in `timelines/`) defines the entire game experience. It's structured as an array of **sessions**, where each session contains **stages**.
-
-### Basic Structure
-```json
-[
-  // Session 1
-  [
-    // Stages in session 1
-    {...stage1...},
-    {...stage2...}
-  ],
-  // Session 2 (nested arrays)
-  [
-    // Container 1 in session 2
-    [
-      {...stage1...},
-      {...stage2...}
-    ],
-    // Container 2 in session 2  
-    [
-      {...stage3...},
-      {...stage4...}
-    ]
-  ]
-]
-```
-
-### Session Types
-
-#### Simple Sessions
-```json
-[
-  {stage1}, {stage2}, {stage3}
-]
-```
-
-#### Nested Sessions (Multiple Containers)
-```json
-[
-  [ {stage1}, {stage2} ],  // Container 1
-  [ {stage3}, {stage4} ]   // Container 2
-]
-```
-
-## Game Types
-
-### 1. **Consent**
-```json
-{
-  "stage_type": "consent",
-  "title": "Consent",
-  "paragraphs": ["You are participating in a study … contact us at [EMAIL]. …", "We record only … may be shared with other researchers or made public."],
-  "contact_email": "juliomz@stanford.edu",
-  "decline_message": "Thank you. You have chosen not to participate.",
-  "decline_redirect_note": "You are being returned to Prolific.",
-  "decline_close_note": "You may close this window."
-}
-```
-`[EMAIL]` renders as a `mailto:` link. "I agree to participate" logs `consented: true` and continues; "I do not agree" logs `consented: false` and, in Prolific mode, redirects to `prolific_no_consent_url` (see CONFIG.md). Both rows go to the `Consent` collection (`models/consent.js`).
-
-### 2. **Welcome**
-```json
-{
-  "stage_type": "welcome",
-  "message": "Press Start when you are ready to begin."
-}
-```
-The Prolific ID is read from the `PROLIFIC_PID` URL parameter at page load, so this page only has a Start button (which also requests fullscreen).
-
-### 3. **Introduction**
-```json
-{
-  "stage_type": "introduction",
-  "message": "Welcome text ([BOLD]…[/BOLD] title, [BLUE]/[ORANGE] highlights, [RED_BOLD] warning)"
-}
-```
-
-### 4. **Instructions** (How to Play)
-```json
-{
-  "stage_type": "instructions",
-  "message": "How to Play",
-  "instructions": {
-    "panels": [
-      { "title": "Move",      "image": "move.gif",      "caption": "[KEY]←[/KEY] [KEY]→[/KEY] move your starship …" },
-      { "title": "Shoot",     "image": "shoot.gif",     "caption": "[KEY]Space[/KEY] shoots the asteroid above your ship …" },
-      { "title": "Reward",    "image": "reward.png",    "caption": "Green means the asteroid paid out …" },
-      { "title": "No reward", "image": "no_reward.png", "caption": "Red means it paid nothing this time …" }
-    ],
-    "note": "Closing note under the panels (optional)"
-  }
-}
-```
-Images are served from `assets/introduction/`; `[KEY]…[/KEY]` in a caption renders as a key cap. The media are captures of the live game — regenerate them with `npm run capture-howto` (server running, ffmpeg on PATH; see `scripts/capture_howto_media.mjs`).
-
-### 5. **Practice**
-```json
-{
-  "game": "practice",
-  "demonstrator": null,
-  "game_index": 0,
-  "num_arm_pulls": 6,
-  "transfer": null,
-  "stage_index": 0,
-  "round_index": 0,
-  "session_index": 0,
-  "zone": {...zone_object...}
-}
-```
-
-### 6. **Play**
-```json
-{
-  "game": "play", 
-  "demonstrator": null,
-  "game_index": 1,
-  "num_arm_pulls": 6,
-  "transfer": null,
-  "stage_index": 0,
-  "round_index": 0,
-  "session_index": 1,
-  "zone": {...zone_object...}
-}
-```
-
-### 7. **Watch** 
-```json
-{
-  "game": "watch",
-  "demonstrator": {...demonstrator_object...},
-  "game_index": 0,
-  "num_arm_pulls": 6,
-  "transfer": null,
-  "stage_index": 0,
-  "round_index": 0,
-  "session_index": 1,
-  "zone": {...zone_object...},
-  "overlay-message": "Watch message text"
-}
-```
-
-### 8. **Choice**
-```json
-{
-  "game": "choice",
-  "game_index": 8,
-  "num_arm_pulls": null,
-  "transfer": false,
-  "stage_index": 1,
-  "round_index": null,
-  "session_index": 2,
-  "zone": {...zone_object...},
-  "demonstrator1": {...demonstrator_object...},
-  "demonstrator2": {...demonstrator_object...},
-  "overlay-message": "Choose between starships message"
-}
-```
-
-### 9. **Online-Choice**
-```json
-{
-  "game": "online-choice",
-  "choice_game_index": 8,
-  "watch_game_index": 9,
-  "num_arm_pulls": null,
-  "transfer": false,
-  "stage_index": 1,
-  "round_index": null,
-  "session_index": 1,
-  "zone": {...zone_object...},
-  "demonstrator1": {...demonstrator_object...},
-  "demonstrator2": {...demonstrator_object...},
-  "choice-overlay-message": "Choose the starship you would watch...",
-  "watch-overlay-message": "You will now watch your chosen starship partner."
-}
-```
-
-## Core Objects
-
-### Zone Object
-```json
-{
-  "zone_index": 1,
-  "zone_color": "#f2b179", 
-  "zone_background": "zone_01.png",
-  "zone_mode": "asteroid",  // or "landscape"
-  "zone_images": [
-    "asteroid_12.png",
-    "asteroid_49.png"
-  ],
-  "zone_bandit": [
-    [0.35, 0.4, 0.55, 0.6, 0.75, 0.1, 0.5, 0.0, 0.8, 0.3, 0.2, 0.45]
-  ],
-  "bandit_id": "payoffs29"
-}
-```
-
-**Zone Properties:**
-- `zone_index`: Unique identifier for the zone
-- `zone_color`: Hex color for borders and UI elements
-- `zone_background`: Background image file (optional)
-- `zone_mode`: `"asteroid"` (individual images per cell) or `"landscape"` (single masked image)
-- `zone_images`: Array of image files for the zone
-- `zone_bandit`: 2D array of reward probabilities (0.0-1.0)
-- `bandit_id`: Identifier for the payoff structure
-
-### Demonstrator Object
-```json
-{
-  "demonstrator_type": "expert",
-  "demonstrator_index": 0,
-  "demonstrator_id": 1, 
-  "demonstrator_image": "demonstrator_01.png",
-  "demonstrator_trajectory": [8, 8, 11, 6, 8, 8]
-}
-```
-
-**Demonstrator Properties:**
-- `demonstrator_type`: "expert", "novice", etc.
-- `demonstrator_index`: Index for image mapping system
-- `demonstrator_id`: Unique identifier
-- `demonstrator_image`: Image file for the demonstrator
-- `demonstrator_trajectory`: Array of linear cell indices showing movement path
-
-### Stage Properties
-
-#### Property Usage Patterns
-The timeline uses two different property naming patterns:
-
-**Meta Stages** (setup/instruction phases):
-- Use `stage_type`: "consent", "welcome", "introduction", "instructions"
-- Do not have `game_index`, `session_index`, etc.
-
-**Game Stages** (actual gameplay):
-- Use `game`: "practice", "play", "watch", "choice", "online-choice"
-- Include full tracking properties: `game_index`, `session_index`, `stage_index`, etc.
-
-#### Common Properties for Game Stages
-- `game`: Game type ("practice", "play", "watch", "choice", "online-choice")
-- `game_index`: Sequential game number within session
-- `stage_index`: Stage number within session container
-- `session_index`: Session number (0-based)
-- `round_index`: Round number (can be null)
-- `num_arm_pulls`: Number of actions allowed (null for choice games)
-- `demonstrator`: Demonstrator object (null for play/practice games)
-
-#### Special Properties for Online-Choice
-- `choice_game_index`: Game index for the choice phase
-- `watch_game_index`: Game index for the watch phase
-- `choice-overlay-message`: Text for choice phase
-- `watch-overlay-message`: Text for watch phase
-
-#### Transfer Learning
-- `transfer`: Boolean indicating if this is a transfer condition
-
-#### Overlay Messages
-- `overlay-message`: Text shown in transition overlay
-- `choice-overlay-message`: Text for choice phase (online-choice only)
-- `watch-overlay-message`: Text for watch phase (online-choice only)
-
-## Demonstrator Visual System
-
-The game uses a sophisticated style+color assignment system for demonstrator appearances, ensuring visual distinctiveness within and across sessions.
-
-### How It Works
-
-The demonstrator style+color assignment is **built into the timeline generation process** (Python-side) rather than being computed at runtime.
-
-#### Timeline Generation (`timeline_models/models.py`)
-
-When a timeline is generated, the Python code:
-
-1. **Assigns Demonstrator IDs**: Each session gets 2 unique demonstrator IDs
-2. **Assigns Style+Color with Constraints**:
-   - Within each session: Different styles AND different colors
-   - Globally: Each demonstrator gets a unique style+color combination
-   - Same demonstrator always has same appearance across sessions
-
-3. **Embeds in Timeline JSON**: Each demonstrator object includes:
-   - `demonstrator_style`: "style1", "style2", etc.
-   - `demonstrator_color`: "red", "orange", "blue", etc.
-
-#### JavaScript Runtime (`main.js`)
-
-The JavaScript code simply **reads and uses** the style+color from the timeline:
-- `mapDemonstratorImage(index, style, color)` uses the provided style+color
-- Image paths: `assets/demonstrators/styles/style1/red.png`
-- No runtime computation needed - just reads what Python generated
-
-### Constraints Enforced
-
-#### Within Each Session ✅
-- No two demonstrators share the same **style**
-- No two demonstrators share the same **color**
-- Example: Session 1 might have Demo 13 (style1/red) and Demo 19 (style2/orange)
-
-#### Across Sessions ✅
-- Each demonstrator_global_index gets a **globally unique** style+color combination
-- Same demonstrator always looks the same
-- Example: Demo 13 always appears as (style2/blue) whenever it appears
-
-#### Between Sessions ✅
-- Demonstrators in different sessions **CAN** share styles or colors (but not both)
-- Example: Session 1 Demo 13 (style1/red) and Session 2 Demo 8 (style1/orange) can both use style1
-
-### File Structure
-
-```
-assets/demonstrators/styles/
-├── style1/
-│   ├── red.png
-│   ├── orange.png
-│   ├── blue.png
-│   ├── green.png
-│   ├── yellow.png
-│   └── purple.png
-├── style2/
-│   └── ... (same 6 colors)
-├── style3/
-├── style4/
-├── style5/
-└── style6/
-```
-
-**Total combinations**: 6 styles × 6 colors = **36 unique demonstrator appearances**
-
-### Benefits
-
-1. **Guaranteed Correctness**: Constraints are enforced at generation time
-2. **No Runtime Complexity**: JavaScript just reads the values
-3. **Deterministic**: Same timeline file always produces same demonstrators
-4. **Debuggable**: Can inspect timeline JSON to see exact assignments
-5. **Reproducible**: Timeline files can be saved and reused exactly
-
-## MongoDB Logging
-
-The game automatically logs all user actions to MongoDB with comprehensive tracking of game state, user behavior, and experimental conditions.
-
-### Database Structure
-
-- **Database**: `AMGDB`
-- **Collection**: `gamelogs`
-- Each document represents one user action
-
-### Logged Variables
-
-The system logs the following variables for every user action:
-
-#### User Information
-- `prolific_id`: Participant's Prolific ID, read from the `PROLIFIC_PID` URL parameter (never typed)
-- `uid`: Auto-generated unique identifier
-- `session_id`: MongoDB session identifier
-
-#### Game Progress
-- `session_index`: Session number (0-based)
-- `step`: Action step counter
-- `position`: Current player position
-- `action`: User action (`left`, `right`, `up`, `down`, `pull`)
-- `timestamp`: Action timestamp
-
-#### Game State
-- `shots_remaining`: Number of actions remaining
-- `game`: Game type (`practice`, `play`, `watch`, `choice`, `feedback`)
-- `game_total_reward`: Total reward in current game
-- `user_total_reward`: Cumulative reward across all games
-
-#### Action Details
-- `reward_generated`: Reward from current action
-- `shot`: Boolean indicating arm pull/mining action
-
-#### Session Info
-- `transfer`: Transfer learning condition indicator
-- `game_sequence`: Sequence of games in session
-
-#### Stage/Game IDs
-- `game_index`: Sequential game number within session
-- `stage_index`: Stage number within session container
-- `round_index`: Round number (can be null)
-
-#### Demonstrator Info
-- `demonstrator_index`: 0 = demo-1, 1 = demo-2 (slot within the session)
-- `demonstrator_type`: legacy field, present on old logs only — null on new logs
-- `demonstrator_global_index`: globally unique demonstrator identifier
-- `demonstrator_id`: image filename for this demonstrator
-- `demonstrator_actions`: JSON array of arm indices (e.g., `"[8,8,11,6,8,8]"`)
-- `demonstrator_rewards`: JSON array of rewards (e.g., `"[1,0,0,1,1,0]"`)
-- `demonstrator_experience`: Thompson warmup iterations (matches `demo_1/2_prior_experience`)
-- `demonstrator_strategy`: Sampling strategy ("thompson")
-- `demonstrator_bandit_payoffs`: JSON array of arm payoffs used for generation
-- `demonstrator_style`: Visual style assignment
-- `demonstrator_color`: Color assignment
-
-**Note:** `demonstrator_actions` / `demonstrator_rewards` include both the invisible warmup iterations AND the displayed trajectory.
-
-#### User Play Data
-- `play_actions`: JSON array of arm indices selected by user (e.g., `"[2,5,8,11,6,9]"`)
-- `play_rewards`: JSON array of rewards received by user (e.g., `"[1,0,1,1,0,1]"`)
-
-**Note:** These fields are only populated for play games and logged in the `trajectory_complete` action at the end of each play game.
-
-#### Zone Info
-- `zone_index`: Unique zone identifier
-- `zone_bandit`: JSON string of flattened 2D array (e.g., `"[0.35,0.4,0.55,...]"`)
-- `zone_bandit_arm_image_ids`: JSON string array of image filenames (e.g., `"[\"asteroid_12.png\",\"asteroid_49.png\",...]"`)
-- `zone_bandit_id`: Identifier for payoff structure
-
-#### Tracking
-- `refresh_count`: Number of times this browser tab was reloaded or closed (any `beforeunload`) during this Prolific session *before the row was logged*. Stamped at log time and never modified afterwards. The end-of-study "Return to Prolific" redirect is not counted. A reload restarts the study with a new `uid`, so a participant with more than one `uid` has reloaded even if every row shows `refresh_count: 0`. Each unload event is also stored as its own row in the `PageUnload` collection (`models/pageUnload.js`) with its timestamp and the stage the participant was on.
-
-### Delivery guarantees
-
-The browser keeps an in-order log queue (`enqueueLog` / `flushLogQueue` in `main.js`). A failed `POST /api/log` (network error, 5xx, or the 503 the server returns while MongoDB is disconnected) is retried with exponential backoff rather than dropped; 4xx responses (schema rejections) are not retried. The end-of-game screen waits for the queue to drain (up to 20 s) before showing the Prolific button and tells the participant if anything could not be saved.
-
-### Prolific mode vs demo mode
-
-The study link on Prolific must be `https://<service>/?PROLIFIC_PID={{%PROLIFIC_PID%}}&STUDY_ID={{%STUDY_ID%}}&SESSION_ID={{%SESSION_ID%}}`; the browser reads the three parameters once at load. With a `PROLIFIC_PID` the game is in **Prolific mode**: every action is logged and the end and decline screens redirect to Prolific. Without one (local `npm start`, the bare link) it is in **demo mode**: the consent page is skipped (the run starts at the welcome page), `enqueueLog`, `logPageRefresh` and `logConsent` send nothing, and the end screen has no Prolific button. The config and timeline fetches still happen in both modes; they carry no participant data.
-
-### Logged Actions
-
-- **Movement**: `left`, `right`, `up`, `down` - when user moves position
-- **Pulling**: `pull` - when user pulls an arm/shoots an asteroid
-- **Feedback**: `feedback` - when user submits end-game feedback
-
-### Special Logging for Online-Choice
-
-The `online-choice` game type is handled specially for logging purposes:
-- **Choice phase** → logged as `game: "choice"`
-- **Watch phase** → logged as `game: "watch"`
-
-This allows for consistent analysis of choice and watch behaviors regardless of whether they occur as standalone games or as part of an online-choice sequence.
-
-### Feedback Data Collection
-
-When `feedback` is in `session_end_stages`, feedback data is collected in the main `GameLog` collection:
-
-- **Collection**: Main `GameLog` collection (same as all other user actions)
-- **Action Type**: `action: "feedback"` and `game: "feedback"`
-- **Data Stored**:
-  - User identification: `prolific_id`, `uid`, `session_id`
-  - Feedback text: `feedback_text` field with user's response
-  - Choice context: `choice_demonstrator_id`, `choice_demonstrator_type`
-  - Session context: `session_index`, zone information
-  - Standard fields: All other GameLog fields for consistency
-
-### Security Note
-
-Never commit MongoDB connection strings to version control. Use environment variables locally and Secret Manager (or equivalent) in production.
-
-## API Endpoints Reference
-
-### Timeline Generation
-
-#### `GET /api/timeline`
-Generates and returns a fresh, randomized timeline for each user.
-
-- **Response**: JSON timeline data
-- **Behavior**: Automatically queued if server at capacity
-- **Generation Time**: Typically 1-3 seconds
-- **Concurrency**: Max 4 concurrent generations (configurable)
-
-#### `GET /api/timeline-status`
-Returns real-time status of the timeline generation system.
-
-**Response**:
-```json
-{
-  "active_generations": 2,
-  "max_concurrent": 3,
-  "queue_length": 1,
-  "capacity_available": 1,
-  "server_time": "2024-01-15T10:30:00.000Z",
-  "uptime_seconds": 3600
-}
-```
-
-#### `GET /api/test-python`
-Tests Python installation and verifies timeline generation capabilities.
-
-- **Use**: Debugging and setup verification
-- **Response**: Python version and execution status
-
-### Data Logging
-
-#### `POST /api/log`
-Log a game action to MongoDB.
-
-- **Body**: Action data including position, reward, game state
-- **Response**: Confirmation of logged data
-
-#### `POST /api/log-refresh`
-Record a `beforeunload` event (reload, tab close, navigating away) as a row in the `PageUnload` collection. Sent via `sendBeacon`; the end-of-study redirect is excluded by the client. Never modifies existing `GameLog` rows.
-
-- **Body**: User identification, current `session_index` / `stage_index` / `game`, and the post-increment `refresh_count`
-- **Response**: Confirmation of logged event
-
-#### `POST /api/log-consent`
-Record the consent decision (agree or decline) as a row in the `Consent` collection (`models/consent.js`), timestamped and keyed by Prolific ID. Sent from the consent page, before the welcome page; demo mode (no `PROLIFIC_PID`) sends nothing.
-
-- **Body**: `prolific_id`, `prolific_study_id`, `prolific_session_id`, `uid`, `consented` (boolean), `experiment_id`
-- **Response**: Confirmation of logged event
-
-#### `GET /api/logs/:prolific_id`
-Retrieve all logs for a specific user (for debugging).
-
-- **Parameters**: `prolific_id` - User's Prolific ID
-- **Response**: Array of all logged actions for that user
-
-### Health & Monitoring
-
-#### `GET /api/health`
-Comprehensive server health check.
-
-**Returns**:
-- Timeline system status
-- MongoDB connection status
-- Memory usage
-- Server uptime
-- Active process counts
-
-## Asset Structure
-
-### Required Directories
-```
-assets/
-├── demonstrators/
-│   ├── demonstrator_XX.png (legacy, no longer used)
-│   └── styles/
-│       ├── style1/
-│       │   ├── red.png
-│       │   ├── orange.png
-│       │   ├── blue.png
-│       │   ├── green.png
-│       │   ├── yellow.png
-│       │   └── purple.png
-│       ├── style2/ (same 6 colors)
-│       ├── style3/
-│       ├── style4/
-│       ├── style5/
-│       └── style6/
-├── landscapes/        # landscape_XX.png files  
-├── zone_backgrounds/  # zone_XX.png files
-├── asteroids/         # asteroid_XX.png files
-├── introduction/      # GIF and PNG instruction files
-└── user.png          # Player sprite
-```
-
-### Image Mapping System
-
-The game uses a randomization system that maps logical indices to shuffled image files, ensuring each playthrough uses different visual assets while maintaining game logic.
-
-**Demonstrator System**: All demonstrators now use the style+color system from the `styles/` folders. The timeline generation assigns each demonstrator a unique style+color combination, providing 36 possible unique appearances (6 styles × 6 colors).
-
-## Testing & Monitoring
-
-### Concurrency Testing
-
-Test the timeline generation system with multiple simultaneous users:
+The game never pays anyone. Bonuses are reconstructed from the logs:
 
 ```bash
-# Install test dependencies (if not already installed)
-npm install
-
-# Run concurrency test (simulates 10 concurrent users)
-npm run test-concurrency
+npm run export-bonuses -- --study <PROLIFIC_STUDY_ID>
 ```
 
-#### Sample Test Output
-```
-🧪 Starting concurrency test with 10 users...
-📡 Testing server: http://localhost:8080
-📊 Server Status: { active_generations: 0, queue_length: 0, ... }
+The full procedure, including pointing the script at the production database, is in [`.claude/docs/computing_bonus.md`](./.claude/docs/computing_bonus.md).
 
-🚀 User 1: Requesting timeline...
-🚀 User 2: Requesting timeline...
-🚀 User 3: Requesting timeline...
-...
-
-✅ User 1: Timeline received in 2341ms (9 sessions)
-✅ User 2: Timeline received in 2456ms (9 sessions)
-✅ User 3: Timeline received in 2234ms (9 sessions)
-
-📋 Test Results:
-Total Users: 10
-Successful: 10
-Failed: 0
-Total Duration: 8234ms
-Average Time per User: 823ms
-Success Rate: 100.0%
-✅ Excellent performance!
-```
-
-#### Custom Test Configuration
-
-Edit `test_concurrency.js` to adjust:
-- `CONCURRENT_USERS`: Number of simultaneous users to simulate
-- `SERVER_URL`: Target server URL
-- `TEST_TIMEOUT`: Request timeout duration
-
-### Monitoring in Production
-
-#### Key Metrics to Watch
-- Active generations count
-- Queue length trends
-- Average response times
-- Error rates
-- Memory usage patterns
-
-#### Alerting Thresholds
-- Queue length > 10 users
-- Average response time > 10 seconds
-- Error rate > 5%
-- Memory usage > 80%
-
-#### Real-Time Monitoring
-
-Use the monitoring endpoints for real-time system status:
-
-```bash
-# Check timeline generation status
-curl http://localhost:8080/api/timeline-status
-
-# Check overall server health
-curl http://localhost:8080/api/health
-
-# Test Python installation
-curl http://localhost:8080/api/test-python
-```
-
-### Performance Recommendations
-
-#### Server Specifications
-- **CPU**: Multi-core recommended for Python processes
-- **Memory**: 2GB+ RAM for multiple concurrent generations
-- **Storage**: SSD recommended for file I/O performance
-
-#### Scaling Options
-1. **Increase Concurrency**: Raise `MAX_CONCURRENT_GENERATIONS` in `server.js`
-2. **Pre-generation**: Generate timeline pool in advance
-3. **Caching**: Cache recently generated timelines
-4. **Load Balancing**: Distribute across multiple servers
-
-#### Configuration Tuning
-
-In `server.js`:
-```javascript
-const MAX_CONCURRENT_GENERATIONS = 4; // Adjust based on server capacity
-const TIMEOUT = 30000; // 30 second timeout
-```
-
-In `timeline_models/models.py`:
-```python
-# Timeline parameters
-rounds=2
-num_play_arm_pulls=6  
-num_watch_arm_pulls=6
-```
-
-### File Management
-
-#### Backup Files
-- Unique files: `timelines/timeline_{requestId}.json`
-- Automatic cleanup after 1 hour
-
-#### Cleanup Process
-- Runs on server startup
-- Runs every hour automatically
-- Only removes files older than 1 hour
-
-## Development Notes
-
-### Adding New Game Types
-1. Add the new game type to the `gameLog.js` schema
-2. For meta stages: Create a `setup[GameType]` function using `stage_type` property
-3. For game stages: Create a `setup[GameType]` function using `game` property
-4. Add the case to the switch statement in `loadStage()`
-5. Update the `maybeAddSummaryIcon()` function if needed
-
-**Note**: Meta stages (consent, welcome, introduction, instructions) use `stage_type`, while gameplay stages (practice, play, watch, choice, online-choice) use `game` property.
-
-### Timeline Generation
-Use the Python scripts in `timeline_models/` to generate timelines programmatically rather than editing by hand.
-
-### Debugging
-- Check browser console for game logs
-- Use `GET /api/logs/:prolific_id` to view logged data
-- Monitor MongoDB collections for data verification
+For local debugging, `GET /api/logs/:prolific_id` returns one participant's rows. It answers 404 in production.
 
 ## Troubleshooting
 
-### Common Issues
+| Symptom | Fix |
+|---|---|
+| `build-config` fails with "ACTIVE_CONFIG not set" or "not found" | Create `.env` from `.env.example` and make sure the named file exists in `configs/`. |
+| Server exits at startup mentioning `config.json` | Run `npm run build-config`. |
+| "No working Python installation found" | Install Python 3, then check `curl localhost:8080/api/test-python`. |
+| "Failed to parse generated timeline" | A `print()` in `timeline_models/models.py` went to stdout. Debug output must go to `stderr`. |
+| Actions not appearing in MongoDB | Confirm the URL had a `PROLIFIC_PID` (demo mode logs nothing), then check the Mongo state in `curl localhost:8080/api/health`. |
+| Slow or queued timelines | `curl localhost:8080/api/timeline-status`. At most 4 Python processes run at once; the rest wait in a queue. |
 
-#### MongoDB Connection Error
-**Symptoms**: Cannot connect to database, logs show connection errors
+To generate a timeline by hand and inspect it:
 
-**Solutions**:
-- Ensure MongoDB is running (`brew services start mongodb-community` on macOS)
-- Check `MONGODB_URI` (`.env` locally, Secret Manager in production)
-- Verify connection string is correct
-- Check firewall settings if using remote MongoDB
+```bash
+cd timeline_models && python3 models.py debug     # JSON on stdout, copy in timelines/timeline_debug.json
+```
 
-#### Missing Images
-**Symptoms**: Broken images in game, console errors about missing assets
+## Further reading
 
-**Solutions**:
-- Check that all referenced images exist in assets folders
-- Verify demonstrator style/color images exist: `assets/demonstrators/styles/style1/red.png`, etc.
-- Ensure zone backgrounds and asteroids are properly named
-- Check file permissions
-
-#### Timeline Validation
-**Symptoms**: Game fails to load, timeline parsing errors
-
-**Solutions**:
-- Validate JSON syntax using a JSON validator
-- Check all required properties are present
-- Verify stage types match expected values
-- Ensure demonstrator and zone objects are properly formatted
-
-#### Port Conflicts
-**Symptoms**: "Port already in use" error on startup
-
-**Solutions**:
-- Use `PORT=XXXX` to specify different port
-- Check for other processes using port 8080: `lsof -i :8080`
-- Kill conflicting process or choose different port
-
-#### Python Installation Issues
-**Symptoms**: "No working Python installation found", timeline generation fails
-
-**Solutions**:
-- Install Python 3.x and ensure it's in PATH
-- Test with: `python3 --version` or `python --version`
-- Verify Python can run: `curl http://localhost:8080/api/test-python`
-- Check Python dependencies are installed
-
-#### Timeline Generation Timeout
-**Symptoms**: Timeline generation takes too long, timeout errors
-
-**Solutions**:
-- Check Python is available (`python3 --version`)
-- Verify `config.json` exists at the repo root (run `npm run build-config` if missing)
-- Check system resources (CPU, memory)
-- Consider increasing timeout in `server.js`
-
-#### Failed to Parse Generated Timeline
-**Symptoms**: JSON parsing errors after Python execution
-
-**Solutions**:
-- Check Python script syntax errors
-- Manually run: `cd timeline_models && python3 models.py`
-- Verify JSON output format
-- Check for print statements in Python code (should output to stderr, not stdout)
-
-#### High Queue Length
-**Symptoms**: Many users waiting for timelines, slow response times
-
-**Solutions**:
-- Check Python installation and performance
-- Consider increasing `MAX_CONCURRENT_GENERATIONS` in `server.js`
-- Monitor system resources (CPU, memory)
-- Check for hanging Python processes: `ps aux | grep python`
-- Consider pre-generation strategy
-
-#### Slow Response Times
-**Symptoms**: Timeline generation takes longer than expected
-
-**Solutions**:
-- Verify Python script performance
-- Check disk I/O for backup file writes
-- Monitor network latency
-- Profile Python script execution
-- Consider pre-generation strategy
-
-#### File Permission Errors
-**Symptoms**: Cannot write timeline files, permission denied errors
-
-**Solutions**:
-- Ensure `timelines/` directory is writable
-- Check Node.js process permissions
-- Verify disk space availability
-- Check file ownership
-
-#### Missing Logs in MongoDB
-**Symptoms**: User actions not appearing in database
-
-**Solutions**:
-- Ensure `window.currentStage` is set correctly
-- Verify `prolificID` is collected at game start
-- Check page refresh handlers are properly set up
-- Verify MongoDB connection is active
-- Check browser console for logging errors
-
-### Performance Tips
-
-- Keep trajectory arrays reasonable in length (< 50 steps recommended)
-- Optimize image file sizes (use compressed PNGs)
-- Use appropriate bandit grid sizes (recommend 1x12 or 2x6)
-- Monitor memory usage during concurrent timeline generation
-- Consider caching strategies for high-traffic scenarios
-- Use SSD storage for better file I/O performance
-
-### Debug Steps
-
-1. **Check server logs** for detailed error messages
-2. **Test Python setup**: `GET /api/test-python`
-3. **Check timeline status**: `GET /api/timeline-status`
-4. **Verify MongoDB connection**: Check `/api/health`
-5. **Test manual generation**: `cd timeline_models && python3 models.py`
-6. **Check browser console** for client-side errors
-7. **Verify config.json** syntax and values
+- [ARCHITECTURE.md](./ARCHITECTURE.md): the three tiers, the timeline JSON, how partner starships behave, the logging schema and the HTTP API.
+- [CONFIG.md](./CONFIG.md): every config field.
+- [CLAUDE.md](./CLAUDE.md): orientation for AI coding agents working in this repo.
