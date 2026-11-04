@@ -2,7 +2,7 @@
 
 A browser game for running multi-armed-bandit experiments on Prolific. Participants fly a starship over a row of asteroids, shoot the ones they think pay out, watch partner starships do the same, and say which partner they would take along next time. Every shot, watch and choice is logged to MongoDB.
 
-<img width="848" alt="Fortune Frontier" src="https://github.com/user-attachments/assets/37a1bf48-4178-451c-a4bd-d93a9445038a" />
+<img width="848" alt="Fortune Frontier: a practice round, three shots in" src=".github/readme-screenshot.jpg" />
 
 Built with Phaser (client), Express (server) and a small Python script that generates a fresh, randomized timeline for every participant. Internals are described in [ARCHITECTURE.md](./ARCHITECTURE.md).
 
