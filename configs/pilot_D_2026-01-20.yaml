@@ -12,7 +12,7 @@ experiment_config: configs/pilot_D_2026-01-20.yaml
 # List of per-round stage sequences. Each entry is ONE round; that round
 # repeats `num_rounds` times within a session that uses this condition.
 # Allowed tokens:
-#   play | watch-demo-1 | watch-demo-2 | choice | online-choice | blind | indicate | feedback
+#   play | watch-demo-1 | watch-demo-2 | choice | online-choice | indicate | feedback
 # The pilot has two conditions, mirroring today's two filtered (EN, NE) sessions.
 round_game_sequence_conditions:
   - [watch-demo-1, play, watch-demo-2, play]

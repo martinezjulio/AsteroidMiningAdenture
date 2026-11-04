@@ -57,7 +57,7 @@ The timeline is a list of sessions. Session 0 is the practice session and is a f
 ]
 ```
 
-`games` is one entry of `round_game_sequence_conditions` repeated for `num_rounds` rounds, with an optional `demonstrator_presentation` stage prepended and an optional `round_recap` after each round that had a play. `end_stages` comes from `session_end_stages`. A session whose round sequence has no `watch-demo-*` token drops every demonstrator-dependent end stage (`choice`, `online-choice`, `blind`, `indicate`, `feedback`).
+`games` is one entry of `round_game_sequence_conditions` repeated for `num_rounds` rounds, with an optional `demonstrator_presentation` stage prepended and an optional `round_recap` after each round that had a play. `end_stages` comes from `session_end_stages`. A session whose round sequence has no `watch-demo-*` token drops every demonstrator-dependent end stage (`choice`, `online-choice`, `indicate`, `feedback`).
 
 Every stage of a session carries `condition` (that session's token list joined with `-`) and `condition_order` (all sessions' labels in played order, `|`-separated).
 
@@ -85,7 +85,6 @@ The client dispatcher reads `stage.stage_type || stage.game`.
 | `choice` | game | `choice` token | `demonstrator1`, `demonstrator2`, `display_order`, `transfer: true`, `num_arm_pulls: null` | `setupChoice` |
 | `online-choice` | game | `online-choice` token | same as `choice` | `setupOnlineChoice` (choice phase, then a watch of the chosen partner) |
 | `indicate` | game | `indicate` token | same as `choice` | `setupIndicate` (plays like a watch) |
-| `blind` | game | `blind` token | same as `choice` | **not implemented**, see [Known gaps](#known-gaps) |
 | `feedback` | meta | `feedback` token | `message`, `demonstrator1`, `demonstrator2`, `transfer: true` | `setupFeedback` (free-text form) |
 
 Transition copy (`overlay-title`, `overlay-message`) is written in `models.py`, not in the client. It talks about expeditions and zones, never sessions and rounds.
@@ -208,7 +207,7 @@ Database `AMGDB`, three Mongoose models:
 Enums:
 
 - `action`: `left`, `right`, `up`, `down`, `shoot`, `feedback`, `trajectory_complete`
-- `game`: `practice-play`, `practice-watch`, `play`, `watch`, `choice`, `indicate`, `blind`, `feedback`, plus the pre-2026-10-19 practice value `practice`
+- `game`: `practice-play`, `practice-watch`, `play`, `watch`, `choice`, `indicate`, `feedback`, plus the pre-2026-10-19 practice value `practice`
 
 ### Things to know when analysing
 
@@ -256,7 +255,3 @@ assets/
   user.png            the participant's ship
 vendor/phaser.min.js
 ```
-
-## Known gaps
-
-- **`blind` is not implemented in the client.** `models.py` accepts the token and `loadStage()` dispatches it to `setupBlind`, but no function of that name exists in `main.js`. A config that uses `blind` throws at that stage.

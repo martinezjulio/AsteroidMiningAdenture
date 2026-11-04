@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Optional
 # `session_end_stages`. Watch tokens carry an explicit demo index.
 WATCH_TOKENS = {"watch-demo-1": 0, "watch-demo-2": 1}
 PLAY_TOKENS = {"play"}
-CHOICE_LIKE_TOKENS = {"choice", "online-choice", "blind", "indicate"}
+CHOICE_LIKE_TOKENS = {"choice", "online-choice", "indicate"}
 META_TOKENS = {"feedback"}
 
 # End-of-session stages (choice/feedback) never show asteroids. They get a virtual
@@ -226,7 +226,7 @@ def generate_timeline(
                 idx += 1
 
         # Demo-less sessions (round-sequence has no watch-demo-*) drop demo-dependent
-        # end stages (choice/online-choice/feedback/blind/indicate); keeping them would
+        # end stages (choice/online-choice/feedback/indicate); keeping them would
         # ask the participant to choose between, or react to, partners they never saw.
         if _session_uses_demonstrators(condition):
             effective_end_tokens = list(session_end_stages)

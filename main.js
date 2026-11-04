@@ -592,7 +592,7 @@ function initializeGameSequence() {
         sequenceParts.push(typeof demoIdx === 'number' ? `watch-demo-${demoIdx + 1}` : 'watch');
       } else if (gameType === 'play') {
         sequenceParts.push('play');
-      } else if (['practice', 'indicate', 'blind'].includes(gameType)) {
+      } else if (['practice', 'indicate'].includes(gameType)) {
         sequenceParts.push(gameType);
       }
     }
@@ -609,7 +609,7 @@ function initializeGameSequence() {
         // For online-choice, add both choice and watch to the sequence
         sequenceParts.push('choice');
         sequenceParts.push('watch');
-      } else if (['practice', 'play', 'watch', 'indicate', 'blind', 'choice'].includes(gameType)) {
+      } else if (['practice', 'play', 'watch', 'indicate', 'choice'].includes(gameType)) {
         sequenceParts.push(gameType);
       }
     }
@@ -1590,14 +1590,14 @@ function loadStage() {
 
   // Store the current stage for reference in other functions if needed
   window.currentStage = stage;
-  if (stage.zone && ['practice', 'play', 'watch', 'indicate', 'blind'].includes(stage.stage_type || stage.game)) {
+  if (stage.zone && ['practice', 'play', 'watch', 'indicate'].includes(stage.stage_type || stage.game)) {
     lastGridZone = stage.zone.zone_global_index;
   }
   ledgerLiveKey = null; // re-set by ledgerGameStarted below if this stage is a play/watch game
 
   // Initialize logging for gameplay stages
   const gameType = stage.stage_type || stage.game;
-  if (['practice', 'play', 'watch', 'indicate', 'blind', 'choice', 'online-choice'].includes(gameType)) {
+  if (['practice', 'play', 'watch', 'indicate', 'choice', 'online-choice'].includes(gameType)) {
     // Initialize game sequence tracking if this is the first game in a session
     if (currentStageIndex === 0 || lastSessionIndex !== currentSessionIndex) {
       initializeGameSequence();
@@ -1681,9 +1681,6 @@ function loadStage() {
     case 'play':
       setupPlayOrPractice.call(this, stage, false);
       break;
-    case 'blind':
-      setupBlind.call(this, stage);
-      break;
     case 'choice':
       setupChoice.call(this, stage);
       break;
@@ -1727,7 +1724,7 @@ function maybeAddSummaryIcon(stage) {
   const stageType = stage.stage_type || stage.game;
   
   if (!stage.zone && stageType !== 'choice' && stageType !== 'online-choice') return;  
-  if (!['practice','play','watch','indicate','blind','choice','online-choice'].includes(stageType)) return;
+  if (!['practice','play','watch','indicate','choice','online-choice'].includes(stageType)) return;
 
   // Duplicate prevention: check if we already have an icon for this exact stage
   const stageKey = `${currentSessionIndex}_${currentStageIndex}_${stageType}`;
@@ -1788,7 +1785,7 @@ function maybeAddSummaryIcon(stage) {
     } else {
       imageKey = 'styles/style1/blue'; // fallback to default style+color
     }
-  } else if (stageType === 'play' || stageType === 'practice' || stageType === 'blind') {
+  } else if (stageType === 'play' || stageType === 'practice') {
     // Add player name for play stages
     iconName = 'Prospector';
   }
@@ -5069,7 +5066,7 @@ function nextStage() {
 
   
   // Check if it's a gameplay stage that needs a transition overlay
-  const gameplayStages = ['practice', 'play', 'watch', 'indicate', 'blind', 'choice', 'online-choice'];
+  const gameplayStages = ['practice', 'play', 'watch', 'indicate', 'choice', 'online-choice'];
   
   if (gameplayStages.includes(nextStageType)) {
     // Show the transition overlay
@@ -5732,8 +5729,7 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   
   switch(stageType) {
     case 'practice': buttonText = 'Practice'; break;
-    case 'play': buttonText = 'Play'; break; // Use "Play" for blind too
-    case 'blind': buttonText = 'Play'; break; // Use "Play" for blind too
+    case 'play': buttonText = 'Play'; break;
     case 'choice': buttonText = 'Ready to Choose'; break; // Changed from "Choose" to "Ready to Choose"
     case 'online-choice': buttonText = 'Ready to Choose'; break; // Use same as choice
     case 'watch': buttonText = 'Watch'; break;
@@ -5767,7 +5763,7 @@ function showTransitionOverlay(scene, nextStage, startCallback) {
   // Same zone as the last grid stage drawn: keep the asteroids on screen and show the
   // copy in a panel below them, so the participant can see that the zone did not
   // change instead of having to remember it. Zone changes keep the blackout slide.
-  const gridStages = ['practice', 'play', 'watch', 'indicate', 'blind'];
+  const gridStages = ['practice', 'play', 'watch', 'indicate'];
   const keepScene = gameConfig && gameConfig.same_zone_transition === 'keep_scene'
     && gridStages.includes(stageType)
     && nextStage.zone && nextStage.zone.zone_global_index === lastGridZone;
@@ -6025,7 +6021,7 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
     
     // Determine and load the appropriate player image
     let playerImageKey;
-    if (stageType === 'practice' || stageType === 'play' || stageType === 'blind') {
+    if (stageType === 'practice' || stageType === 'play') {
         playerImageKey = 'user';
         addPlayerImageToContainer(playerImageKey);
     } else if (stageType === 'watch' || stageType === 'indicate') {
@@ -6104,7 +6100,7 @@ function createSummaryStyleIcon(scene, stageType, nextStage, zoneColor, zoneInde
         // Add name text below the player image if available
         let nameText = '';
         let nameColor = '#ffffff';
-        if (stageType === 'practice' || stageType === 'play' || stageType === 'blind') {
+        if (stageType === 'practice' || stageType === 'play') {
             nameText = 'Prospector';
         } else if ((stageType === 'watch' || stageType === 'indicate') &&
                    nextStage.demonstrator && nextStage.demonstrator.demonstrator_name) {

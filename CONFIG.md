@@ -21,7 +21,7 @@ To create a new config, copy `configs/pilot_D_2026-01-20.yaml` to a new filename
 | `watch-demo-2` | a watch stage | demo with `demo_2_prior_experience` warmup |
 | `choice` | a choice stage | participant picks between demo-1 / demo-2; transfers to a new zone |
 | `online-choice` | an online-choice stage | log-only variant of choice |
-| `blind` / `indicate` | specialty stages | currently parallel to watch — reserved for future protocols |
+| `indicate` | an indicate stage | plays like a watch; the partner draws its own run and the pair filter does not apply |
 | `feedback` | a free-text feedback stage | logged to MongoDB |
 
 Unknown tokens cause Python to raise `ValueError` at timeline-generation time.
@@ -47,7 +47,7 @@ Unknown tokens cause Python to raise `ValueError` at timeline-generation time.
 - **Required** (use `[]` to skip).
 - **Effect**: appended ONCE per session, after the `num_rounds` repetitions of the round-sequence. The pilot uses `[choice, feedback]` here; putting these in the round-sequence instead would repeat them every round.
 - **Zone behavior**: a `choice`-like end stage advances to a new zone (transfer); other end stages share that zone.
-- **All-play sessions**: if a session's round-sequence contains no `watch-demo-*` token, demo-dependent end stages (`choice`, `online-choice`, `feedback`, plus the other choice-likes `blind`/`indicate`) are dropped from that session's end-stage list, and the per-session `demonstrator_presentation` prepend (controlled by `present_demonstrators_apriori`) is skipped. This lets a config mix all-play conditions with watch+play conditions in `round_game_sequence_conditions` without authoring per-session overrides.
+- **All-play sessions**: if a session's round-sequence contains no `watch-demo-*` token, demo-dependent end stages (`choice`, `online-choice`, `indicate`, `feedback`) are dropped from that session's end-stage list, and the per-session `demonstrator_presentation` prepend (controlled by `present_demonstrators_apriori`) is skipped. This lets a config mix all-play conditions with watch+play conditions in `round_game_sequence_conditions` without authoring per-session overrides.
 
 ### `num_rounds`
 - **Type**: int ≥ 1

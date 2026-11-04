@@ -57,7 +57,7 @@ The Prolific ID is read from the `PROLIFIC_PID` URL parameter at load (`PROLIFIC
 The timeline mixes two stage shapes; the dispatcher in `loadStage()` (main.js ~1061) reads `stage.stage_type || stage.game`:
 
 - **Meta stages** use `stage_type`: `consent`, `welcome`, `introduction`, `instructions`, `feedback`, `demonstrator_presentation`. No `game_index`/`session_index`.
-- **Game stages** use `game`: `practice`, `play`, `watch`, `choice`, `online-choice`, `blind`, `indicate`. Carry full `game_index`/`stage_index`/`session_index`/`round_index`.
+- **Game stages** use `game`: `practice`, `play`, `watch`, `choice`, `online-choice`, `indicate`. Carry full `game_index`/`stage_index`/`session_index`/`round_index`.
 
 Adding a new stage means: write a `setup<Type>(stage)` function, add a `case` to `loadStage()`, extend the `gameLog.js` `game` enum if it logs, and add a label in `showTransitionOverlay()` if it is a gameplay stage. Every stage change goes through `clearScene()` (destroys objects, kills timers/tweens/loader callbacks) — never `children.removeAll()`, which leaves hit areas and timers alive across stages.
 
@@ -81,7 +81,7 @@ The `online-choice` game type is one stage in the timeline but logs as **two** g
 
 The experimenter knob is the YAML named by `.env`'s `ACTIVE_CONFIG`, in `configs/`. Full per-field reference: [CONFIG.md](./CONFIG.md). The fields most likely to bite you:
 
-- `round_game_sequence_conditions`: list-of-lists. Each inner list is one ROUND of stage tokens (`play`, `watch-demo-1`, `watch-demo-2`, `choice`, `online-choice`, `blind`, `indicate`, `feedback`). Repeated `num_rounds` times within a session.
+- `round_game_sequence_conditions`: list-of-lists. Each inner list is one ROUND of stage tokens (`play`, `watch-demo-1`, `watch-demo-2`, `choice`, `online-choice`, `indicate`, `feedback`). Repeated `num_rounds` times within a session.
 - `session_end_stages`: appended once per session after the round-loop. Pilot uses `[choice, feedback]`.
 - `sampling_method`: `"all_conditions_shuffled"` (each condition once, shuffled) or `"conditions_sampled_uniformly"` (draw `num_sessions` with replacement). Combined with `num_times_conditions_repeat` for outer replication.
 - `demo_1_prior_experience` / `demo_2_prior_experience`: Thompson warmup iterations from α=β=1 priors, per demonstrator slot.

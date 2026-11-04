@@ -17,7 +17,7 @@ const gameLogSchema = new mongoose.Schema({
     
     // Game state
     shots_remaining: { type: Number, required: true },
-    game: { type: String, enum: ['watch', 'choice', 'play', 'blind', 'indicate', 'practice-play', 'practice-watch', 'practice', 'feedback'], required: true }, // 'practice' is the pre-2026-10-19 value for practice play
+    game: { type: String, enum: ['watch', 'choice', 'play', 'indicate', 'practice-play', 'practice-watch', 'practice', 'feedback'], required: true }, // 'practice' is the pre-2026-10-19 value for practice play
     game_total_reward: { type: Number, default: 0 },
     user_total_reward: { type: Number, default: 0 },
     reward_generated: { type: Boolean, default: false },
