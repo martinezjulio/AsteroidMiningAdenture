@@ -31,7 +31,8 @@ const gameLogSchema = new mongoose.Schema({
     
     // Stage/game identifiers
     game_index: { type: Number, required: true },
-    stage_index: { type: Number, required: true },
+    stage_index: { type: Number, required: true },     // legacy: the timeline stage's own sub-index, 0 on every play/watch row. Not a position.
+    expedition_stage_index: { type: Number, default: null }, // position in the expedition's stage list (currentStageIndex), as PageUnload.stage_index; since 2026-11-06
     round_index: { type: Number, default: null },
     
     // Demonstrator info

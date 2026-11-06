@@ -359,6 +359,7 @@ async function logToMongoDB(action, additionalData = {}) {
     game_sequence: currentGameSequence,
     game_index: stage.game_index || 0,
     stage_index: stage.stage_index || 0,
+    expedition_stage_index: currentStageIndex, // position in the expedition's stage list; same meaning as PageUnload.stage_index
     round_index: stage.round_index !== null ? stage.round_index : 0,
     demonstrator_session_index: stage.demonstrator ? stage.demonstrator.demonstrator_session_index :
                                (stage.demonstrator1 && window.onlineChoiceSelectedDemo ?

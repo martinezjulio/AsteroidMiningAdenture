@@ -36,6 +36,7 @@ Easy to break and not enforced by tooling. The reasoning is in ARCHITECTURE.md.
 - `online-choice` logs as two games: `choice` then `watch`.
 - Practice logs as `practice-play` / `practice-watch` (`practice` before 2026-10-19). Filter by prefix or `session_index == 0`.
 - A reload starts a new `uid`; `refresh_count` is stamped at log time and never updated.
+- `stage_index` in gamelogs is a legacy within-round sub-index (0 on every play/watch row), not a position. Position in the expedition is `expedition_stage_index` (since 2026-11-06), which matches `stage_index` in pageunloads. Order trials by `session_index`, `game_index`, `timestamp`.
 - Without `?PROLIFIC_PID=` the game is in demo mode and logs nothing.
 
 ## Deployment

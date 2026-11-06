@@ -194,7 +194,7 @@ Database `AMGDB`, three Mongoose models:
 | Progression | `session_index`, `step`, `position`, `action`, `timestamp`, `created_at` |
 | Game state | `shots_remaining`, `game`, `game_total_reward`, `user_total_reward`, `reward_generated`, `shot` (true when `action` is `shoot`) |
 | Session config | `transfer`, `game_sequence`, `session_condition`, `condition_order` |
-| Stage ids | `game_index`, `stage_index`, `round_index` |
+| Stage ids | `game_index`, `round_index`, `expedition_stage_index` (position in the expedition's stage list, the same meaning as `stage_index` in PageUnload). `stage_index` is a legacy within-round sub-index that is 0 on every play and watch row |
 | Demonstrator | `demonstrator_session_index`, `demonstrator_index` (0 = demo-1, 1 = demo-2), `demonstrator_global_index`, `demonstrator_id` (image filename), `demonstrator_actions` and `demonstrator_rewards` (JSON strings, warmup + shown), `demonstrator_experience`, `demonstrator_strategy`, `demonstrator_bandit_payoffs` |
 | Pair filter | `demonstrator_filter`, `demonstrator_filter_attempts`, `demonstrator_filter_satisfied` |
 | Own play | `play_actions`, `play_rewards` (JSON strings, on the `trajectory_complete` row of play games) |
