@@ -96,7 +96,9 @@ Redeploy with:
 ./deploy.sh                      # extra flags pass through, e.g. ./deploy.sh --no-traffic
 ```
 
-The script runs `npm run build-config` first, so the deployed `config.json` reflects **your** `.env`, not whatever is committed. It then runs `gcloud run deploy --source .`. Memory, CPU, concurrency, instance limits and the secret binding persist from the first deploy, so no flags are needed.
+The script runs `npm run build-config` first, so the deployed `config.json` reflects **your** `.env`, not whatever is committed. It then runs `gcloud run deploy --source .`. Memory, CPU, concurrency, instance limits and the secret binding persist from the first deploy; the only flag the script adds is the `BASE_PATH` env var.
+
+The service is mapped to `asteroidadventure.com` and serves under `BASE_PATH` (`/ver2_2026_11_05`, set in `deploy.sh`), so the participant URL is `https://asteroidadventure.com/ver2_2026_11_05/?PROLIFIC_PID=...`. The domain root is not served. A second study version is a separate Cloud Run service with its own prefix, routed by a load balancer URL map rather than the current domain mapping.
 
 `deploy.sh` is committed with the real project id and region. First-time setup (enabling APIs, creating the `MONGODB_URI` secret, the initial deploy with all flags) is written up in the comments of [`deploy.example.sh`](./deploy.example.sh).
 

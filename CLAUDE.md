@@ -29,7 +29,7 @@ Easy to break and not enforced by tooling. The reasoning is in ARCHITECTURE.md.
 - **Demonstrator behaviour is simulated in the browser** (`ThompsonSampler`: invisible warmup from `demo_N_prior_experience`, then the shown run continues from that posterior; both partners of a zone are drawn together so `demonstrator_filter` can constrain the pair). **Appearance is assigned in Python** at generation time so a `demonstrator_global_index` always looks the same. Keep each on its side of the boundary.
 - **Participant-facing words**: a session is an *expedition*, a round is never named, the action is *shoot*, the meter is the *Reward Tank*. Code, config, timeline and logs keep `session` and `round`. Transition copy lives in `models.py`, not the client.
 - **Phaser font names must be single tokens** (`Inter`, `Orbitron`). Canvas text styling comes from `THEME` in `main.js`, which mirrors the CSS variables in `index.html`; DOM placed over the canvas converts coordinates through the canvas bounding rect.
-- **The server serves only `/`, `/main.js`, `/assets`, `/vendor`.** Never expose the repo root; it holds the payoff table.
+- **The server serves only `/`, `/main.js`, `/assets`, `/vendor`, mounted under `BASE_PATH`** (`/` locally, `/ver2_2026_11_05` in production via `deploy.sh`). Client URLs must stay relative (`api/log`, never `/api/log`) or they break only in production. Never expose the repo root; it holds the payoff table.
 
 ## Analysis gotchas
 

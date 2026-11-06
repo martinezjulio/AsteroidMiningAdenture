@@ -25,6 +25,9 @@ npm run build-config
 PROJECT="julios-personal-compute"
 SERVICE="asteroid-mining-game"
 REGION="us-east4"
+# URL prefix the game is served under (the server's BASE_PATH env var), so
+# several study versions can share one domain; "/" serves at the domain root.
+BASE_PATH="/ver2_2026_11_05"
 
 current_project=$(gcloud config get-value project 2>/dev/null || true)
 if [[ "$current_project" != "$PROJECT" ]]; then
@@ -36,5 +39,6 @@ echo "Deploying $SERVICE to $REGION from $(pwd)..."
 gcloud run deploy "$SERVICE" \
     --source . \
     --region "$REGION" \
+    --update-env-vars "BASE_PATH=$BASE_PATH" \
     --quiet \
     "$@"

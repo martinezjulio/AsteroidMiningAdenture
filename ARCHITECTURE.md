@@ -225,6 +225,8 @@ Enums:
 
 ## HTTP API
 
+All routes are mounted under `BASE_PATH` (env var, default `/`). Production sets `/ver2_2026_11_05` in `deploy.sh`, so the live game is `https://asteroidadventure.com/ver2_2026_11_05/` and the domain root is not served. The bare prefix without a trailing slash 301-redirects to the slash form with the query string kept, because the client resolves every asset and API URL relative to the page. One prefix per study version; a second version is a separate Cloud Run service with its own prefix, joined under the domain by a load balancer URL map. Routes below are relative to the prefix.
+
 | Route | Purpose | Notes |
 |---|---|---|
 | `GET /` | `index.html` | |

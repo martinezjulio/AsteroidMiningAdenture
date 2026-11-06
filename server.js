@@ -13,6 +13,13 @@ const PORT = process.env.PORT || 8080;
 const isProduction = process.env.NODE_ENV === 'production';
 const host = isProduction ? '0.0.0.0' : 'localhost';
 
+// Everything is mounted under BASE_PATH (default "/"). deploy.sh sets it per study
+// version (e.g. /ver2_2026_11_05) so several versions can share one domain. The
+// client only uses relative URLs, so it needs no change; the one requirement is a
+// trailing slash on the page URL, which the redirect before app.listen guarantees.
+const BASE_PATH = '/' + (process.env.BASE_PATH || '').replace(/^\/+|\/+$/g, '');
+const router = express.Router();
+
 const mongoDBUri = process.env.MONGODB_URI;
 if (!mongoDBUri) {
     console.error('MONGODB_URI env var is required (e.g. mongodb://localhost:27017/AMGDB for local dev)');
@@ -23,9 +30,9 @@ if (!mongoDBUri) {
 app.use(express.json());
 // Only the client bundle and its assets are public. Serving the repo root would expose
 // config.json / configs/*.yaml (the payoff table), server.js and generated timelines.
-app.use('/assets', express.static(path.join(__dirname, 'assets'), { maxAge: '1h' }));
-app.use('/vendor', express.static(path.join(__dirname, 'vendor'), { maxAge: '7d', immutable: true }));
-app.get('/main.js', (req, res) => {
+router.use('/assets', express.static(path.join(__dirname, 'assets'), { maxAge: '1h' }));
+router.use('/vendor', express.static(path.join(__dirname, 'vendor'), { maxAge: '7d', immutable: true }));
+router.get('/main.js', (req, res) => {
     res.sendFile(path.join(__dirname, 'main.js'));
 });
 
@@ -43,7 +50,7 @@ mongoose.connect(mongoDBUri)
     .catch(err => console.error('Could not connect to MongoDB...', err));
 
 // Routes
-app.get('/', (req, res) => {
+router.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
@@ -71,12 +78,12 @@ console.log(
     `${assetManifest.asteroids.length} asteroids`
 );
 
-app.get('/api/asset-manifest', (req, res) => {
+router.get('/api/asset-manifest', (req, res) => {
     res.json(assetManifest);
 });
 
 // Endpoint to get experiment config
-app.get('/api/config', (req, res) => {
+router.get('/api/config', (req, res) => {
     // Compose a demonstrator_config blob from the flat YAML fields. The browser
     // (main.js) consumes priors + payoffs via this object during watch stages.
     const demonstrator_config = {
@@ -154,7 +161,7 @@ cleanupOldBackupFiles();
 setInterval(cleanupOldBackupFiles, 60 * 60 * 1000);
 
 // Endpoint to generate a fresh timeline for each user
-app.get('/api/timeline', (req, res) => {
+router.get('/api/timeline', (req, res) => {
     console.log('🎲 Generating fresh timeline for new user...');
     
     // Add to queue if we're at capacity
@@ -315,7 +322,7 @@ function processTimelineGeneration(req, res) {
 }
 
 // Test endpoint to verify Python setup
-app.get('/api/test-python', (req, res) => {
+router.get('/api/test-python', (req, res) => {
     console.log('🧪 Testing Python setup...');
     
     const pythonCommands = ['python3', 'python', 'py'];
@@ -368,7 +375,7 @@ app.get('/api/test-python', (req, res) => {
 });
 
 // Timeline generation status endpoint for monitoring
-app.get('/api/timeline-status', (req, res) => {
+router.get('/api/timeline-status', (req, res) => {
     res.json({
         active_generations: activeGenerations,
         max_concurrent: MAX_CONCURRENT_GENERATIONS,
@@ -380,7 +387,7 @@ app.get('/api/timeline-status', (req, res) => {
 });
 
 // Health check endpoint
-app.get('/api/health', (req, res) => {
+router.get('/api/health', (req, res) => {
     res.json({
         status: 'healthy',
         timeline_system: {
@@ -398,7 +405,7 @@ app.get('/api/health', (req, res) => {
 // Endpoint to log game data. 503 while MongoDB is down so the client's log queue
 // retries instead of treating it as a permanent failure; 400 for rows the schema
 // rejects (retrying those can't help).
-app.post('/api/log', async (req, res) => {
+router.post('/api/log', async (req, res) => {
     if (mongoose.connection.readyState !== 1) {
         return res.status(503).json({ success: false, error: 'database unavailable' });
     }
@@ -418,7 +425,7 @@ app.post('/api/log', async (req, res) => {
 // It must never modify existing GameLog rows: their refresh_count is the value at log
 // time, and a retroactive $inc here used to stamp 1 onto every row of the final
 // expedition when participants clicked "Return to Prolific".
-app.post('/api/log-refresh', async (req, res) => {
+router.post('/api/log-refresh', async (req, res) => {
     if (mongoose.connection.readyState !== 1) {
         return res.status(503).json({ success: false, error: 'database unavailable' });
     }
@@ -434,7 +441,7 @@ app.post('/api/log-refresh', async (req, res) => {
 
 // Consent decision (agree or decline) from the consent page: one row in the Consent
 // collection, timestamped and keyed by Prolific ID as Prolific's guidance requires.
-app.post('/api/log-consent', async (req, res) => {
+router.post('/api/log-consent', async (req, res) => {
     if (mongoose.connection.readyState !== 1) {
         return res.status(503).json({ success: false, error: 'database unavailable' });
     }
@@ -450,7 +457,7 @@ app.post('/api/log-consent', async (req, res) => {
 
 // Endpoint to get game logs (local debugging only — participant data must not be
 // readable from the public deployment).
-app.get('/api/logs/:prolific_id', async (req, res) => {
+router.get('/api/logs/:prolific_id', async (req, res) => {
     if (isProduction) {
         return res.status(404).end();
     }
@@ -463,6 +470,16 @@ app.get('/api/logs/:prolific_id', async (req, res) => {
     }
 });
 
+if (BASE_PATH !== '/') {
+    // /prefix -> /prefix/ (query string kept). Relative URLs in the page resolve
+    // against the directory, so the bare prefix would 404 every asset and API call.
+    app.get(BASE_PATH, (req, res, next) => {
+        if (req.path.endsWith('/')) return next();
+        res.redirect(301, `${BASE_PATH}/${req.originalUrl.slice(req.path.length)}`);
+    });
+}
+app.use(BASE_PATH, router);
+
 app.listen(PORT, host, () => {
-    console.log(`Server running on http://${host}:${PORT}`);
+    console.log(`Server running on http://${host}:${PORT}${BASE_PATH === '/' ? '' : BASE_PATH + '/'}`);
 }); 
