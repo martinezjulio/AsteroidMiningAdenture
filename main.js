@@ -1457,6 +1457,12 @@ function create() {
   // Space and arrow keys are also browser scroll keys; keep them from scrolling the page.
   const KC = Phaser.Input.Keyboard.KeyCodes;
   this.input.keyboard.addCapture([KC.SPACE, KC.LEFT, KC.RIGHT, KC.UP, KC.DOWN]);
+  // That capture is a keydown listener on `window` that calls preventDefault, which also
+  // swallowed spaces and arrow keys typed in the feedback box. Keys pressed there are not
+  // game input, so stop them at the textarea before they bubble up to Phaser.
+  const feedbackInput = document.getElementById('feedback-text-input');
+  feedbackInput.addEventListener('keydown', (e) => e.stopPropagation());
+  feedbackInput.addEventListener('keyup', (e) => e.stopPropagation());
 
   // Device-resolution rendering: see GAME_W/GAME_H/DPR above.
   this.cameras.main.setZoom(DPR).centerOn(GAME_W / 2, GAME_H / 2);
