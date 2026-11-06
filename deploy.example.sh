@@ -19,9 +19,12 @@
 #   printf '%s' 'mongodb+srv://USER:PASSWORD@CLUSTER.mongodb.net/AMGDB?...' \
 #       | gcloud secrets create MONGODB_URI --data-file=- --replication-policy=automatic
 #   gcloud run deploy <SERVICE> --source . --region <REGION> \
-#       --allow-unauthenticated --memory 1Gi --cpu 1 --concurrency 8 \
-#       --timeout 60 --min-instances 0 --max-instances 4 \
+#       --allow-unauthenticated --memory 1Gi --cpu 1 --concurrency 80 \
+#       --timeout 60 --min-instances 1 --max-instances 4 \
 #       --set-secrets MONGODB_URI=MONGODB_URI:latest
+#   --concurrency 80 is the Cloud Run default; the Python generator is already capped
+#   at 4 processes by server.js. --min-instances 1 keeps one warm instance during a
+#   study (a few cents an hour idle); set it back to 0 between studies.
 
 set -euo pipefail
 
